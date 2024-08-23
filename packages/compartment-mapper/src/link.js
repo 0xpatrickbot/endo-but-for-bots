@@ -70,6 +70,10 @@ const has = (object, key) => apply(hasOwnProperty, object, [key]);
 // q, as in quote, for strings in error messages.
 const { quote: q } = assert;
 
+// cf. section 3.1 of RFC 3986 URI Scheme Generic Syntax
+// https://www.rfc-editor.org/rfc/rfc3986#section-3.1
+const urlish = /^[a-z][a-z0-9+\-.]*:/;
+
 /**
  * For a full, absolute module specifier like "dependency",
  * produce the module specifier in the dependency, like ".".
@@ -105,6 +109,7 @@ const trimModuleSpecifierPrefix = (moduleSpecifier, prefix) => {
  * @param {FileUrlString} compartmentName
  * @param {Record<string, FileModuleConfiguration|CompartmentModuleConfiguration>} moduleDescriptors
  * @param {Record<string, ScopeDescriptor<FileUrlString>>} scopeDescriptors
+ * @param {boolean} archiveOnly
  * @returns {ModuleMapHook | undefined}
  */
 const makeModuleMapHook = (
@@ -113,6 +118,7 @@ const makeModuleMapHook = (
   compartmentName,
   moduleDescriptors,
   scopeDescriptors,
+  archiveOnly,
 ) => {
   // Build pattern matcher once per compartment if patterns exist.
   const { patterns } = /** @type {Partial<PackageCompartmentDescriptor>} */ (
@@ -127,6 +133,23 @@ const makeModuleMapHook = (
    */
   const moduleMapHook = moduleSpecifier => {
     compartmentDescriptor.retained = true;
+
+    if (archiveOnly && urlish.test(moduleSpecifier)) {
+      // When creating an archive of an application that imports a platform
+      // module like node:fs, we implicitly expect these to be provided by the
+      // host's importHook on the target platform.
+      return {
+        source: {
+          imports: [],
+          exports: [],
+          execute() {
+            throw new Error(
+              'Cannot import an application loaded strictly for analysis',
+            );
+          },
+        },
+      };
+    }
 
     const moduleDescriptor = moduleDescriptors[moduleSpecifier];
     if (moduleDescriptor !== undefined) {
@@ -439,6 +462,7 @@ export const link = (
       compartmentName,
       modules,
       scopes,
+      archiveOnly,
     );
 
     const compartment = new Compartment({
