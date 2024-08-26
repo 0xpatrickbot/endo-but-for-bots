@@ -14,6 +14,7 @@
  * @import {
  *   ImportHook,
  *   ImportNowHook,
+ *   ModuleDescriptor,
  *   RedirectStaticModuleInterface,
  *   StaticModuleType,
  *   VirtualModuleSource
@@ -804,7 +805,7 @@ export function makeImportNowHookMaker(
      * If it doesn't exist, then throw an exception.
      * @param {string} moduleSpecifier
      * @param {CompartmentDescriptor} compartmentDescriptor
-     * @returns {VirtualModuleSource}
+     * @returns {ModuleDescriptor}
      */
     const importExitModuleOrFail = (moduleSpecifier, compartmentDescriptor) => {
       if (exitModuleImportNowHook) {
