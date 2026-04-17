@@ -5147,6 +5147,7 @@ const makeDaemonCore = async (
     getAllNetworkAddresses,
     getTypeForId,
     getFormulaForId,
+    statePath: persistencePowers.statePath,
     formulateChannel,
     formulateTimer,
     makeMailbox,
