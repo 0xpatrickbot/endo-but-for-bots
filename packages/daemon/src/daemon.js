@@ -2450,6 +2450,7 @@ const makeDaemonCore = async (
       }
       /** @param {object} mount */
       const snapshotFn = async mount => {
+        /** @type {import('./types.js').DeferredTasks<import('./types.js').ReadableTreeDeferredTaskParams>} */
         const deferredTasks = makeDeferredTasks();
         const { value } = await checkinTree(mount, deferredTasks);
         return value;
@@ -2470,6 +2471,7 @@ const makeDaemonCore = async (
       await filePowers.makePath(rootPath);
       /** @param {object} mount */
       const snapshotFn = async mount => {
+        /** @type {import('./types.js').DeferredTasks<import('./types.js').ReadableTreeDeferredTaskParams>} */
         const deferredTasks = makeDeferredTasks();
         const { value } = await checkinTree(mount, deferredTasks);
         return value;
