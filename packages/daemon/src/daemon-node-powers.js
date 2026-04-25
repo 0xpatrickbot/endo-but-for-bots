@@ -478,6 +478,10 @@ export const makeDaemonicControlPowers = (
    * @param {CapTpConnectionRegistrar} [capTpConnectionRegistrar]
    * @param {string[]} [trustedShims]
    * @param {string} [label]
+   * @param {'locked' | 'node'} [kind]
+   *   Worker kind. Currently unused by the Node powers implementation,
+   *   but accepted to keep the positional arity aligned with the type
+   *   in `types.d.ts` so `marshalLoadError` lands in the correct slot.
    * @param {(err: Error, errorId?: string) => void} [marshalLoadError]
    *   Forwarded to the worker connection's CapTP. Called for every error
    *   the daemon decodes from this worker, with the wire-level errorId
@@ -492,6 +496,8 @@ export const makeDaemonicControlPowers = (
     capTpConnectionRegistrar = undefined,
     trustedShims = undefined,
     label = '<untitled>',
+    // eslint-disable-next-line no-unused-vars
+    kind = undefined,
     marshalLoadError = undefined,
   ) => {
     const { statePath, ephemeralStatePath } = config;
