@@ -1,4 +1,4 @@
-import { assert } from '@endo/errors';
+import assert from 'node:assert';
 import test from '@endo/ses-ava/prepare-endo.js';
 
 import { makeTraceAggregator } from '../src/trace-aggregator.js';
