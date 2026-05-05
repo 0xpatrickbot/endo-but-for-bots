@@ -1,11 +1,11 @@
 /* global process */
 
+import assert from 'node:assert';
 import os from 'os';
 import path from 'path';
 import test from 'ava';
 import url from 'url';
 import { $ } from 'execa';
-import { assert } from '@endo/errors';
 
 const dirname = url.fileURLToPath(new URL('.', import.meta.url)).toString();
 
