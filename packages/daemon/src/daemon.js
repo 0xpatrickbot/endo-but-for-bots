@@ -1294,11 +1294,20 @@ const makeDaemonCore = async (
          * authoritative workerId from the connection identity so a
          * worker cannot forge entries under another worker's id.
          *
-         * @param {import('./trace-aggregator.js').TraceRecord} record
+         * The guard accepts any record; `traceAggregator.record`
+         * performs structural validation and rejects malformed
+         * payloads, so the cast at the boundary is safe.
+         *
+         * @param {Record<string, any>} record
          */
         reportTrace: async record => {
           try {
-            traceAggregator.record(workerId512, record);
+            traceAggregator.record(
+              workerId512,
+              /** @type {import('./trace-aggregator.js').TraceRecord} */ (
+                record
+              ),
+            );
           } catch (err) {
             // Never let a malformed worker push interfere with the
             // worker's progress. Log and drop.
