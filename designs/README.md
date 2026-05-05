@@ -162,6 +162,7 @@ LLM-agent stack).*
 | [familiar-localhttp-protocol](familiar-localhttp-protocol.md) | 2026-02-24 | 2026-02-25 | In Progress (partially implemented) |
 | [familiar-unified-weblet-server](familiar-unified-weblet-server.md) | 2026-02-14 | 2026-05-06 | In Progress |
 | [formula-inspector](formula-inspector.md) | 2026-02-14 | 2026-02-24 | Not Started |
+| [genie-integration](genie-integration.md) | 2026-05-02 | 2026-05-02 | Proposed |
 | [gateway-bearer-token-auth](gateway-bearer-token-auth.md) | 2026-03-02 | 2026-03-06 | **Implemented** |
 | [hardened-text-codecs-shim](hardened-text-codecs-shim.md) | 2026-05-04 | 2026-05-04 | Not Started |
 | [hardened-url-shim](hardened-url-shim.md) | 2026-05-04 | 2026-05-04 | Not Started |
@@ -197,7 +198,7 @@ LLM-agent stack).*
 | [namehub-interface-unification](namehub-interface-unification.md) | 2026-05-07 | 2026-05-07 | Proposed |
 | [forge-gap-analysis](forge-gap-analysis.md) | 2026-05-20 | 2026-05-20 | Reference (exploratory) |
 
-**Totals:** 39 Complete/Implemented, 18 In Progress, 36 Not Started, 20 Proposed, 2 Active, 7 Reference, 2 Deprecated, 1 Superseded (125 designs). Refreshed 2026-05-19 by a status-only sweep (consolidating the 2026-05-18 sweep with the 2026-05-19 batch update for 11 additional designs from closed PR #302) plus the patterns-diagnostic-feedback and ocapn-noise-session-reconnect Proposed entries; the 12-design jump in Complete/Implemented over the 2026-05-08 snapshot reflects shipped work whose Status field had not previously been updated, not new completions in this pass; see the corresponding "## Status" sections in each design file for evidence pointers (commit SHA or PR number). Totals reflect the 16 design files added on `llm` since the sweep's branch point (the endopi raft of `endopi` + 8 `endopi-*` gap-closing designs, `hardened-text-codecs-shim`, `hardened-url-shim`, namehub-interface-unification (Proposed) added by PR #117 on rebase, forge-gap-analysis (Reference) added 2026-05-20, and the daemon mount and git capability trio: `daemon-mount-capabilities` + `daemon-git-capability` + `daemon-git-remotes`).
+**Totals:** 39 Complete/Implemented, 18 In Progress, 36 Not Started, 21 Proposed, 2 Active, 7 Reference, 2 Deprecated, 1 Superseded (126 designs). Refreshed 2026-05-19 by a status-only sweep (consolidating the 2026-05-18 sweep with the 2026-05-19 batch update for 11 additional designs from closed PR #302) plus the patterns-diagnostic-feedback and ocapn-noise-session-reconnect Proposed entries; the 12-design jump in Complete/Implemented over the 2026-05-08 snapshot reflects shipped work whose Status field had not previously been updated, not new completions in this pass; see the corresponding "## Status" sections in each design file for evidence pointers (commit SHA or PR number). Totals reflect the 17 design files added on `llm` since the sweep's branch point (the endopi raft of `endopi` + 8 `endopi-*` gap-closing designs, `hardened-text-codecs-shim`, `hardened-url-shim`, namehub-interface-unification (Proposed) added by PR #117 on rebase, forge-gap-analysis (Reference) added 2026-05-20, the daemon mount and git capability trio: `daemon-mount-capabilities` + `daemon-git-capability` + `daemon-git-remotes`, and genie-integration (Proposed, off-roadmap evaluation) rebased in via this branch).
 
 ## Roadmap
 
@@ -581,6 +582,17 @@ Worker-authored TUI regions compose into the same layout.
 
 **Estimated duration (1 dev):** 10-14 weeks (research-heavy; Rust port
 includes codec, mailbox, supervisor, and terminal rendering substrates)
+
+---
+
+#### Off-roadmap evaluations
+
+These designs evaluate alternatives or capture decisions but are not
+themselves milestone deliverables.
+
+| Design | Status | Notes |
+|--------|--------|-------|
+| genie-integration | Proposed | Cross-cutting survey of `packages/genie` for opportunities to fold pi engine, memory, and scheduling into the daemon and share with `lal`/`fae`. Six-phase rollout sketch; estimates per phase rather than as one milestone item. Builds on `endoclaw-timer` (M1) and `daemon-mount` (M1). |
 
 ---
 
