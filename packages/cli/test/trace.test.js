@@ -5,6 +5,7 @@ import path from 'path';
 import test from 'ava';
 import url from 'url';
 import { $ } from 'execa';
+import { assert } from '@endo/errors';
 
 const dirname = url.fileURLToPath(new URL('.', import.meta.url)).toString();
 
@@ -59,7 +60,7 @@ test.serial(
       t.true(Array.isArray(list));
       t.true(Array.isArray(list) && list.length >= 1);
       const found = list.find(r => /trace-cli-boom/.test(r.message));
-      t.truthy(
+      assert(
         found,
         `expected a record matching 'trace-cli-boom' in ${result.stdout}`,
       );
@@ -79,8 +80,8 @@ test.serial(
     await execa`endo purge -f`;
     await execa`endo start`;
     try {
-      const error = await t.throwsAsync(
-        execa`endo trace ${'error:does-not-exist#1'}`,
+      const error = /** @type {Error & { stderr: string }} */ (
+        await t.throwsAsync(execa`endo trace ${'error:does-not-exist#1'}`)
       );
       t.regex(error.stderr, /No trace recorded for/);
     } finally {

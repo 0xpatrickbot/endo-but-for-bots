@@ -1,17 +1,24 @@
+import { assert } from '@endo/errors';
 import test from '@endo/ses-ava/prepare-endo.js';
 
 import { makeTraceAggregator } from '../src/trace-aggregator.js';
 
+/** @import { TraceRecord, TraceCauseRef } from '../src/trace-aggregator.js' */
+
+/**
+ * @param {Partial<TraceRecord> & { errorId: string }} overrides
+ * @returns {TraceRecord}
+ */
 const baseRecord = ({
   errorId,
   workerId = 'w1',
   message = 'boom',
   name = 'Error',
-  causes = [],
+  causes = /** @type {TraceCauseRef[]} */ ([]),
   site = 'marshal',
   t = 0,
   stack = 'at line 1',
-  annotations = [],
+  annotations = /** @type {string[]} */ ([]),
 }) => ({
   errorId,
   workerId,
@@ -28,7 +35,7 @@ test('record / lookup roundtrip', t => {
   const agg = makeTraceAggregator();
   agg.record('w1', baseRecord({ errorId: 'error:Endo#1', t: 1 }));
   const report = agg.lookup('error:Endo#1');
-  t.truthy(report);
+  assert(report);
   t.is(report.errorId, 'error:Endo#1');
   t.is(report.workerId, 'w1');
   t.is(report.message, 'boom');
@@ -43,6 +50,7 @@ test('record overwrites caller-supplied workerId with connection identity', t =>
     baseRecord({ errorId: 'error:Endo#1', workerId: 'w-forged' }),
   );
   const report = agg.lookup('error:Endo#1');
+  assert(report);
   t.is(report.workerId, 'w-connection');
 });
 
@@ -55,7 +63,7 @@ test('alias makes a daemon-side errorId resolve to the worker record', t => {
     aliasErrorId: 'error:captp:CLI#5',
   });
   const report = agg.lookup('error:captp:CLI#5');
-  t.truthy(report);
+  assert(report);
   t.is(report.message, 'inner');
   t.is(report.workerId, 'w1');
 });
@@ -120,6 +128,7 @@ test('lookup includes related entries from the same worker', t => {
     }),
   );
   const report = agg.lookup('outer');
+  assert(report);
   t.is(report.causes.length, 1);
   t.is(report.causes[0].errorId, 'inner');
   // related includes the cause as well as adjacent entries.
@@ -136,6 +145,7 @@ test('lookup marks partial when a cause is missing', t => {
     }),
   );
   const report = agg.lookup('outer');
+  assert(report);
   t.is(report.partial, true);
   t.is(report.causes[0].errorId, 'gone');
   t.is(report.causes[0].partial, true);
@@ -205,7 +215,7 @@ test('aliasByErrorId scans workers and registers an alias', t => {
   agg.record('w7', baseRecord({ errorId: 'inner', message: 'inner-msg' }));
   agg.aliasByErrorId('inner', 'cli:99');
   const report = agg.lookup('cli:99');
-  t.truthy(report);
+  assert(report);
   t.is(report.workerId, 'w7');
   t.is(report.message, 'inner-msg');
 });
@@ -215,7 +225,9 @@ test('aliasByErrorId follows existing aliases', t => {
   agg.record('w1', baseRecord({ errorId: 'inner' }));
   agg.alias({ workerId: 'w1', errorId: 'inner', aliasErrorId: 'mid' });
   agg.aliasByErrorId('mid', 'outer');
-  t.is(agg.lookup('outer').workerId, 'w1');
+  const report = agg.lookup('outer');
+  assert(report);
+  t.is(report.workerId, 'w1');
 });
 
 test('two workers may record under the same errorId without colliding', t => {
@@ -243,6 +255,8 @@ test('two workers may record under the same errorId without colliding', t => {
   });
   const r1 = agg.lookup('cli:1');
   const r2 = agg.lookup('cli:2');
+  assert(r1);
+  assert(r2);
   t.is(r1.message, 'from-w1');
   t.is(r2.message, 'from-w2');
 });
