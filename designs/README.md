@@ -1,6 +1,6 @@
 # Endo Design Documents
 
-*Last updated: 2026-05-05*
+*Last updated: 2026-05-06*
 
 *See also: [daemon-make-archive](daemon-make-archive.md) (added 2026-04-23).*
 
@@ -101,10 +101,11 @@
 | [endor-bus-tui](endor-bus-tui.md) | 2026-04-23 | 2026-04-23 | Not Started |
 | [endor-tui](endor-tui.md) | 2026-04-23 | 2026-04-23 | Not Started |
 | [hex-package](hex-package.md) | 2026-04-23 | 2026-04-23 | Not Started |
+| [compartment-mapper-auxiliary-package-json](compartment-mapper-auxiliary-package-json.md) | 2026-05-06 | 2026-05-06 | Not Started |
 | [weblet-next](weblet-next.md) | 2026-03-24 | 2026-03-24 | Reference |
 | [workers-panel](workers-panel.md) | 2026-02-14 | 2026-02-24 | Not Started |
 
-**Totals:** 24 Complete/Implemented, 14 In Progress, 45 Not Started, 2 Proposed, 3 Active, 2 Reference, 2 Deprecated, 1 Draft (93 designs)
+**Totals:** 24 Complete/Implemented, 14 In Progress, 46 Not Started, 2 Proposed, 3 Active, 2 Reference, 2 Deprecated, 1 Draft (94 designs)
 
 ## Roadmap
 
@@ -285,6 +286,7 @@ capabilities available to agents.
 | chat-playwright-smoke | Not Started | Add a build-and-load smoke for the Chat bundle to the existing `browser-tests` job |
 | base64-native-fallthrough | Not Started | `@endo/base64` dispatches to `Uint8Array.fromBase64` / `toBase64` when available |
 | hex-package | Not Started | New `@endo/hex` ponyfill with native fallthrough; audit and migrate scattered hex sites |
+| compartment-mapper-auxiliary-package-json | Not Started | Treat `name`-less `package.json` files as language-for-extension overrides on the enclosing named compartment; extract the package.json cache as a sibling module; new opt-in `mapNodeModulesWithAuxiliaryDescriptors` lane that preserves `mapNodeModules`'s contract |
 
 **Exit criterion:** Someone can self-host a daemon with our Docker image
 and remote control it, by whatever means, using a local Familiar or a
@@ -496,6 +498,7 @@ Recalibrated on 2026-03-02 using observed velocity from 15 active work days
 | chat-playwright-smoke | S | 1 day | 1 | New `browser-test/tests/chat.spec.js`, serve `packages/chat/dist`, assert "Gateway not configured" + zero pageerrors |
 | base64-native-fallthrough | S | 1 day | 1 | Detect `Uint8Array.fromBase64`, dispatch, dual-path tests |
 | hex-package | S-M | 2-3 days | 1 | New `@endo/hex` package, migrate `daemon/src/hex.js`, `relay-server/src/protocol.js`, OCapN hex sites |
+| compartment-mapper-auxiliary-package-json | M | 3-5 days | 1 | Extract package.json cache into a sibling module; add `mapNodeModulesWithAuxiliaryDescriptors` lane that treats `name`-less `package.json` files as language-for-extension overrides on the enclosing named compartment |
 | ocapn-network-transport-separation | M-L | 1-1.5 weeks | 2 | Architectural refactor |
 | ocapn-tcp-for-test-extraction | S-M | 2-3 days | 2 | Code relocation |
 | ocapn-tcp-syrup-framing | S-M | 2-3 days | 2 | `@endo/syrup-frame` package, new `tcp+syrup-frame` netlayer, fix chunk-boundary bug in `tcp-test-only` |
@@ -540,13 +543,13 @@ Recalibrated on 2026-03-02 using observed velocity from 15 active work days
 | Milestone | Items | Total Estimate (1 dev, serial) |
 |-----------|-------|-------------------------------|
 | M0: AI Agent Experience | 0 remaining | **Complete** |
-| M1: Remote Access & Tools | 15 remaining | 7-8 weeks |
+| M1: Remote Access & Tools | 16 remaining | 7-9 weeks |
 | M2: Networking | 8 | 3-4 weeks |
 | M3: Weblets & Integrations | 8 | 4-6 weeks |
 | M4: UX & Tooling | 11 | 7-9 weeks |
 | M5: Confinement & Ecosystem | 6 | 8-12 weeks |
 | M6: Rust Daemon (`endor`) | 2 | 10-14 weeks |
-| **Total remaining** | **50** | **~39-53 weeks** |
+| **Total remaining** | **51** | **~39-54 weeks** |
 
 ### Timeline
 
