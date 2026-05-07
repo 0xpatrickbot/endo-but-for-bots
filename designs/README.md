@@ -69,7 +69,7 @@ reconnect).*
 | [chat-slot-slash-commands](chat-slot-slash-commands.md) | 2026-04-23 | 2026-05-06 | Proposed |
 | [chat-view-edit-commands](chat-view-edit-commands.md) | 2026-03-21 | 2026-05-19 | **Complete** |
 | [chat-edit-message-ui](chat-edit-message-ui.md) | 2026-05-05 | 2026-05-05 | Not Started |
-| [chat-voice-command-parser](chat-voice-command-parser.md) | 2026-05-06 | 2026-05-06 | Not Started |
+| [chat-voice-command-parser](chat-voice-command-parser.md) | 2026-05-06 | 2026-05-07 | Not Started |
 | [chat-reply-chain-visualization](chat-reply-chain-visualization.md) | 2026-02-23 | 2026-02-28 | Deprecated |
 | [chat-spaces-home](chat-spaces-home.md) | 2026-03-02 | 2026-03-02 | **Complete** |
 | [chat-spaces-gutter](chat-spaces-gutter.md) | 2026-02-21 | 2026-02-26 | **Complete** |
