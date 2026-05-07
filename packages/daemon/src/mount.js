@@ -8,7 +8,7 @@ import { makeExo } from '@endo/exo';
 
 import { mountHelp, mountFileHelp, makeHelp } from './help-text.js';
 import { MountInterface, MountFileInterface } from './interfaces.js';
-import { makeIteratorRef } from './reader-ref.js';
+import { makeReaderRef } from './reader-ref.js';
 
 /**
  * Validate a single path segment.
@@ -381,7 +381,7 @@ const makeMountFileExo = (filePath, readOnly, filePowers, confinementRoot) => {
 
     streamBase64() {
       const reader = filePowers.makeFileReader(filePath);
-      return makeIteratorRef(reader);
+      return makeReaderRef(reader);
     },
 
     async json() {
