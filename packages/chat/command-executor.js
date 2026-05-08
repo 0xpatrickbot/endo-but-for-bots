@@ -126,8 +126,10 @@ export const createCommandExecutor = ({
                 `No formula ID for edge "${edgeName}" in channel message #${messageNumber}`,
               );
             }
-            // Write the formula ID into the user's pet store
-            await E(powers).storeLocator(targetNamePath, formulaId);
+            // Write the formula ID into the user's pet store.
+            // E(agent).identify(...) returns a bare formula id, so use
+            // storeIdentifier rather than storeLocator (which requires endo://).
+            await E(powers).storeIdentifier(targetNamePath, formulaId);
             return { success: true, message: `Adopted as "${targetNameStr}"` };
           }
 

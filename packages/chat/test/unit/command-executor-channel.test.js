@@ -42,12 +42,12 @@ const createMockContext = () => {
         args: [number, strings, edgeNames, petNames],
       });
     },
-    storeLocator: async (
+    storeIdentifier: async (
       /** @type {string[]} */ targetNamePath,
       /** @type {string} */ formulaId,
     ) => {
       calls.push({
-        method: 'storeLocator',
+        method: 'storeIdentifier',
         args: [targetNamePath, formulaId],
       });
     },
@@ -218,8 +218,8 @@ test('adopt in channel mode writes formula ID from channel message', async t => 
   t.true(result.success);
   t.is(result.message, 'Adopted as "saved-file"');
 
-  // Should call powers.storeLocator with the formula ID, not powers.adopt
-  const writeCall = ctx.calls.find(c => c.method === 'storeLocator');
+  // Should call powers.storeIdentifier with the formula ID, not powers.adopt
+  const writeCall = ctx.calls.find(c => c.method === 'storeIdentifier');
   t.truthy(writeCall);
   t.deepEqual(writeCall?.args, [['saved-file'], 'formula:abc123']);
 
@@ -254,7 +254,7 @@ test('adopt in channel mode uses edge name as default pet name', async t => {
   t.true(result.success);
   t.is(result.message, 'Adopted as "data-file"');
 
-  const writeCall = ctx.calls.find(c => c.method === 'storeLocator');
+  const writeCall = ctx.calls.find(c => c.method === 'storeIdentifier');
   t.deepEqual(writeCall?.args, [['data-file'], 'formula:def456']);
 });
 
@@ -283,7 +283,7 @@ test('adopt in channel mode supports edgeNames field name', async t => {
   });
 
   t.true(result.success);
-  const writeCall = ctx.calls.find(c => c.method === 'storeLocator');
+  const writeCall = ctx.calls.find(c => c.method === 'storeIdentifier');
   t.deepEqual(writeCall?.args, [['my-copy'], 'formula:ghi789']);
 });
 
@@ -379,7 +379,7 @@ test('adopt in channel mode with slash-path pet name', async t => {
   });
 
   t.true(result.success);
-  const writeCall = ctx.calls.find(c => c.method === 'storeLocator');
+  const writeCall = ctx.calls.find(c => c.method === 'storeIdentifier');
   t.deepEqual(writeCall?.args, [['my', 'docs', 'file'], 'formula:doc1']);
 });
 
@@ -836,6 +836,6 @@ test('adopt in channel mode picks the correct edge from multiple', async t => {
   });
 
   t.true(result.success);
-  const writeCall = ctx.calls.find(c => c.method === 'storeLocator');
+  const writeCall = ctx.calls.find(c => c.method === 'storeIdentifier');
   t.deepEqual(writeCall?.args, [['my-b'], 'id:bbb']);
 });
