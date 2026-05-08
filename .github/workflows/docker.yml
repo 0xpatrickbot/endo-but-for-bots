@@ -45,6 +45,17 @@ jobs:
         working-directory: docker
         run: docker compose config
 
+      - name: Prepare .yarn directory
+        # The Dockerfile has `COPY .yarn .yarn` so that builds run
+        # against a populated workspace (yarn releases, plugins,
+        # patches, sdks, versions).
+        # A fresh checkout has no `.yarn/` because every entry under
+        # it is gitignored except for those subtrees, none of which
+        # are tracked here.
+        # Create an empty `.yarn` so the COPY succeeds; corepack
+        # inside the image fetches the yarn binary on first run.
+        run: mkdir -p .yarn
+
       - name: Build image
         # Build context is the repository root because the
         # Dockerfile copies package.json, yarn.lock, .yarnrc.yml,
@@ -53,13 +64,17 @@ jobs:
 
       - name: Smoke-test the container
         # Start the container in the background, wait for the
-        # gateway to bind, then issue an HTTP request. The default
-        # gateway response (no static dir) is the literal string
-        # `Endo Gateway`; assert that the body matches.
+        # gateway to bind, then exercise it from the runner (which
+        # is outside the container's network namespace).
         #
-        # ENDO_GATEWAY_REMOTE=1 is needed because the request
-        # arrives from the Docker bridge address, not 127.0.0.1
-        # inside the container.
+        # The container publishes 8920 on the host loopback via
+        # `-p 8920:8920`; the runner's `curl` reaches the daemon
+        # over the bridge, which is the same path a real client
+        # would take.
+        #
+        # ENDO_GATEWAY_REMOTE=1 is required because requests from
+        # the bridge appear with a non-loopback source address; the
+        # daemon's CIDR gate would otherwise reject them.
         run: |
           set -eu
           docker run --rm -d \
@@ -67,7 +82,8 @@ jobs:
             -p 8920:8920 \
             -e ENDO_GATEWAY_REMOTE=1 \
             endo-selfhost:ci
-          # Always tear down, even on failure.
+          # Always tear down, even on failure, and dump container
+          # logs so a smoke-test failure is diagnosable.
           trap 'docker logs endo-smoke || true; docker rm -f endo-smoke || true' EXIT
 
           # Wait up to 60s for the gateway to answer.
@@ -79,9 +95,44 @@ jobs:
           done
 
           # Assert the body matches the default gateway response.
+          # This proves the entrypoint started node, the daemon
+          # bound the configured address, and the CIDR gate let the
+          # bridged request through.
           if ! grep -Fxq 'Endo Gateway' /tmp/body; then
             echo "Unexpected gateway response:" >&2
             cat /tmp/body >&2 || true
             exit 1
           fi
-          echo "Gateway responded as expected."
+          echo "HTTP gateway responded as expected."
+
+          # Exercise the WebSocket upgrade path from outside the
+          # container. A 101 Switching Protocols response confirms
+          # the WebSocketServer is attached to the same HTTP server
+          # and that the CIDR gate allows the upgrade as well.
+          # `curl` cannot speak WebSocket frames, so the connection
+          # will hang after the 101; bound it with -m 5 so the step
+          # always returns.
+          ws_status=$(curl -sS -m 5 -o /tmp/ws_body -w '%{http_code}' \
+            -H 'Connection: Upgrade' \
+            -H 'Upgrade: websocket' \
+            -H 'Sec-WebSocket-Version: 13' \
+            -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+            http://127.0.0.1:8920/ || true)
+          if [ "${ws_status}" != "101" ]; then
+            echo "WebSocket upgrade failed: HTTP ${ws_status}" >&2
+            cat /tmp/ws_body >&2 || true
+            exit 1
+          fi
+          echo "WebSocket upgrade succeeded."
+
+          # Verify the container is still running, which catches
+          # crashes triggered by the outside requests.
+          # `docker-entrypoint.sh` execs `node ... daemon-node.js`
+          # as PID 1, so a crashed daemon means an exited
+          # container.
+          state=$(docker inspect -f '{{.State.Status}}' endo-smoke)
+          if [ "${state}" != "running" ]; then
+            echo "Container is not running after smoke test: ${state}" >&2
+            exit 1
+          fi
+          echo "Container still running after smoke test."
