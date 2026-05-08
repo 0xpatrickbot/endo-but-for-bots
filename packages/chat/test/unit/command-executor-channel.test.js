@@ -42,13 +42,13 @@ const createMockContext = () => {
         args: [number, strings, edgeNames, petNames],
       });
     },
-    storeIdentifier: async (
+    storeLocator: async (
       /** @type {string[]} */ targetNamePath,
-      /** @type {string} */ formulaId,
+      /** @type {string} */ locator,
     ) => {
       calls.push({
-        method: 'storeIdentifier',
-        args: [targetNamePath, formulaId],
+        method: 'storeLocator',
+        args: [targetNamePath, locator],
       });
     },
     identify: async (/** @type {string} */ ...path) => {
@@ -197,7 +197,7 @@ test('adopt in channel mode writes formula ID from channel message', async t => 
     {
       number: 5n,
       names: ['my-attachment'],
-      ids: ['formula:abc123'],
+      ids: ['endo://abc123'],
     },
   ]);
 
@@ -218,10 +218,10 @@ test('adopt in channel mode writes formula ID from channel message', async t => 
   t.true(result.success);
   t.is(result.message, 'Adopted as "saved-file"');
 
-  // Should call powers.storeIdentifier with the formula ID, not powers.adopt
-  const writeCall = ctx.calls.find(c => c.method === 'storeIdentifier');
+  // Should call powers.storeLocator with the endo:// locator, not powers.adopt
+  const writeCall = ctx.calls.find(c => c.method === 'storeLocator');
   t.truthy(writeCall);
-  t.deepEqual(writeCall?.args, [['saved-file'], 'formula:abc123']);
+  t.deepEqual(writeCall?.args, [['saved-file'], 'endo://abc123']);
 
   // Should NOT call powers.adopt (inbox-mode path)
   const adoptCall = ctx.calls.find(c => c.method === 'adopt');
@@ -234,7 +234,7 @@ test('adopt in channel mode uses edge name as default pet name', async t => {
     {
       number: 3n,
       names: ['data-file'],
-      ids: ['formula:def456'],
+      ids: ['endo://def456'],
     },
   ]);
 
@@ -254,8 +254,8 @@ test('adopt in channel mode uses edge name as default pet name', async t => {
   t.true(result.success);
   t.is(result.message, 'Adopted as "data-file"');
 
-  const writeCall = ctx.calls.find(c => c.method === 'storeIdentifier');
-  t.deepEqual(writeCall?.args, [['data-file'], 'formula:def456']);
+  const writeCall = ctx.calls.find(c => c.method === 'storeLocator');
+  t.deepEqual(writeCall?.args, [['data-file'], 'endo://def456']);
 });
 
 test('adopt in channel mode supports edgeNames field name', async t => {
@@ -264,7 +264,7 @@ test('adopt in channel mode supports edgeNames field name', async t => {
     {
       number: 7n,
       edgeNames: ['alt-attachment'],
-      ids: ['formula:ghi789'],
+      ids: ['endo://ghi789'],
     },
   ]);
 
@@ -283,8 +283,8 @@ test('adopt in channel mode supports edgeNames field name', async t => {
   });
 
   t.true(result.success);
-  const writeCall = ctx.calls.find(c => c.method === 'storeIdentifier');
-  t.deepEqual(writeCall?.args, [['my-copy'], 'formula:ghi789']);
+  const writeCall = ctx.calls.find(c => c.method === 'storeLocator');
+  t.deepEqual(writeCall?.args, [['my-copy'], 'endo://ghi789']);
 });
 
 test('adopt in channel mode fails when message not found', async t => {
@@ -355,13 +355,13 @@ test('adopt in channel mode fails when formula ID is missing', async t => {
   });
 
   t.false(result.success);
-  t.true(result.error?.message.includes('No formula ID'));
+  t.true(result.error?.message.includes('No locator'));
 });
 
 test('adopt in channel mode with slash-path pet name', async t => {
   const ctx = createMockContext();
   const { channelRef } = createMockChannelRef([
-    { number: 2n, names: ['doc'], ids: ['formula:doc1'] },
+    { number: 2n, names: ['doc'], ids: ['endo://doc1'] },
   ]);
 
   const executor = createCommandExecutor({
@@ -379,8 +379,8 @@ test('adopt in channel mode with slash-path pet name', async t => {
   });
 
   t.true(result.success);
-  const writeCall = ctx.calls.find(c => c.method === 'storeIdentifier');
-  t.deepEqual(writeCall?.args, [['my', 'docs', 'file'], 'formula:doc1']);
+  const writeCall = ctx.calls.find(c => c.method === 'storeLocator');
+  t.deepEqual(writeCall?.args, [['my', 'docs', 'file'], 'endo://doc1']);
 });
 
 test('adopt with getChannelRef returning null falls back to inbox mode', async t => {
@@ -817,7 +817,7 @@ test('adopt in channel mode picks the correct edge from multiple', async t => {
     {
       number: 10n,
       names: ['file-a', 'file-b', 'file-c'],
-      ids: ['id:aaa', 'id:bbb', 'id:ccc'],
+      ids: ['endo://aaa', 'endo://bbb', 'endo://ccc'],
     },
   ]);
 
@@ -836,6 +836,6 @@ test('adopt in channel mode picks the correct edge from multiple', async t => {
   });
 
   t.true(result.success);
-  const writeCall = ctx.calls.find(c => c.method === 'storeIdentifier');
-  t.deepEqual(writeCall?.args, [['my-b'], 'id:bbb']);
+  const writeCall = ctx.calls.find(c => c.method === 'storeLocator');
+  t.deepEqual(writeCall?.args, [['my-b'], 'endo://bbb']);
 });

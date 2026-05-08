@@ -405,17 +405,19 @@ export const sendFormComponent = ({
         return s;
       });
 
-      // Resolve pet names to formula IDs so channel messages carry references
-      // that other members can adopt.
+      // Resolve pet names to endo:// locators so channel messages carry
+      // references that other members can adopt.  Per issue #150 reply,
+      // prefer locate()/storeLocator over identify()/storeIdentifier so the
+      // system can drop bare-identifier support in the future.
       const resolveIds =
         petNames.length > 0
           ? Promise.all(
               petNames.map(async petName => {
                 const petPath = petName.split('/');
-                const id = await E(powers).identify(
+                const locator = await E(powers).locate(
                   .../** @type {[string, ...string[]]} */ (petPath),
                 );
-                return id || '';
+                return locator || '';
               }),
             )
           : Promise.resolve(/** @type {string[]} */ ([]));

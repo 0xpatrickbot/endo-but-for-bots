@@ -120,16 +120,18 @@ export const createCommandExecutor = ({
                 `No edge named "${edgeName}" in channel message #${messageNumber}`,
               );
             }
-            const formulaId = msgIds[edgeIndex];
-            if (!formulaId) {
+            const locator = msgIds[edgeIndex];
+            if (!locator) {
               throw new Error(
-                `No formula ID for edge "${edgeName}" in channel message #${messageNumber}`,
+                `No locator for edge "${edgeName}" in channel message #${messageNumber}`,
               );
             }
-            // Write the formula ID into the user's pet store.
-            // E(agent).identify(...) returns a bare formula id, so use
-            // storeIdentifier rather than storeLocator (which requires endo://).
-            await E(powers).storeIdentifier(targetNamePath, formulaId);
+            // Write the locator into the user's pet store.  Per issue #150
+            // reply, the upstream send path uses locate() so msgIds carries
+            // endo:// locators; storeLocator is the matching API and is
+            // preferred over storeIdentifier so the system can drop bare-
+            // identifier support in the future.
+            await E(powers).storeLocator(targetNamePath, locator);
             return { success: true, message: `Adopted as "${targetNameStr}"` };
           }
 
