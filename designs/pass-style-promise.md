@@ -112,6 +112,12 @@ This matches the most restrictive option proposed in PR
 addresses the @erights review note that converged on "no carried
 state, no `then`".
 
+The shared-`'promise'`-tag formulation above is provisional; whether
+the new shape gets its own tag (e.g. `'pseudoPromise'`) is Open
+Question 4 below.
+The non-thenable contract and the pass-through preservation of
+native promises are independent of that choice.
+
 ### Constructor surface
 
 The pass-style/marshal package exports a single constructor, exposed in
@@ -348,6 +354,75 @@ Both of those tighten the value parameter of `Promise<...>`; they do
 not constrain the carrier shape, so they compose orthogonally with the
 new `PassStylePromise` member.
 
+## Constraints
+
+The following are non-negotiable contracts on the design.
+They override any convenience or implementation-shortcut they conflict
+with.
+
+### Not a `Promise` subclass or instance
+
+A pass-style promise carrier MUST NOT be a `Promise` subclass or a
+`Promise` instance.
+Specifically:
+
+- `makePassStylePromise()` returns a fresh object whose prototype
+  chain does not include the JS `Promise.prototype`.
+- `passStylePromise instanceof Promise === false` is part of the
+  contract.
+- The implementation MUST NOT use `class PassStylePromise extends
+  Promise`, MUST NOT monkey-patch a `Promise` instance, and MUST NOT
+  install the carrier's hidden state on a backing `Promise` that the
+  carrier delegates to.
+  The implementation has to reimplement what it needs from
+  `Promise`'s helpers (typically a single fire-once subscriber list);
+  it cannot inherit them.
+
+Why this matters:
+
+- A `Promise` subclass inherits `then`, `catch`, and `finally`
+  through the prototype chain, which reintroduces the implicit
+  `await`-synchronization footgun that the non-thenable contract
+  exists to close.
+  Even an own-property `then: undefined` does not help, because
+  `Promise.resolve(x)` and the host's `await` machinery walk the
+  prototype chain in some paths and use internal slots in others.
+- Static methods on `Promise` (`Promise.all`, `Promise.race`,
+  `Promise.allSettled`, `Promise.any`) auto-coerce their arguments
+  through the platform's promise-resolution algorithm.
+  If the carrier is a `Promise` (subclass or instance), those
+  algorithms recognize it as one and synchronize on it.
+  A non-`Promise` carrier is opaque to all of them; it appears in the
+  result array as the token, never as its eventual fulfillment.
+- The "no carried state on the carrier" convergence from #1312 is
+  easier to enforce on a plain frozen object than on a `Promise`
+  subclass; subclassing forces the implementer to reason about which
+  inherited slots are observable from the outside.
+
+### Native `Promise` instances remain passable
+
+The new pass-style promise kind is **additive**.
+Existing native `Promise` instances continue to be passable through
+the marshal codecs and CapTP exactly as they are today; their
+semantics do not change.
+
+- `passStyleOf(nativePromise)` continues to return `'promise'` (or
+  whatever tag is settled in Open Question 4 below).
+- The codecs continue to special-case native promises through the
+  user's `convertValToSlot` pathway; no native-promise call site
+  needs to migrate.
+- `await nativePromise` continues to synchronize on the native
+  promise, as it always has.
+
+The new pass-style kind is opt-in: callers who want the non-thenable,
+no-implicit-`await` semantics call `makePassStylePromise()`
+explicitly.
+Callers who do not opt in see no change.
+
+This rules out any "lockdown removes native Promise from the
+passable set" framing.
+The non-thenable contract is a new option, not a replacement.
+
 ## Dependencies
 
 | Issue or design | Relationship |
@@ -478,7 +553,39 @@ upstream.
    a different abstraction (a stream or a publisher) and should not
    borrow the `'promise'` pass style.
 
-4. **`Symbol.toStringTag` exact value.**
+4. **`passStyleOf` tag: shared `'promise'` or a distinct kind?**
+   The "Native promises remain passable" constraint above commits to
+   keeping native `Promise` instances passable.
+   The open question is whether the new pass-style carrier shares the
+   `'promise'` pass-style tag with native promises or gets a distinct
+   tag (e.g. `'pseudoPromise'`, the spelling kriskowal used in the
+   GitHub label on this PR).
+
+   The shared-tag option:
+   `passStyleOf(nativePromise) === 'promise'` and
+   `passStyleOf(passStylePromise) === 'promise'`.
+   Existing `case 'promise'` consumers see both shapes through one
+   arm; they discriminate further (if they need to) with an
+   `isPromise(x)` check.
+   This is the migration-friendly option: no new arm to add anywhere.
+
+   The distinct-tag option:
+   `passStyleOf(nativePromise) === 'promise'` (unchanged) and
+   `passStyleOf(passStylePromise) === 'pseudoPromise'` (or some other
+   new tag).
+   Consumers that want the non-thenable contract can switch on tag
+   alone; consumers that want "any promise-shaped carrier" check
+   `tag === 'promise' || tag === 'pseudoPromise'`.
+   This is the migration-rigorous option: every existing `case
+   'promise'` is forced to decide explicitly whether it handles the
+   new shape, the codec slot-id ('p' vs. a new prefix) is forced to
+   decide too, and the marshal smallcaps `&N` shape gets a sibling.
+
+   The CapTP slot prefix (`'p'`) interacts with this choice: a
+   distinct tag at the pass-style layer wants a distinct slot prefix
+   at the wire layer; a shared tag keeps the wire layer unchanged.
+
+5. **`Symbol.toStringTag` exact value.**
    PR #1313 used `'Pseudo-promise'`.
    The pass-style handler today tolerates any string starting with
    `'Promise'` for native promises (`safe-promise.js`).
@@ -489,8 +596,12 @@ upstream.
    tag as native makes the substitution truly transparent.
    The hardened-text-codecs precedent (transparency by default) leans
    toward the same tag.
+   This question is downstream of the previous one: a distinct
+   `passStyleOf` tag almost certainly wants a distinct
+   `Symbol.toStringTag`; a shared `passStyleOf` tag may still pick
+   either depending on console-output preferences.
 
-5. **`for await` and `Promise.all` interop.**
+6. **`for await` and `Promise.all` interop.**
    `for await (const x of asyncIter)` calls `await` internally; passing
    a pass-style promise through that path turns it into a value
    immediately (no settlement, just the token).
@@ -500,7 +611,7 @@ upstream.
    `HandledPromise.settle` explicitly), but it deserves an explicit
    call-out in the docs and a test case.
 
-6. **Opt-in vs. universal.**
+7. **Opt-in vs. universal.**
    Every existing pass-style consumer that switches on
    `passStyleOf(x)` and currently has no `case 'promise'` arm is
    already broken on a native promise; the new shape does not change
@@ -512,7 +623,7 @@ upstream.
    We should grep the upstream tree for `case 'promise'` and the
    downstream tree (agoric-sdk) for the same and audit each call site.
 
-7. **Why did PR #1313 stall in 2022?**
+8. **Why did PR #1313 stall in 2022?**
    The @erights review at the time withheld approval on two grounds:
    (a) the requested `checkTagRecord`-based validation, and (b) the
    discomfort of introducing a `passStyleOf === 'promise'` value that
@@ -523,7 +634,7 @@ upstream.
    Phase 1's helper picks up (a) by reusing the modern `confirmCanBeValid`
    /`assertRestValid` shape.
 
-8. **Settlement state for liveSlots adoption.**
+9. **Settlement state for liveSlots adoption.**
    The 2022 thread surfaced @erights's "forwarded" / "unresolved"
    states as a possible bridge to virtual/durable promises.
    This design intentionally does NOT carry settlement state on the
