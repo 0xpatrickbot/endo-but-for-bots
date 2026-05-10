@@ -136,9 +136,21 @@ non-thenable carrier and a private resolver paired with it.
  * resolution; passing the carrier to a third party does not pass
  * the ability to settle it.
  *
+ * @param {object} [options]
+ * @param {() => void} [options.onFirstSubscribe]
+ *   Invoked exactly once, on the next turn after the first
+ *   subscriber attaches via `HandledPromise.subscribe(promise, …)`,
+ *   `HandledPromise.settle(promise)`, or `E.when(promise, …)`.
+ *   If the producer rejects or resolves before any subscriber
+ *   arrives, `onFirstSubscribe` still fires (on the next turn after
+ *   the first subscriber arrives, even though settlement is already
+ *   recorded).
+ *   If `onFirstSubscribe` is omitted, no first-subscribe
+ *   notification is delivered.
+ *   See "Producer-side first-subscribe notification" below.
  * @returns {{ promise: PassStylePromise, resolver: Resolver }}
  */
-export const makePromise = () => { /* ... */ };
+export const makePromise = (options) => { /* ... */ };
 ```
 
 `PassStylePromise` is an opaque type alias; from the outside it is
@@ -157,6 +169,98 @@ already depends on `pass-style`, not the other way around).
 Earlier drafts placed the producer-side kit in `eventual-send` and
 forced the builder to re-derive the carrier shape locally; that
 indirection is what motivated this revision.
+
+### Producer-side first-subscribe notification
+
+`makePromise(options)` accepts an `onFirstSubscribe` callback in its
+`options` bag.
+The callback fires exactly once, on the next turn after the first
+subscriber attaches to the carrier through any of the supported
+subscription paths (`HandledPromise.subscribe(promise, …)`,
+`HandledPromise.settle(promise)`, or `E.when(promise, …)`).
+If the producer omits `onFirstSubscribe`, no notification is
+delivered and the carrier behaves exactly as in the bare
+`makePromise()` case.
+
+The motivating use case is a producer that wants to defer computing
+the resolution value until a consumer actually asks for it.
+A pass-style promise can travel through the cap-system layer (carried
+across several messages, retained in tables, encoded and decoded by
+the marshal codecs) before any consumer subscribes.
+A producer that did all the work to compute its resolution eagerly
+would be doing work whose results may never be observed.
+The first-subscribe hook lets the producer wait until at least one
+consumer has expressed interest before doing the work.
+
+Fire-once semantics: the callback is invoked at most once per
+carrier, on the next turn after the first subscriber arrives.
+Settlement state is independent of subscription state.
+If the producer rejects or resolves before any subscriber arrives,
+the rejection or resolution is recorded on the producer's record
+(per the rejection-retention principle below).
+`onFirstSubscribe` still fires when the first subscriber eventually
+attaches, even though the settlement is already in hand; the
+producer may use the hook for diagnostics or telemetry that is only
+meaningful once a consumer has shown up.
+
+Scope rationale.
+The `onFirstSubscribe` hook is **only available on
+PassStylePromise**.
+There is no equivalent on a native `Promise` (the platform exposes
+no producer-side hook for subscriber arrival; a native promise's
+resolver is closed over at construction and is not reachable from
+the outside).
+There is no equivalent on a `HandledPromise` either: a
+HandledPromise's handler protocol exists for the *consumer* side
+(`applyMethod`, `get`, etc.), not the producer side, and its
+handler is invoked on message dispatch rather than on subscriber
+arrival.
+A future generic `HandledPromise.onFirstSubscribe(p, cb)` op
+(Option B in the upstream discussion) was considered and
+deferred; if added, it would error early on any non-PassStylePromise
+input, for the same reason.
+The producer-side scope is a deliberate factoring (the producer
+owns the resolver; the resolver is where the notification belongs),
+not an arbitrary limitation.
+
+Interaction with rejection retention.
+The "do not surface rejections to unsubscribed promises" principle
+in the next section says a rejection on a carrier with no
+subscribers is held until the first subscriber arrives, not
+emitted eagerly to the host's unhandled-rejection path.
+`onFirstSubscribe` composes naturally with that principle: a
+producer can use the hook to implement lazy diagnostics (record a
+debug breadcrumb when the rejection happens, defer the log line
+until a subscriber arrives and the rejection is about to be
+delivered).
+The hook does not change the rejection-retention contract; it
+gives the producer a place to react when the held rejection is
+about to start moving.
+
+Worked example: a lazy-computation producer.
+
+```js
+const { promise, resolver } = makePromise({
+  onFirstSubscribe: () => {
+    // Defer the expensive computation until a consumer asks.
+    computeAnswer().then(
+      answer => resolver.resolve(answer),
+      err => resolver.reject(err),
+    );
+  },
+});
+// `promise` may travel through several message hops before any
+// consumer subscribes; `computeAnswer` does not run until one
+// does.
+return promise;
+```
+
+A consumer that calls `await HandledPromise.settle(promise)` (or
+`E.when(promise, …)`, or `HandledPromise.subscribe(promise, cb)`)
+triggers `onFirstSubscribe` on the next turn, which in turn starts
+`computeAnswer()`.
+A consumer that never subscribes leaves the producer's work
+undone, which is the intended laziness.
 
 ### Subscription: `HandledPromise.subscribe`
 
@@ -874,6 +978,29 @@ This is its own design and is not blocked by the present one.
    keeps the state in its own closure.
    A later design can layer durable settlement state on top once the
    non-stateful base is in place.
+
+10. **Producer-side first-subscribe notification: option A vs.
+    option B.**
+    Option A is a callback in the `makePromise()` options bag
+    (`onFirstSubscribe`), invoked on the next turn after the first
+    subscriber attaches; the producer holds the hook through the
+    same closure that holds the resolver.
+    Option B is a separate static op
+    (`HandledPromise.onFirstSubscribe(p, cb)`) that any holder of
+    the carrier could call, with an early error on any
+    non-PassStylePromise input.
+
+    [Resolved 2026-05-10 per @kumavis on
+    [#170](https://github.com/endojs/endo/pull/170#discussion_r4416253020)
+    and the v1 greenlight on
+    [#170](https://github.com/endojs/endo/pull/170#discussion_r4416544308):
+    Option A ships in v1; the producer-side scope matches who
+    actually owns the resolver and avoids exposing a
+    subscription-arrival signal to arbitrary holders of the
+    carrier.
+    Option B is deferred; if a future need surfaces (e.g. a
+    consumer-side debugger that wants to instrument arrival), it
+    can be layered on top without changing the v1 contract.]
 
 ## Alternatives Considered
 
