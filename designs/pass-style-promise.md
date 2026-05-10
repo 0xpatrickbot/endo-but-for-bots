@@ -133,15 +133,101 @@ export const makePassStylePromise = () => { /* ... */ };
 `PassStylePromise` is an opaque type alias; from the outside it is
 simply a passable value with `passStyleOf` of `'promise'`.
 
+### Subscription: `HandledPromise.subscribe`
+
+`subscribe` is the lower-level callback-based primitive on which the
+promise-returning `HandledPromise.settle` (below) composes.
+It is the single explicit way to observe a pass-style promise's
+eventual resolution; because the carrier itself has no `then` method,
+`await` cannot do this implicitly.
+
+```js
+/**
+ * Registers `callback` to fire exactly once when `x` settles.
+ * The callback receives the settlement target as its only argument.
+ *
+ * The settlement target is the value the producer resolved the
+ * pass-style promise to. It is one of four shapes:
+ *
+ *   1. A final concrete Passable (a primitive, a record, an array, a
+ *      remotable, or `undefined` for a void resolution).
+ *   2. A native `Promise` that itself settles later. The subscriber
+ *      is responsible for synchronizing on it (e.g. via
+ *      `HandledPromise.settle` or by awaiting it directly, which is
+ *      safe because a native Promise is thenable).
+ *   3. A `HandledPromise` whose handler will dispatch on it.
+ *   4. Another pass-style promise; the subscriber re-subscribes to
+ *      that one to chase the chain to its eventual ground value.
+ *
+ * The four targets are distinguishable by `passStyleOf` and a
+ * platform `isPromise` check:
+ *   - `passStyleOf(target) !== 'promise'` → case 1 (final value).
+ *   - `passStyleOf(target) === 'promise'` and the target is a frozen
+ *     native Promise (`isSafePromise(target)`) → case 2 or 3
+ *     (a HandledPromise satisfies `isSafePromise`).
+ *   - `passStyleOf(target) === 'promise'` and the target is not a
+ *     native Promise → case 4 (another pass-style promise).
+ *
+ * `subscribe` is fire-once: settlement is final on the underlying
+ * carrier, and a second resolution by the producer is a contract
+ * violation that the implementation MAY enforce. Subscribers added
+ * after a settlement has already occurred fire on the next turn with
+ * the recorded target.
+ *
+ * Rejections are surfaced through a separate `onRejected` argument
+ * (analogous to `Promise.prototype.then`'s second argument) so that
+ * the subscriber callback's signature distinguishes "the producer
+ * fulfilled with this target" from "the producer rejected with this
+ * reason". An omitted `onRejected` rethrows on the next turn into the
+ * unhandled-rejection path of the host.
+ *
+ * @template T
+ * @param {T} x  A pass-style promise, native Promise, HandledPromise,
+ *               or any other passable.
+ * @param {(target: SubscribeTarget) => void} onFulfilled
+ * @param {(reason: any) => void} [onRejected]
+ * @returns {void}
+ */
+HandledPromise.subscribe = (x, onFulfilled, onRejected) => { /* ... */ };
+```
+
+`SubscribeTarget` is the union of "any Passable that is not a
+pass-style promise" with "Promise | HandledPromise | PassStylePromise".
+The subscriber that wants the ground value, not just the next link in
+the chain, walks the chain itself by re-subscribing on each
+pass-style-promise hop and awaiting any thenable hop.
+
+This callback shape is deliberate.
+A subscriber that wants a Promise can build one with
+`new Promise((resolve, reject) => HandledPromise.subscribe(x, resolve, reject))`,
+which is exactly what `HandledPromise.settle` does (see below).
+Going the other direction (deriving subscribe-shape from a
+promise-returning primitive) is also possible but introduces an
+unconditional microtask hop and forecloses the optimization where the
+producer can synchronously deliver a target that is already known at
+subscription time.
+
+`subscribe` is **not** triggered by `await`.
+The pass-style promise has no `then` method, by design (per the
+non-thenable contract above), so `await passStylePromise` resolves to
+the carrier itself, never to its settlement target.
+A consumer that wants to observe settlement must call `subscribe` (or
+`HandledPromise.settle`) explicitly.
+
 ### Synchronization: `Promise.settle`
 
-The eventual-send package gains `HandledPromise.settle` (a free-standing
-companion to `HandledPromise.resolve`):
+`HandledPromise.settle` is the promise-returning convenience layered
+on top of `subscribe`.
+It returns a native Promise so that callers using `await` can
+synchronize on the eventual resolution.
 
 ```js
 /**
  * Returns a native Promise that fulfills with the eventual settlement
- * value (or rejects with the eventual rejection reason) of `x`.
+ * value (or rejects with the eventual rejection reason) of `x`,
+ * recursively walking through any chain of pass-style promises,
+ * native Promises, or HandledPromises until a non-promise Passable
+ * is reached.
  *
  * For a pass-style promise that the local liveSlots-equivalent has
  * adopted, this is the moment of explicit synchronization across the
@@ -151,6 +237,19 @@ companion to `HandledPromise.resolve`):
  * (modulo the native-promise reentrancy hardening from #1181).
  *
  * For any other passable, `settle(v)` resolves immediately to `v`.
+ *
+ * The reference implementation is roughly:
+ *
+ *     HandledPromise.settle = x => new Promise((resolve, reject) => {
+ *       const onFulfilled = target => {
+ *         if (passStyleOf(target) === 'promise' || isPromise(target)) {
+ *           HandledPromise.subscribe(target, onFulfilled, reject);
+ *         } else {
+ *           resolve(target);
+ *         }
+ *       };
+ *       HandledPromise.subscribe(x, onFulfilled, reject);
+ *     });
  *
  * @template T
  * @param {T} x
@@ -162,8 +261,9 @@ HandledPromise.settle = x => { /* ... */ };
 `E.when(x, onFulfilled, onRejected)` is implemented in terms of
 `HandledPromise.settle(x).then(onFulfilled, onRejected)`.
 The existing `E.when` API remains the supported way for application
-code to react to a settlement; `HandledPromise.settle` is the lower-level
-primitive that composes with `await`.
+code to react to a settlement; `HandledPromise.settle` is the
+intermediate-level primitive that composes with `await`; `subscribe`
+is the lowest-level primitive that the other two compose on.
 
 This is the point at issue
 [endojs/endo#1652](https://github.com/endojs/endo/issues/1652) names
@@ -287,11 +387,26 @@ template).
 
 ### Phase 3: eventual-send integration (M)
 
-- Add `HandledPromise.settle(x)` with the semantics described above.
+- Add `HandledPromise.subscribe(x, onFulfilled, onRejected?)` as the
+  fire-once, callback-based primitive that observes a pass-style
+  promise's resolution. The producer side of `makePassStylePromise`
+  exposes a private resolver (held in the producer's closure, not on
+  the carrier) that drives subscriber notification.
+- Add `HandledPromise.settle(x)` layered on `subscribe`, walking
+  chains of pass-style promises / native Promises / HandledPromises
+  to a non-promise ground value.
 - Re-implement `E.when` in terms of `HandledPromise.settle`.
 - Confirm `E(x).method(...)` dispatches correctly for a pass-style
   promise target (the existing `applyMethod` path already covers
   arbitrary thenable-or-not values; this is mostly a test pass).
+
+`subscribe` and `settle` ship together.
+`subscribe` cannot land before `settle` because `E.when` (and any
+existing `await`-driven consumer migrating to the new shape) needs
+the promise-returning form.
+`settle` cannot land before `subscribe` because `subscribe` is the
+primitive `settle` uses to walk pass-style-promise chains without
+introducing an extra `then`-pinhole on each hop.
 
 ### Phase 4: CapTP integration (M)
 
@@ -323,14 +438,47 @@ upstream.
 
 ## Open Questions
 
-1. **`Promise.settle` API surface.**
-   Should the synchronization operation live on `HandledPromise.settle`
-   (paired with `HandledPromise.resolve`), on `E.settle`, or on a new
-   global similar to the `Promise.settle` proposal in #1652?
-   A new global is the cleanest user-facing name; `HandledPromise.settle`
-   is the lowest-friction internal name.
+1. **`Promise.settle` and `Promise.subscribe` API surface.**
+   Should the explicit synchronization operations live on
+   `HandledPromise.settle` / `HandledPromise.subscribe` (paired with
+   `HandledPromise.resolve`), on `E.settle` / `E.subscribe`, or on a
+   new global similar to the `Promise.settle` proposal in #1652?
+   A new global is the cleanest user-facing name;
+   `HandledPromise.{settle,subscribe}` is the lowest-friction internal
+   name.
+   The two should land at the same level of the API surface so that the
+   primitive (`subscribe`) is reachable from anywhere the convenience
+   (`settle`) is.
 
-2. **`Symbol.toStringTag` exact value.**
+2. **`subscribe` as a static vs. an instance method.**
+   The design above places `subscribe` as a static on `HandledPromise`
+   (`HandledPromise.subscribe(x, cb, errCb)`) so that it works
+   uniformly across the four argument shapes (pass-style promise,
+   native Promise, HandledPromise, plain Passable). A pass-style
+   promise carrier has no own methods (per the "no carried state"
+   rule), so an instance form (`passStylePromise.subscribe(cb)`) would
+   require either widening the carrier shape (in tension with the
+   most-restrictive shape from #1312) or introducing a separate
+   subscriber-handle object that the producer hands out alongside
+   the carrier. The static form keeps the carrier opaque and
+   property-free; the instance form is more discoverable. The
+   maintainer's prompt cited both shapes ("`passStylePromise.subscribe(callback)`
+   or as a static `Promise.subscribe(passStylePromise, callback)`")
+   and asked to capture the choice as an open question.
+
+3. **Subscriber lifecycle: fire-once vs. fire-many.**
+   The design above commits to fire-once: settlement is final on the
+   carrier, subscribers fire exactly once, and a producer that tries
+   to settle twice is in violation. This matches the native-Promise
+   model and the @erights / @mhofman / @FUDCo convergence on "no
+   carried state on the carrier" (a settled-then-resettled carrier
+   would carry mutable state visible to subscribers).
+   An alternative would be a multi-fire "channel" semantics where the
+   producer pumps multiple values through the same carrier; that is
+   a different abstraction (a stream or a publisher) and should not
+   borrow the `'promise'` pass style.
+
+4. **`Symbol.toStringTag` exact value.**
    PR #1313 used `'Pseudo-promise'`.
    The pass-style handler today tolerates any string starting with
    `'Promise'` for native promises (`safe-promise.js`).
@@ -342,7 +490,7 @@ upstream.
    The hardened-text-codecs precedent (transparency by default) leans
    toward the same tag.
 
-3. **`for await` and `Promise.all` interop.**
+5. **`for await` and `Promise.all` interop.**
    `for await (const x of asyncIter)` calls `await` internally; passing
    a pass-style promise through that path turns it into a value
    immediately (no settlement, just the token).
@@ -352,7 +500,7 @@ upstream.
    `HandledPromise.settle` explicitly), but it deserves an explicit
    call-out in the docs and a test case.
 
-4. **Opt-in vs. universal.**
+6. **Opt-in vs. universal.**
    Every existing pass-style consumer that switches on
    `passStyleOf(x)` and currently has no `case 'promise'` arm is
    already broken on a native promise; the new shape does not change
@@ -364,7 +512,7 @@ upstream.
    We should grep the upstream tree for `case 'promise'` and the
    downstream tree (agoric-sdk) for the same and audit each call site.
 
-5. **Why did PR #1313 stall in 2022?**
+7. **Why did PR #1313 stall in 2022?**
    The @erights review at the time withheld approval on two grounds:
    (a) the requested `checkTagRecord`-based validation, and (b) the
    discomfort of introducing a `passStyleOf === 'promise'` value that
@@ -375,7 +523,7 @@ upstream.
    Phase 1's helper picks up (a) by reusing the modern `confirmCanBeValid`
    /`assertRestValid` shape.
 
-6. **Settlement state for liveSlots adoption.**
+8. **Settlement state for liveSlots adoption.**
    The 2022 thread surfaced @erights's "forwarded" / "unresolved"
    states as a possible bridge to virtual/durable promises.
    This design intentionally does NOT carry settlement state on the
@@ -447,18 +595,40 @@ Tests live under `packages/pass-style/test/`,
    the user's `convertSlotToVal` and accepts whatever it returns.
 6. **Smallcaps round-trip.**
    Same as above through the smallcaps codec (the `&N` shape).
-7. **`HandledPromise.settle` on a pass-style promise.**
-   The producer side's resolution is observable through
-   `await HandledPromise.settle(token)`.
-8. **`E.when` on a pass-style promise.**
-   The callback fires on the producer's resolution.
-9. **`E(token).method(...)` dispatch.**
-   The pending-handler path forwards the call.
-10. **CapTP round-trip.**
+7. **`HandledPromise.subscribe` fire-once.**
+   `HandledPromise.subscribe(token, cb)` invokes `cb` exactly once
+   when the producer resolves, with the resolution target as the only
+   argument. A second producer resolution is rejected (or asserted
+   against) by the implementation; subscribers added after settlement
+   fire on the next turn with the recorded target.
+8. **`HandledPromise.subscribe` resolution-target shapes.**
+   The four target cases (final Passable, native Promise,
+   HandledPromise, another pass-style promise) are each delivered
+   verbatim to the subscriber and are distinguishable by
+   `passStyleOf(target)` plus an `isPromise(target)` check. A test
+   resolves four separate carriers, one per shape, and asserts the
+   subscriber receives the expected target each time.
+9. **`HandledPromise.settle` walks chains.**
+   A pass-style promise resolved to another pass-style promise (which
+   in turn is resolved to a native Promise that fulfills with a
+   Passable) settles to the ground Passable through a single
+   `await HandledPromise.settle(token)` call.
+10. **`E.when` on a pass-style promise.**
+    The callback fires on the producer's resolution. Verifies that
+    `E.when`'s reimplementation in terms of `HandledPromise.settle`
+    preserves the prior contract.
+11. **`E(token).method(...)` dispatch.**
+    The pending-handler path forwards the call.
+12. **`await passStylePromise` does NOT settle.**
+    The carrier is not thenable, so `await passStylePromise` resolves
+    to the carrier itself, not to its eventual target. This is the
+    regression guard for the non-thenable contract; observing the
+    target requires an explicit `subscribe` or `settle` call.
+13. **CapTP round-trip.**
     Send a pass-style promise across a CapTP loopback; the remote side
     receives a fresh pass-style promise that settles when the local
     producer settles.
-11. **Existing-consumer regression.**
+14. **Existing-consumer regression.**
     Run the existing `pass-style` and `marshal` test suites unchanged;
     no test that passes a native `Promise` should regress.
 
