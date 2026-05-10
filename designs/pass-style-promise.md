@@ -133,7 +133,7 @@ The pass-style/marshal package exports a single constructor, exposed in
  *
  * @returns {PassStylePromise}
  */
-export const makePassStylePromise = () => { /* ... */ };
+export const makePromise = () => { /* ... */ };
 ```
 
 `PassStylePromise` is an opaque type alias; from the outside it is
@@ -315,7 +315,7 @@ export const kslot = (kref, iface) => {
 // After (this design)
 export const kslot = (kref, iface) => {
   if (isPromiseRef(kref)) {
-    return makePassStylePromise();  // no WeakMap; the token is opaque
+    return makePromise();  // no WeakMap; the token is opaque
   }
   return Far(iface, { toString: () => `${kref}` });
 };
@@ -366,7 +366,7 @@ A pass-style promise carrier MUST NOT be a `Promise` subclass or a
 `Promise` instance.
 Specifically:
 
-- `makePassStylePromise()` returns a fresh object whose prototype
+- `makePromise()` returns a fresh object whose prototype
   chain does not include the JS `Promise.prototype`.
 - `passStylePromise instanceof Promise === false` is part of the
   contract.
@@ -415,7 +415,7 @@ semantics do not change.
   promise, as it always has.
 
 The new pass-style kind is opt-in: callers who want the non-thenable,
-no-implicit-`await` semantics call `makePassStylePromise()`
+no-implicit-`await` semantics call `makePromise()`
 explicitly.
 Callers who do not opt in see no change.
 
@@ -446,7 +446,7 @@ The non-thenable contract is a new option, not a replacement.
   fallthrough loop in `passStyleOfInternal`.
 - Add the `PassStylePromise` type to `types.d.ts` and broaden
   `PassStyleOf` accordingly.
-- Export `makePassStylePromise` from `@endo/pass-style`.
+- Export `makePromise` from `@endo/pass-style`.
 
 This phase is self-contained; PR
 [endojs/endo#1313](https://github.com/endojs/endo/pull/1313) is the
@@ -464,7 +464,7 @@ template).
 
 - Add `HandledPromise.subscribe(x, onFulfilled, onRejected?)` as the
   fire-once, callback-based primitive that observes a pass-style
-  promise's resolution. The producer side of `makePassStylePromise`
+  promise's resolution. The producer side of `makePromise`
   exposes a private resolver (held in the producer's closure, not on
   the carrier) that drives subscriber notification.
 - Add `HandledPromise.settle(x)` layered on `subscribe`, walking
@@ -487,7 +487,7 @@ introducing an extra `then`-pinhole on each hop.
 
 - `convertValToSlot` allocates a `'p'`-prefixed slot id for a
   pass-style promise, the same as for a native promise.
-- `convertSlotToVal` returns a fresh `makePassStylePromise()` for an
+- `convertSlotToVal` returns a fresh `makePromise()` for an
   inbound `'p'`-prefixed slot when the local side has no native
   promise to bind.
 - Settle-resolution from the remote side updates the producer's
@@ -499,7 +499,7 @@ introducing an extra `then`-pinhole on each hop.
 - A `NEWS.md` entry under `@endo/pass-style` and `@endo/eventual-send`.
 - A short migration note for liveSlots-style consumers: the
   `WeakMap<Promise, kref>` pattern can collapse into a direct
-  `makePassStylePromise()`/slot mapping.
+  `makePromise()`/slot mapping.
 - Cross-link from `@endo/marshal`'s README to the new
   `Promise.settle` operation.
 
@@ -507,7 +507,7 @@ introducing an extra `then`-pinhole on each hop.
 
 This is out of scope for the Endo PR but is the user-visible payoff:
 agoric-sdk's liveSlots stops manufacturing native promises as opaque
-tokens and adopts `makePassStylePromise` as its kref carrier.
+tokens and adopts `makePromise` as its kref carrier.
 Tracked separately in the agoric-sdk repo once Phases 1 to 5 land
 upstream.
 
@@ -689,7 +689,7 @@ Tests live under `packages/pass-style/test/`,
 `packages/captp/test/`.
 
 1. **Recognition.**
-   `passStyleOf(makePassStylePromise()) === 'promise'`.
+   `passStyleOf(makePromise()) === 'promise'`.
 2. **Non-thenability.**
    The token has no `then` (own or inherited beyond `Object.prototype`).
    `await passStylePromise` resolves to the token itself, not to a
