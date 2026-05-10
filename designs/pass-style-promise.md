@@ -120,24 +120,43 @@ native promises are independent of that choice.
 
 ### Constructor surface
 
-The pass-style/marshal package exports a single constructor, exposed in
+The carrier shape AND the producer-side construction live in
 `@endo/pass-style`.
+The package exports a single constructor that hands back both a
+non-thenable carrier and a private resolver paired with it.
 
 ```js
 /**
- * Returns a frozen non-thenable object x for which
- * `passStyleOf(x) === 'promise'`.
- * The returned object carries no settlement state.
- * Producers that need to track settlement do so in their own closure
- * over the returned token.
+ * Returns a kit containing a frozen non-thenable carrier `promise`
+ * (for which `passStyleOf(promise) === 'promise'`) and a private
+ * `resolver` that the producer holds in its own closure.
  *
- * @returns {PassStylePromise}
+ * The carrier itself carries no settlement state.
+ * The resolver is the only handle that can drive the carrier's
+ * resolution; passing the carrier to a third party does not pass
+ * the ability to settle it.
+ *
+ * @returns {{ promise: PassStylePromise, resolver: Resolver }}
  */
 export const makePromise = () => { /* ... */ };
 ```
 
 `PassStylePromise` is an opaque type alias; from the outside it is
 simply a passable value with `passStyleOf` of `'promise'`.
+`Resolver` exposes `resolve(target)` and `reject(reason)` operations
+that the producer alone may invoke.
+
+The package boundary is deliberate: the shape of a pass-style promise
+is the purview of `@endo/pass-style`, so the construction primitive
+lives there too.
+`@endo/eventual-send` consumes carriers (via `subscribe` and `settle`,
+and by registering them with `HandledPromise`); it does not construct
+them.
+This is the dependency-direction-correct factoring (`eventual-send`
+already depends on `pass-style`, not the other way around).
+Earlier drafts placed the producer-side kit in `eventual-send` and
+forced the builder to re-derive the carrier shape locally; that
+indirection is what motivated this revision.
 
 ### Subscription: `HandledPromise.subscribe`
 
@@ -220,6 +239,42 @@ the carrier itself, never to its settlement target.
 A consumer that wants to observe settlement must call `subscribe` (or
 `HandledPromise.settle`) explicitly.
 
+#### Principle: do not surface rejections to unsubscribed promises
+
+When a producer rejects a pass-style promise that has no subscribers
+yet, the rejection is retained on the producer's record.
+It is delivered to the first subscriber that arrives, not eagerly
+thrown to the host's unhandled-rejection path.
+
+This principle generalizes beyond pass-style promises.
+A promise (native or pass-style) sometimes travels before it is
+subscribed.
+Eagerly surfacing a rejection that no consumer has had the chance to
+handle yet produces spurious noise; swallowing it produces silent
+failures.
+Both are bad answers to a false dichotomy.
+The right answer for a chain like:
+
+```js
+const a = makePromise();
+const b = makePromise();
+a.resolver.resolve(b.promise);
+b.resolver.reject(new Error('boom'));
+```
+
+is that `b`'s rejection rides through `a`'s eventual subscriber, not
+that the host emits an unhandled-rejection event for `b` before any
+subscriber has had a turn.
+
+The forward-looking direction (out of scope for this design, captured
+here for the next iteration): a debug-view ring buffer of recent
+long-pending, forever-pending, and unsubscribed-rejection promises,
+inspectable while debugging without producing noise in production.
+Promises sometimes travel before they are subscribed; the debugger
+should be able to see them in transit without forcing a production
+log line on every hop.
+This is a separate design and is not blocked by the present one.
+
 ### Synchronization: `Promise.settle`
 
 `HandledPromise.settle` is the promise-returning convenience layered
@@ -285,6 +340,41 @@ For a pass-style promise, the dispatch path is the same as for a
 remotable that the local side has not adopted: the pending handler
 forwards the message to whoever ends up owning the resolution.
 
+The integration is not, however, a pure test pass.
+The implementation needed two specific changes that earlier framings
+of this design underestimated.
+
+1. **`HandledPromise.resolve(carrier)` recognizes pass-style carriers
+   and routes through `HandledPromise.settle(carrier)`.**
+   Without this, `HandledPromise.resolve(carrier)` falls through the
+   "this is not a thenable, treat it as a fulfilled value" branch and
+   produces a native promise fulfilled with the carrier itself.
+   Subsequent `E(carrier).method(...)` then dispatches against the
+   carrier (which has no methods) instead of routing to the eventual
+   target.
+   Routing `resolve` through `settle` for the carrier shape unwinds
+   the chain to the actual target before any dispatch fires.
+
+2. **The contestant-race in `handle()` skips the synchronous-target
+   optimization for pass-style carriers.**
+   `handle()` races two contestants when dispatching a method: the
+   handler's eventual answer and a synchronous fallback that fires
+   if the target is already a settled native value.
+   For a pass-style carrier the synchronous fallback is wrong: the
+   carrier is opaque, the second contestant wins immediately, and
+   the dispatch lands against the carrier itself rather than against
+   the eventual target.
+   The fix is a `passStyleOf(target) === 'promise' &&
+   !isPromise(target)` guard at the contestant-race site that defers
+   to the asynchronous dispatch path for pass-style carriers.
+
+These two integration points are minimal, but each prevents a
+specific failure mode the implementation discovered: the first
+prevents `E(carrier).method()` from dispatching against the carrier
+instead of the target; the second prevents the same failure mode
+showing up via the contestant-race even when `resolve` routes
+correctly.
+
 In a CapTP setting, the pass-style promise's slot id is what the local
 side sends across the wire; the remote side resolves the slot through
 the usual promise-resolution machinery.
@@ -315,7 +405,11 @@ export const kslot = (kref, iface) => {
 // After (this design)
 export const kslot = (kref, iface) => {
   if (isPromiseRef(kref)) {
-    return makePromise();  // no WeakMap; the token is opaque
+    const { promise, resolver } = makePromise();
+    // The producer keeps `resolver` in its own table keyed by kref;
+    // only `promise` (the opaque carrier) escapes to callers.
+    rememberResolver(kref, resolver);
+    return promise;
   }
   return Far(iface, { toString: () => `${kref}` });
 };
@@ -323,6 +417,8 @@ export const kslot = (kref, iface) => {
 
 The `WeakMap<Promise, kref>` goes away; the kslot/krefOf pair becomes
 symmetric in shape with the remotable case.
+The producer-side resolver replaces the never-settling-Promise + WeakMap
+plumbing with an explicit handle the producer holds privately.
 
 ### Marshal codec changes
 
@@ -366,8 +462,9 @@ A pass-style promise carrier MUST NOT be a `Promise` subclass or a
 `Promise` instance.
 Specifically:
 
-- `makePromise()` returns a fresh object whose prototype
-  chain does not include the JS `Promise.prototype`.
+- `makePromise()` returns a kit `{ promise, resolver }` whose
+  `promise` is a fresh object whose prototype chain does not include
+  the JS `Promise.prototype`.
 - `passStylePromise instanceof Promise === false` is part of the
   contract.
 - The implementation MUST NOT use `class PassStylePromise extends
@@ -438,7 +535,7 @@ The non-thenable contract is a new option, not a replacement.
 
 ## Phases
 
-### Phase 1: pass-style classification (S)
+### Phase 1: pass-style classification and producer kit (M)
 
 - Add a `PromiseHelper` to `packages/pass-style/src/` modeled on
   `RemotableHelper`, recognizing the `[PASS_STYLE]: 'promise'` shape.
@@ -446,12 +543,21 @@ The non-thenable contract is a new option, not a replacement.
   fallthrough loop in `passStyleOfInternal`.
 - Add the `PassStylePromise` type to `types.d.ts` and broaden
   `PassStyleOf` accordingly.
-- Export `makePromise` from `@endo/pass-style`.
+- Export `makePromise` from `@endo/pass-style`. The export returns
+  the `{ promise, resolver }` kit described in "Constructor surface"
+  above; the resolver is the producer-side handle that drives
+  subscriber notification once `@endo/eventual-send` registers the
+  carrier with `HandledPromise` in Phase 3.
 
-This phase is self-contained; PR
-[endojs/endo#1313](https://github.com/endojs/endo/pull/1313) is the
-template (and a useful starting commit), with the simplification that
-the new shape forbids `then` rather than admitting both variants.
+PR [endojs/endo#1313](https://github.com/endojs/endo/pull/1313) is
+the template for the helper and the type changes (with the
+simplification that the new shape forbids `then` rather than
+admitting both variants).
+The producer-side resolver kit is new to this design; PR #1313 did
+not include it.
+Hosting the kit in pass-style (rather than in eventual-send) keeps
+the dependency direction correct: eventual-send already depends on
+pass-style.
 
 ### Phase 2: marshal codec compatibility (XS)
 
@@ -462,18 +568,25 @@ template).
 
 ### Phase 3: eventual-send integration (M)
 
+`@endo/eventual-send` hosts only `subscribe`, `settle`, and the
+HandledPromise registration of pass-style carriers; it does not host
+the producer-side construction (that lives in `@endo/pass-style` per
+Phase 1).
+
 - Add `HandledPromise.subscribe(x, onFulfilled, onRejected?)` as the
   fire-once, callback-based primitive that observes a pass-style
-  promise's resolution. The producer side of `makePromise`
-  exposes a private resolver (held in the producer's closure, not on
-  the carrier) that drives subscriber notification.
+  promise's resolution. The producer-side resolver from `@endo/pass-style`'s
+  `makePromise()` kit drives subscriber notification.
 - Add `HandledPromise.settle(x)` layered on `subscribe`, walking
   chains of pass-style promises / native Promises / HandledPromises
   to a non-promise ground value.
+- Register pass-style carriers with `HandledPromise` so that
+  `HandledPromise.resolve(carrier)` routes through `settle(carrier)`
+  and the contestant-race in `handle()` skips the synchronous-target
+  optimization for pass-style carriers (see "E integration" above).
 - Re-implement `E.when` in terms of `HandledPromise.settle`.
 - Confirm `E(x).method(...)` dispatches correctly for a pass-style
-  promise target (the existing `applyMethod` path already covers
-  arbitrary thenable-or-not values; this is mostly a test pass).
+  promise target.
 
 `subscribe` and `settle` ship together.
 `subscribe` cannot land before `settle` because `E.when` (and any
@@ -483,16 +596,75 @@ the promise-returning form.
 primitive `settle` uses to walk pass-style-promise chains without
 introducing an extra `then`-pinhole on each hop.
 
+### Phase 3.5: SES permits (XS)
+
+`HandledPromise.subscribe` and `HandledPromise.settle` are new
+properties on the existing `HandledPromise` intrinsic.
+SES's permits enumerate the properties allowed on each well-known
+intrinsic; an unenumerated property is removed during lockdown.
+The new methods MUST therefore be added to the `HandledPromise`
+permit entry in `packages/ses/src/permits.js` (the existing entry
+that already lists `apply`, `applyFunction`, `applyMethod`, `get`,
+`resolve`, etc.), NOT introduced as new top-level intrinsics.
+
+This is a small but load-bearing change: omitting it leaves the new
+methods present pre-lockdown and absent post-lockdown, which produces
+a confusing failure mode where a test that imports `@endo/init` sees
+`HandledPromise.subscribe` go from `function` to `undefined`.
+
+The permits live alongside other HandledPromise properties; the
+diff is a two-line addition to an existing permit object, not a new
+permits section.
+
 ### Phase 4: CapTP integration (M)
 
 - `convertValToSlot` allocates a `'p'`-prefixed slot id for a
   pass-style promise, the same as for a native promise.
-- `convertSlotToVal` returns a fresh `makePromise()` for an
-  inbound `'p'`-prefixed slot when the local side has no native
-  promise to bind.
-- Settle-resolution from the remote side updates the producer's
-  internal state; downstream `HandledPromise.settle` callers observe
-  the resolution.
+- `convertSlotToVal` calls `makePromise()` for an inbound
+  `'p'`-prefixed slot when the local side has no native promise to
+  bind, returning the kit's `promise` to the caller and retaining
+  the kit's `resolver` in the slot table keyed by slot id.
+  This path is gated on the feature flag below.
+- Settle-resolution from the remote side invokes the retained
+  resolver; downstream `HandledPromise.settle` callers observe
+  the resolution through the standard subscriber path.
+
+#### Feature flag: env-option
+
+The inbound substitution of pass-style carriers for native promises
+on a `'p'`-prefixed slot is gated by an env-option, so that downstream
+consumers can opt in incrementally and so that a regression in the
+new path can be diagnosed by toggling the flag off.
+
+The flag uses the existing `@endo/env-options` pattern (the same
+mechanism `TRACK_TURNS`, `DEBUG`, and the marshal message-breakpoints
+options use):
+
+```js
+import { getEnvironmentOption } from '@endo/env-options';
+
+const PROMISE_DELEGATES_INBOUND =
+  /** @type {'disabled' | 'enabled'} */
+  (getEnvironmentOption(
+    'ENDO_PROMISE_DELEGATES',
+    'disabled',
+    ['enabled'],
+  )) === 'enabled';
+```
+
+The flag's spelling reflects the future-standard direction: `Promise.delegate`
+is the proposed TC39 name for the same concept, and the design
+anticipates exposing the functionality as `Promise[Symbol.for('delegate')]`
+in a follow-up (see [issue
+#172](https://github.com/endojs/endo-but-for-bots/issues/172)).
+Naming the flag after `delegate` rather than after the local
+implementation term (`carrier`, `pass-style-promise`) lines up the
+opt-in name with the concept it gates.
+
+A subsequent default-flip (changing the default from `'disabled'` to
+`'enabled'`) and a deprecation cycle for the legacy native-promise
+inbound path is its own follow-up phase, not part of this design's
+scope.
 
 ### Phase 5: documentation and migration (S)
 
@@ -511,6 +683,48 @@ tokens and adopts `makePromise` as its kref carrier.
 Tracked separately in the agoric-sdk repo once Phases 1 to 5 land
 upstream.
 
+## Out of Scope, Future Work
+
+The following directions are deliberately not in scope for this design,
+but are recorded so the next iteration has a starting point.
+
+### HandledPromise shimming and `Promise[Symbol.for('delegate')]`
+
+[Issue endojs/endo-but-for-bots#172](https://github.com/endojs/endo-but-for-bots/issues/172)
+tracks the follow-up of giving `HandledPromise` (and the new
+`subscribe`/`settle` machinery) a race-to-install ponyfill at
+`Promise[Symbol.for('delegate')]`, modeled on the
+`Object[Symbol.for('harden')]` pattern that `@endo/harden` uses.
+
+The pattern:
+
+- Library races to install at the registered-symbol slot.
+  If the library installs first, lockdown will fail loudly if it
+  tries to install a conflicting implementation.
+  If lockdown installs first, the library leaves it alone and
+  provides a ponyfill that calls through to the global.
+- The registered-symbol slot is realm-wide, so child compartments
+  inherit it.
+- The future-standard direction is `Promise.delegate` as a TC39
+  proposal; installing at `Promise[Symbol.for('delegate')]` rather
+  than `Promise.delegate` directly avoids stepping on the standard's
+  eventual shape.
+
+This is not in the present design's scope (which is the pass-style
+shape and its eventual-send integration), but it is the natural
+follow-up once `HandledPromise.subscribe` and `HandledPromise.settle`
+are stable.
+
+### Debug view for long-pending and unsubscribed-rejection promises
+
+Per the rejection-retention principle in the Subscription section,
+the right answer to "rejections in transit before any subscriber"
+is neither swallow nor eagerly throw.
+A future debug-view direction is a ring buffer of recent
+long-pending, forever-pending, and unsubscribed-rejection promises,
+inspectable while debugging without producing noise in production.
+This is its own design and is not blocked by the present one.
+
 ## Open Questions
 
 1. **`Promise.settle` and `Promise.subscribe` API surface.**
@@ -524,6 +738,15 @@ upstream.
    The two should land at the same level of the API surface so that the
    primitive (`subscribe`) is reachable from anywhere the convenience
    (`settle`) is.
+
+   [Resolved 2026-05-10 per kriskowal review on
+   [#169](https://github.com/endojs/endo-but-for-bots/pull/169#issuecomment-4414533060):
+   `HandledPromise.subscribe` and `HandledPromise.settle` are the
+   chosen home, with the SES permits added to the `HandledPromise`
+   intrinsic per Phase 3.5.
+   The future-standard direction is `Promise[Symbol.for('delegate')]`
+   per [#172](https://github.com/endojs/endo-but-for-bots/issues/172),
+   not a new global on `Promise` directly.]
 
 2. **`subscribe` as a static vs. an instance method.**
    The design above places `subscribe` as a static on `HandledPromise`
@@ -623,6 +846,14 @@ upstream.
    We should grep the upstream tree for `case 'promise'` and the
    downstream tree (agoric-sdk) for the same and audit each call site.
 
+   [Resolved 2026-05-10 per kriskowal review on
+   [#169](https://github.com/endojs/endo-but-for-bots/pull/169#issuecomment-4414533060):
+   the inbound CapTP substitution is gated by an env-option
+   (`ENDO_PROMISE_DELEGATES`, per Phase 4) so consumers opt in
+   incrementally.
+   The grep-and-audit step still applies for the eventual default
+   flip, but the universal-day-one option is off the table.]
+
 8. **Why did PR #1313 stall in 2022?**
    The @erights review at the time withheld approval on two grounds:
    (a) the requested `checkTagRecord`-based validation, and (b) the
@@ -689,7 +920,7 @@ Tests live under `packages/pass-style/test/`,
 `packages/captp/test/`.
 
 1. **Recognition.**
-   `passStyleOf(makePromise()) === 'promise'`.
+   `passStyleOf(makePromise().promise) === 'promise'`.
 2. **Non-thenability.**
    The token has no `then` (own or inherited beyond `Object.prototype`).
    `await passStylePromise` resolves to the token itself, not to a
@@ -742,6 +973,39 @@ Tests live under `packages/pass-style/test/`,
 14. **Existing-consumer regression.**
     Run the existing `pass-style` and `marshal` test suites unchanged;
     no test that passes a native `Promise` should regress.
+15. **`E(carrier).method(...)` integration via `HandledPromise.resolve`.**
+    A test that calls `HandledPromise.resolve(carrier)` then dispatches
+    a method through `E(...)` confirms the resolve-through-settle
+    routing reaches the actual target's method (not the carrier's
+    nonexistent method). Without the routing fix, this test fails with
+    a "no such method" or equivalent against the carrier.
+16. **Contestant-race skip for pass-style carriers.**
+    A test that exercises `handle()`'s contestant race with a
+    pass-style carrier as the target confirms the synchronous
+    fallback is skipped and the dispatch lands on the eventual
+    target. The regression guard is that without the guard, the
+    second contestant wins immediately and the dispatch lands on the
+    carrier itself.
+17. **Rejection retention without subscriber.**
+    A producer that calls `resolver.reject(reason)` before any
+    subscriber registers MUST NOT cause a host-level
+    unhandled-rejection event. The first subscriber that arrives
+    receives the recorded rejection on the next turn. A second-stage
+    test confirms a chain (`a.resolver.resolve(b.promise);
+    b.resolver.reject(err)`) delivers `err` through `a`'s subscriber
+    without intermediate noise.
+18. **Env-flag gating of the inbound CapTP path.**
+    With `ENDO_PROMISE_DELEGATES` unset (the default), inbound
+    `'p'`-prefixed slots produce native promises (the legacy path).
+    With `ENDO_PROMISE_DELEGATES=enabled`, inbound `'p'`-prefixed
+    slots produce pass-style carriers. The flag's parse honors the
+    `@endo/env-options` convention (`'enabled'` is the only
+    non-default value).
+19. **SES permits.**
+    After `@endo/init` (i.e. post-lockdown), `HandledPromise.subscribe`
+    and `HandledPromise.settle` are still callable. Without the
+    permits entry, both go to `undefined` and the test fails
+    closed.
 
 ## Self-Improvement and Bots-Side Note
 
