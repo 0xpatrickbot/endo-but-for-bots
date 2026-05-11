@@ -328,14 +328,19 @@ export const inventoryComponent = async (
           try {
             // Validate the locator URL and extract connection hints.
             const url = new URL(locator);
-            const formulaNumber = url.searchParams.get('id');
+            // Path components are `@`-delimited and URL-encoded.  The
+            // first component is the formula address; the rest are
+            // connection hints.
+            const [formulaNumber, ...addresses] = url.pathname
+              .replace(/^\//, '')
+              .split('@')
+              .map(decodeURIComponent);
             const nodeNumber = url.hostname;
             if (!formulaNumber) {
               throw new Error('Invalid locator: missing formula id');
             }
             // Register peer info from connection hints so the daemon
             // knows how to reach the remote node.
-            const addresses = url.searchParams.getAll('at');
             if (addresses.length > 0 && nodeNumber) {
               await E(
                 /** @type {{ addPeerInfo: (info: { node: string, addresses: string[] }) => Promise<void> }} */ (
