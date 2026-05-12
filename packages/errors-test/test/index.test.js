@@ -1,7 +1,7 @@
 // Sets up a SES environment with 'assert' global
 import test from 'ava';
 
-import { assert, throwRedacted } from '../index.js';
+import { assert, throwRedacted } from '@endo/errors';
 
 test('throwRedacted', t => {
   t.notThrows(() => true || throwRedacted`Should not be thrown`);

@@ -1,7 +1,13 @@
 /* eslint-disable @endo/no-polymorphic-call, import/no-extraneous-dependencies, no-restricted-globals */
 import { expectType } from 'tsd';
-import { E } from '../test/_get-hp.js';
+// _get-hp.js was moved to @endo/eventual-send-test in the
+// dev-dependency cycle break. Reproduce the minimal binding it
+// provided so that this type test stays self-contained.
+import makeE from './E.js';
+import { makeHandledPromise } from './handled-promise.js';
 import type { ERef, EReturn, FarRef } from './exports.js';
+
+const E = makeE(makeHandledPromise());
 
 // Check the legacy ERef type
 const foo = async (a: ERef<{ bar(): string; baz: number }>) => {
