@@ -126,11 +126,9 @@ export const createCommandExecutor = ({
                 `No locator for edge "${edgeName}" in channel message #${messageNumber}`,
               );
             }
-            // Write the locator into the user's pet store.  Per issue #150
-            // reply, the upstream send path uses locate() so msgIds carries
-            // endo:// locators; storeLocator is the matching API and is
-            // preferred over storeIdentifier so the system can drop bare-
-            // identifier support in the future.
+            // msgIds carries endo:// locators (the send path uses locate());
+            // storeLocator is the matching API and bare identifiers are
+            // deprecated.
             await E(powers).storeLocator(targetNamePath, locator);
             return { success: true, message: `Adopted as "${targetNameStr}"` };
           }

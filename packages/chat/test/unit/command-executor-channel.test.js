@@ -189,6 +189,20 @@ const createMockChannelRef = (messages = []) => {
   return { channelRef, calls };
 };
 
+/**
+ * Build a locator literal in the shape `parseLocator` would accept,
+ * with a recognizable hex tag embedded at the end of the formula number
+ * so each test fixture stays readable in failures.
+ *
+ * @param {string} tag - Short hex label (matches /^[0-9a-f]+$/).
+ * @returns {string}
+ */
+const mockLocator = tag => {
+  const node = '0'.repeat(64);
+  const number = `${'0'.repeat(64 - tag.length)}${tag}`;
+  return `endo://${node}/?id=${number}&type=readable-blob`;
+};
+
 // ============ CHANNEL-MODE ADOPT TESTS ============
 
 test('adopt in channel mode writes formula ID from channel message', async t => {
@@ -197,7 +211,7 @@ test('adopt in channel mode writes formula ID from channel message', async t => 
     {
       number: 5n,
       names: ['my-attachment'],
-      ids: ['endo://abc123'],
+      ids: [mockLocator('abc123')],
     },
   ]);
 
@@ -221,7 +235,7 @@ test('adopt in channel mode writes formula ID from channel message', async t => 
   // Should call powers.storeLocator with the endo:// locator, not powers.adopt
   const writeCall = ctx.calls.find(c => c.method === 'storeLocator');
   t.truthy(writeCall);
-  t.deepEqual(writeCall?.args, [['saved-file'], 'endo://abc123']);
+  t.deepEqual(writeCall?.args, [['saved-file'], mockLocator('abc123')]);
 
   // Should NOT call powers.adopt (inbox-mode path)
   const adoptCall = ctx.calls.find(c => c.method === 'adopt');
@@ -234,7 +248,7 @@ test('adopt in channel mode uses edge name as default pet name', async t => {
     {
       number: 3n,
       names: ['data-file'],
-      ids: ['endo://def456'],
+      ids: [mockLocator('def456')],
     },
   ]);
 
@@ -255,7 +269,7 @@ test('adopt in channel mode uses edge name as default pet name', async t => {
   t.is(result.message, 'Adopted as "data-file"');
 
   const writeCall = ctx.calls.find(c => c.method === 'storeLocator');
-  t.deepEqual(writeCall?.args, [['data-file'], 'endo://def456']);
+  t.deepEqual(writeCall?.args, [['data-file'], mockLocator('def456')]);
 });
 
 test('adopt in channel mode supports edgeNames field name', async t => {
@@ -264,7 +278,7 @@ test('adopt in channel mode supports edgeNames field name', async t => {
     {
       number: 7n,
       edgeNames: ['alt-attachment'],
-      ids: ['endo://ghi789'],
+      ids: [mockLocator('add789')],
     },
   ]);
 
@@ -284,7 +298,7 @@ test('adopt in channel mode supports edgeNames field name', async t => {
 
   t.true(result.success);
   const writeCall = ctx.calls.find(c => c.method === 'storeLocator');
-  t.deepEqual(writeCall?.args, [['my-copy'], 'endo://ghi789']);
+  t.deepEqual(writeCall?.args, [['my-copy'], mockLocator('add789')]);
 });
 
 test('adopt in channel mode fails when message not found', async t => {
@@ -361,7 +375,7 @@ test('adopt in channel mode fails when formula ID is missing', async t => {
 test('adopt in channel mode with slash-path pet name', async t => {
   const ctx = createMockContext();
   const { channelRef } = createMockChannelRef([
-    { number: 2n, names: ['doc'], ids: ['endo://doc1'] },
+    { number: 2n, names: ['doc'], ids: [mockLocator('d0c1')] },
   ]);
 
   const executor = createCommandExecutor({
@@ -380,7 +394,7 @@ test('adopt in channel mode with slash-path pet name', async t => {
 
   t.true(result.success);
   const writeCall = ctx.calls.find(c => c.method === 'storeLocator');
-  t.deepEqual(writeCall?.args, [['my', 'docs', 'file'], 'endo://doc1']);
+  t.deepEqual(writeCall?.args, [['my', 'docs', 'file'], mockLocator('d0c1')]);
 });
 
 test('adopt with getChannelRef returning null falls back to inbox mode', async t => {
@@ -817,7 +831,7 @@ test('adopt in channel mode picks the correct edge from multiple', async t => {
     {
       number: 10n,
       names: ['file-a', 'file-b', 'file-c'],
-      ids: ['endo://aaa', 'endo://bbb', 'endo://ccc'],
+      ids: [mockLocator('aaa'), mockLocator('bbb'), mockLocator('ccc')],
     },
   ]);
 
@@ -837,5 +851,5 @@ test('adopt in channel mode picks the correct edge from multiple', async t => {
 
   t.true(result.success);
   const writeCall = ctx.calls.find(c => c.method === 'storeLocator');
-  t.deepEqual(writeCall?.args, [['my-b'], 'endo://bbb']);
+  t.deepEqual(writeCall?.args, [['my-b'], mockLocator('bbb')]);
 });

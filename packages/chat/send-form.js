@@ -406,9 +406,7 @@ export const sendFormComponent = ({
       });
 
       // Resolve pet names to endo:// locators so channel messages carry
-      // references that other members can adopt.  Per issue #150 reply,
-      // prefer locate()/storeLocator over identify()/storeIdentifier so the
-      // system can drop bare-identifier support in the future.
+      // adoptable references; bare identifiers are deprecated.
       const resolveIds =
         petNames.length > 0
           ? Promise.all(
