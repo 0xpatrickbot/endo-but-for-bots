@@ -370,7 +370,7 @@ automation.
 | familiar-chat-weblet-hosting | Not Started | Iframe hosting, guest profiles |
 | daemon-checkin-checkout | Not Started | `endo ci` / `endo co` for readable-tree ↔ filesystem |
 | daemon-weblet-application | Not Started | Readable trees, zip archives |
-| exo-zip-package | Proposed | `@endo/exo-zip` adapter: in-memory ZIP as `ReadableTree` exo; PR #128 reshape blocker |
+| exo-zip-package | Proposed | `@endo/exo-unzip` (`unzip(bytes) -> ReadableTree`) and `@endo/exo-zip` (`zip(tree) -> bytes`); PR #128 reshape blocker |
 | endoclaw-oauth | Not Started | Credential capability — agent uses service without seeing token |
 | endoclaw-proactive-messages | Not Started | Composes Timer + data caps + send() for briefings/reminders |
 | endoclaw-notifications | Not Started | `Notify` exo → Electron `Notification`; needs daemon↔Electron bridge |
@@ -619,7 +619,7 @@ Recalibrated on 2026-03-02 using observed velocity from 15 active work days
 | familiar-chat-weblet-hosting | M | 4-5 days | 3 | Iframe hosting, guest profiles (1.2x bump) |
 | daemon-checkin-checkout | S-M | 3 days | 3 | `endo ci`/`co`, readable-tree formula, zip support |
 | daemon-weblet-application | M | 4-5 days | 3 | Formula types, gateway serving (1.2x bump) |
-| exo-zip-package | S | 1-2 days | 3 | `@endo/exo-zip` adapter: in-memory ZIP as `ReadableTree` exo; PR #128 reshape blocker |
+| exo-zip-package | S | 1-2 days | 3 | `@endo/exo-unzip` (`unzip(bytes) -> ReadableTree`) and `@endo/exo-zip` (`zip(tree) -> bytes`); PR #128 reshape blocker |
 | endoclaw-oauth | S-M | 3 days | 3 | Credential proxy exo, token injection |
 | endoclaw-proactive-messages | S | 1 day | 3 | Pattern doc: Timer + data caps + send() |
 | endoclaw-notifications | S | 1 day | 3 | Electron Notification API, rate-limited exo; needs daemon↔Electron bridge |
