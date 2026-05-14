@@ -2,7 +2,7 @@
 /// <reference types="ses"/>
 
 /** @import { ERef } from '@endo/eventual-send' */
-/** @import { AgentDeferredTaskParams, ChannelDeferredTaskParams, Context, DaemonCore, DeferredTasks, EndoGuest, EndoHost, EnvRecord, EvalDeferredTaskParams, FormulaIdentifier, FormulaNumber, InvitationDeferredTaskParams, MakeCapletDeferredTaskParams, MakeCapletOptions, MakeDirectoryNode, MakeHostOrGuestOptions, MakeMailbox, MountDeferredTaskParams, Name, NameOrPath, NamePath, NodeNumber, PeerInfo, PetName, ReadableBlobDeferredTaskParams, ReadableTreeDeferredTaskParams, MarshalDeferredTaskParams, ScratchMountDeferredTaskParams, WorkerDeferredTaskParams } from './types.js' */
+/** @import { AgentDeferredTaskParams, ChannelDeferredTaskParams, Context, DaemonCore, DeferredTasks, EndoGuest, EndoHost, EnvRecord, EvalDeferredTaskParams, FilePowers, FormulaIdentifier, FormulaNumber, InvitationDeferredTaskParams, MakeCapletDeferredTaskParams, MakeCapletOptions, MakeDirectoryNode, MakeHostOrGuestOptions, MakeMailbox, MountDeferredTaskParams, Name, NameOrPath, NamePath, NodeNumber, PeerInfo, PetName, ReadableBlobDeferredTaskParams, ReadableTreeDeferredTaskParams, MarshalDeferredTaskParams, ScratchMountDeferredTaskParams, WorkerDeferredTaskParams } from './types.js' */
 
 import { E } from '@endo/far';
 import { makeExo } from '@endo/exo';
@@ -80,6 +80,7 @@ const normalizeHostOrGuestOptions = opts => {
  * @param {DaemonCore['getTypeForId']} args.getTypeForId
  * @param {DaemonCore['getFormulaForId']} args.getFormulaForId
  * @param {string} args.statePath
+ * @param {FilePowers} args.filePowers
  * @param {MakeMailbox} args.makeMailbox
  * @param {MakeDirectoryNode} args.makeDirectoryNode
  * @param {NodeNumber} args.localNodeNumber
@@ -116,6 +117,7 @@ export const makeHostMaker = ({
   getTypeForId,
   getFormulaForId,
   statePath,
+  filePowers,
   makeMailbox,
   makeDirectoryNode,
   localNodeNumber,
@@ -348,14 +350,34 @@ export const makeHostMaker = ({
         parentPath = `${statePath}/mounts/${formulaNumber}`;
       }
 
-      // Validate subpath segments — no ".." or absolute paths.
+      // Validate subpath segments. No "..", ".", or absolute paths.
       const segments = subpath.split('/').filter(s => s.length > 0);
       for (const seg of segments) {
         if (seg === '..' || seg === '.') {
-          throw makeError(`Invalid subpath segment: ${q(seg)}`);
+          throw makeError(`Invalid subDir segment: ${q(seg)}`);
         }
       }
       const fullPath = [parentPath, ...segments].join('/');
+
+      // Realpath-confine the child mount's path under the parent
+      // mount's realpath.  Without this, a symlink placed inside the
+      // parent mount (via any other capability holding it) at the
+      // requested subpath could redirect the child mount's
+      // confinement root outside the parent.  The Mount exo's own
+      // assertConfined checks operate on the child's confinementRoot,
+      // which would already be the symlink target's realpath, so the
+      // escape would not surface on later operations.  We refuse it
+      // here at sub-mount formation.
+      const parentReal = await filePowers.realPath(parentPath);
+      const childReal = await filePowers.realPath(fullPath);
+      if (
+        childReal !== parentReal &&
+        !childReal.startsWith(`${parentReal}/`)
+      ) {
+        throw makeError(
+          `Sub-mount path escapes parent mount root: ${q(subpath)}`,
+        );
+      }
 
       /** @type {DeferredTasks<MountDeferredTaskParams>} */
       const tasks = makeDeferredTasks();
@@ -363,7 +385,7 @@ export const makeHostMaker = ({
         E(directory).storeIdentifier(newNamePath, identifiers.mountId),
       );
 
-      const { value } = await formulateMount(fullPath, readOnly, tasks);
+      const { value } = await formulateMount(childReal, readOnly, tasks);
       return value;
     };
 

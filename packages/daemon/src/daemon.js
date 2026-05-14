@@ -5150,6 +5150,7 @@ const makeDaemonCore = async (
     getTypeForId,
     getFormulaForId,
     statePath: persistencePowers.statePath,
+    filePowers,
     formulateChannel,
     formulateTimer,
     makeMailbox,
