@@ -189,6 +189,12 @@ const makeMountExo = ctx => {
 
   const help = makeHelp(mountHelp);
 
+  // selfRef captures the mount exo for snapshotFn (which needs a
+  // reference to the mount itself, e.g. to feed checkinTree).  It is
+  // populated after makeExo returns, before this function returns.
+  // Any future refactor that splits makeMountExo into pieces must
+  // preserve this ordering: makeExo must return before selfRef is
+  // read by any caller of snapshot().
   /** @type {object} */
   let selfRef;
 
@@ -318,23 +324,32 @@ const makeMountExo = ctx => {
       const segments = subpath.split('/').filter(s => s.length > 0);
       for (const seg of segments) {
         if (seg === '..' || seg === '.') {
-          throw new Error(`Invalid subDir segment: ${seg}`);
+          throw new Error(`Invalid subDir segment: ${q(seg)}`);
         }
       }
       const target = resolve(segments);
       await assertConfinedOrAncestor(target, confinementRoot, filePowers);
       const isDir = await filePowers.isDirectory(target);
       if (!isDir) {
-        throw new Error(`subDir target is not a directory: ${subpath}`);
+        throw new Error(`subDir target is not a directory: ${q(subpath)}`);
       }
+      // Realpath-confine the resolved target: if any segment of the
+      // subpath was a symlink whose realpath escapes the parent
+      // confinement root, reject before forming the sub-mount.
+      // assertConfinedOrAncestor above checks the target's chain
+      // against the *parent* confinementRoot, which is precisely the
+      // escape we need to refuse.
+      const targetReal = await filePowers.realPath(target);
       return makeMountExo({
         ...ctx,
-        currentDir: target,
-        // The confinement root stays the same — the sub-mount cannot
-        // escape above the original root.  But the sub-mount's own
-        // navigation is restricted to its new currentDir because
-        // resolveSegments clamps ".." to currentDir.
-        confinementRoot: target,
+        currentDir: targetReal,
+        // The sub-mount's own confinement root is the realpath-resolved
+        // target.  The sub-mount cannot escape above its new root
+        // because resolveSegments clamps ".." at currentDir.
+        // Resolving to realpath up front (rather than the symlink
+        // path) keeps every later assertConfined check inside the
+        // sub-mount honest, no matter what the on-disk layout becomes.
+        confinementRoot: targetReal,
         description: `${readOnly ? 'Read-only sub-mount' : 'Sub-mount'} at ${subpath} of ${description}`,
       });
     },
