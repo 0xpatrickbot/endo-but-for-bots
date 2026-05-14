@@ -370,10 +370,7 @@ export const makeHostMaker = ({
       // here at sub-mount formation.
       const parentReal = await filePowers.realPath(parentPath);
       const childReal = await filePowers.realPath(fullPath);
-      if (
-        childReal !== parentReal &&
-        !childReal.startsWith(`${parentReal}/`)
-      ) {
+      if (childReal !== parentReal && !childReal.startsWith(`${parentReal}/`)) {
         throw makeError(
           `Sub-mount path escapes parent mount root: ${q(subpath)}`,
         );
