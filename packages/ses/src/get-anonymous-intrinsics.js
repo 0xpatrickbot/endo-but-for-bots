@@ -185,6 +185,7 @@ export const getAnonymousIntrinsics = () => {
   // prototype and influence every other compartment's iteration. On hosts
   // without `URLSearchParams` (XS), skip.
   if (typeof globalThis.URLSearchParams === 'function') {
+    // eslint-disable-next-line @endo/no-polymorphic-call
     const urlSearchParamsIterator = new globalThis.URLSearchParams().entries();
     intrinsics['%URLSearchParamsIteratorPrototype%'] = getPrototypeOf(
       urlSearchParamsIterator,
