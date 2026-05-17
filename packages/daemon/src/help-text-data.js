@@ -227,6 +227,8 @@ export const helpTextEntries = harden([
       move: 'move(from, to) -> Promise<void>\nRename an entry within the mount.\nfrom: string | string[] — Source name or path segments.\nto: string | string[] — Destination name or path segments.',
       makeDirectory:
         'makeDirectory(path) -> Promise<void>\nCreate a directory (and missing parents).\npath: string | string[] — Name or path segments.',
+      followNameChanges:
+        "followNameChanges(...pathSegments) -> AsyncIterator\nSubscribe to entry-name changes within the named subdirectory.\nFirst yields existing entries in alphabetical order as\n{ add: name, type: 'file' | 'directory' } records, then yields\n{ add, type } and { remove } diffs as entries appear or disappear.\nShallow (immediate children only) and confinement-filtered.\nReleases the underlying OS watcher when the iterator is dropped.",
       readOnly:
         'readOnly() -> EndoMount\nReturns a read-only view of this mount.',
       snapshot:

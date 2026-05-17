@@ -520,6 +520,13 @@ export const MountInterface = M.interface('EndoMount', {
   remove: M.call(PathArgShape).returns(M.promise()),
   move: M.call(PathArgShape, PathArgShape).returns(M.promise()),
   makeDirectory: M.call(PathArgShape).returns(M.promise()),
+  // Subscribe to entry-name changes (returns iterator ref).  The
+  // first batch is a snapshot in alphabetical order; subsequent
+  // records diff against the snapshot as entries appear or
+  // disappear.  Mirrors EndoDirectory.followNameChanges but emits
+  // `type: 'file' | 'directory'` in place of an IdRecord since a
+  // filesystem entry has no formula identifier.
+  followNameChanges: M.call().rest(PathSegmentsShape).returns(M.remotable()),
   // Attenuation
   readOnly: M.call().returns(M.remotable()),
   // Snapshot

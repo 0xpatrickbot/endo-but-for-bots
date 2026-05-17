@@ -710,6 +710,15 @@ to: string | string[] — Destination name or path segments.
 Create a directory (and missing parents).
 path: string | string[] — Name or path segments.
 
+## followNameChanges(...pathSegments) -> AsyncIterator
+
+Subscribe to entry-name changes within the named subdirectory.
+First yields existing entries in alphabetical order as
+{ add: name, type: 'file' | 'directory' } records, then yields
+{ add, type } and { remove } diffs as entries appear or disappear.
+Shallow (immediate children only) and confinement-filtered.
+Releases the underlying OS watcher when the iterator is dropped.
+
 ## readOnly() -> EndoMount
 
 Returns a read-only view of this mount.
