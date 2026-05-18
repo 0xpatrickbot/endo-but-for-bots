@@ -21,7 +21,11 @@ import {
   parseId,
   formatId,
 } from './formula-identifier.js';
-import { addressesFromLocator, formatLocator } from './locator.js';
+import {
+  addressesFromLocator,
+  formatLocator,
+  internalizeLocator,
+} from './locator.js';
 import { toHex, fromHex } from './hex.js';
 import { makePetSitter } from './pet-sitter.js';
 
@@ -90,6 +94,8 @@ const normalizeHostOrGuestOptions = opts => {
  * @param {DaemonCore['pinTransient']} [args.pinTransient]
  * @param {DaemonCore['unpinTransient']} [args.unpinTransient]
  * @param {DaemonCore['getFormulaGraphSnapshot']} [args.getFormulaGraphSnapshot]
+ * @param {DaemonCore['listRetentionPaths']} [args.listRetentionPaths]
+ * @param {DaemonCore['followRetentionPaths']} [args.followRetentionPaths]
  */
 export const makeHostMaker = ({
   provide,
@@ -133,6 +139,19 @@ export const makeHostMaker = ({
   unpinTransient = /** @param {any} _id */ _id => {},
   getFormulaGraphSnapshot = /** @param {any[]} _ids */ async _ids =>
     harden({ nodes: [], edges: [] }),
+  listRetentionPaths = /** @param {any} _id */ async _id => harden([]),
+  /**
+   * @param {any} _id
+   * @returns {AsyncGenerator<
+   *   import('./retention-path-accumulator.js').RetentionPathDelta,
+   *   undefined,
+   *   undefined
+   * >}
+   */
+  // eslint-disable-next-line require-yield
+  followRetentionPaths = async function* _follow(_id) {
+    return undefined;
+  },
 }) => {
   /**
    * @param {FormulaIdentifier} hostId
@@ -1398,6 +1417,48 @@ export const makeHostMaker = ({
       return getFormulaGraphSnapshot(seedIds);
     };
 
+    /**
+     * Snapshot every retention path from a GC root to the target,
+     * named by an endo:// locator. Pet-store edges along each path
+     * render as `pet:<name>` labels by reverse-resolving the
+     * referencing store's name table; other labels (field names,
+     * `retention`, `transient`) pass through. See
+     * `designs/daemon-retention-paths.md` § Notation.
+     *
+     * @param {string} locator
+     * @returns {Promise<import('./graph.js').RetentionPath[]>}
+     */
+    const listRetentionPathsForHost = async locator => {
+      const { id } = internalizeLocator(locator);
+      return listRetentionPaths(
+        /** @type {import('./types.js').FormulaIdentifier} */ (id),
+      );
+    };
+
+    /**
+     * Subscribe to retention-path changes for the target locator.
+     * First delta is a `{ snapshot }`; subsequent deltas are
+     * `{ added, removed }` diffs over a microtask-coalesced batch
+     * window. Drop the returned far reference to release the
+     * subscription, matching `followNameChanges` /
+     * `followLocatorNameChanges`.
+     *
+     * @param {string} locator
+     * @returns {AsyncGenerator<
+     *   import('./retention-path-accumulator.js').RetentionPathDelta,
+     *   undefined,
+     *   undefined
+     * >}
+     */
+    const followRetentionPathsForHost =
+      async function* followRetentionPathsForHost(locator) {
+        const { id } = internalizeLocator(locator);
+        yield* followRetentionPaths(
+          /** @type {import('./types.js').FormulaIdentifier} */ (id),
+        );
+        return undefined;
+      };
+
     /** @type {EndoHost} */
     const host = {
       // Directory
@@ -1473,6 +1534,8 @@ export const makeHostMaker = ({
       sendValue,
       // Graph
       getFormulaGraph,
+      listRetentionPaths: listRetentionPathsForHost,
+      followRetentionPaths: followRetentionPathsForHost,
     };
 
     const hostExo = makeExo(
@@ -1496,6 +1559,11 @@ export const makeHostMaker = ({
         },
         followPeerChanges: async () => {
           const iterator = await host.followPeerChanges();
+          return makeIteratorRef(iterator);
+        },
+        /** @param {string} locator */
+        followRetentionPaths: async locator => {
+          const iterator = host.followRetentionPaths(locator);
           return makeIteratorRef(iterator);
         },
       }),

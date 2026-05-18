@@ -106,6 +106,17 @@ export type EdgeName = string;
 
 export type EnvRecord = Record<string, string>;
 
+/**
+ * Re-exports of the retention-path types defined in `graph.js`
+ * (the segment / path shape) and `retention-path-accumulator.js`
+ * (the delta shape). See `designs/daemon-retention-paths.md` §
+ * Notation for the label conventions.
+ */
+export type RetentionPathSegment = import('./graph.js').RetentionPathSegment;
+export type RetentionPath = import('./graph.js').RetentionPath;
+export type RetentionPathDelta =
+  import('./retention-path-accumulator.js').RetentionPathDelta;
+
 type EndoFormula = {
   type: 'endo';
   networks: FormulaIdentifier;
@@ -1052,6 +1063,31 @@ export interface EndoHost extends EndoAgent {
       label: string;
     }>;
   }>;
+  /**
+   * Snapshot every retention path from a GC root to the target,
+   * identified by an endo:// locator. Pet-store edges along the
+   * path render as `pet:<name>` labels; internal field edges
+   * pass through (e.g. `worker`, `petStore`, `retention`).
+   * See `designs/daemon-retention-paths.md` § Notation.
+   */
+  listRetentionPaths(
+    locator: string,
+  ): Promise<import('./graph.js').RetentionPath[]>;
+  /**
+   * Subscribe to retention-path changes for the target. The first
+   * delta is a full `{ snapshot }`; subsequent deltas are
+   * `{ added, removed }` diffs over a microtask-coalesced batch
+   * window. Drop the returned far reference to release the
+   * subscription, exactly as with `followNameChanges` and
+   * `followLocatorNameChanges`.
+   */
+  followRetentionPaths(
+    locator: string,
+  ): AsyncGenerator<
+    import('./retention-path-accumulator.js').RetentionPathDelta,
+    undefined,
+    undefined
+  >;
 }
 
 export interface EndoHostController extends Controller<FarRef<EndoHost>> {}
@@ -1733,6 +1769,16 @@ export interface DaemonCore {
       label: string;
     }>;
   }>;
+  listRetentionPaths: (
+    targetId: FormulaIdentifier,
+  ) => Promise<import('./graph.js').RetentionPath[]>;
+  followRetentionPaths: (
+    targetId: FormulaIdentifier,
+  ) => AsyncGenerator<
+    import('./retention-path-accumulator.js').RetentionPathDelta,
+    undefined,
+    undefined
+  >;
   provideController: (id: FormulaIdentifier) => Controller;
 }
 
