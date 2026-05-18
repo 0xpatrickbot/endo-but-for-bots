@@ -8,10 +8,16 @@ import { passableAsJustin, makeMarshal } from '@endo/marshal';
 import { makeRefIterator } from '@endo/daemon/ref-reader.js';
 import { makeLocalTree } from '@endo/platform/fs/node';
 
-import { createProvider } from './providers/index.js';
+import { registerBuiltInApiProviders } from '@mariozechner/pi-ai';
+import { makePiAgent, runAgentRound } from '@endo/genie';
 
 /** @import { FarRef } from '@endo/eventual-send' */
-/** @import { GuestPowers, NameOrPath, ToolParameterProperty, ToolParameters, ToolFunction, Tool, ToolCall, ChatMessage, ToolResult, ToolCallArgs, InboxMessage, LalContext } from './agent.types.js' */
+/** @import { GuestPowers, ToolCallArgs, InboxMessage, LalContext } from './agent.types.js' */
+
+// Register pi-ai's built-in providers (anthropic, openai, gemini, ollama, etc.)
+// so getModel(provider, modelId) lookups succeed for any caller-supplied
+// "provider/modelId" string.
+registerBuiltInApiProviders();
 
 // ============================================================================
 // Interface Definition
@@ -22,661 +28,181 @@ const LalInterface = M.interface('Lal', {
 });
 
 // ============================================================================
-// Tool Definitions - Guest Powers
+// Endo Capability Tool Specs
 // ============================================================================
+//
+// Each tool is named, has a one-line summary (used by pi-agent-core as the
+// tool description sent to the LLM), and an `execute(powers, args)` callback
+// that calls into the daemon. The `parameters` field captures the JSON-schema
+// shape the LLM should target; `makePiAgent` accepts a permissive open object
+// schema by default, so the field is primarily for documentation today. When
+// `pi-agent-core` learns to forward custom parameter schemas this field will
+// be wired through directly.
+//
+// Tool dispatch lives entirely in this module: `executeTool` is the single
+// `switch` that maps tool names to `E(powers)` calls. The set of tools is the
+// same surface lal exposed before the genie migration; only the agent loop
+// driving them has been replaced.
 
-/** @type {Tool[]} */
-const tools = [
+/**
+ * @typedef {object} LalToolDef
+ * @property {string} name
+ * @property {string} summary - one-line description sent to the LLM.
+ * @property {object} [parameters] - JSON-schema-like shape (for documentation).
+ */
+
+/** @type {LalToolDef[]} */
+const toolDefs = [
   // --- Self-documentation ---
   {
-    type: 'function',
-    function: {
-      name: 'help',
-      description:
-        'Get documentation for guest capabilities or a specific method. ' +
-        'Call with no arguments for an overview, or with a method name for specific documentation.',
-      parameters: {
-        type: 'object',
-        properties: {
-          methodName: {
-            type: 'string',
-            description:
-              'Optional method name to get specific documentation for.',
-          },
-        },
-        required: [],
-      },
-    },
+    name: 'help',
+    summary:
+      'Get documentation for guest capabilities or a specific method. ' +
+      'Call with no arguments for an overview, or with a method name for specific documentation.',
   },
 
   // --- Directory operations ---
   {
-    type: 'function',
-    function: {
-      name: 'has',
-      description:
-        'Check if a pet name exists in the directory. Returns true or false.',
-      parameters: {
-        type: 'object',
-        properties: {
-          petNamePath: {
-            type: 'array',
-            items: { type: 'string' },
-            description:
-              'The pet name path to check, e.g., ["counter"] or ["subdir", "value"].',
-          },
-        },
-        required: ['petNamePath'],
-      },
-    },
+    name: 'has',
+    summary:
+      'Check if a pet name exists in the directory. Returns true or false. ' +
+      'Argument: petNamePath (string[]).',
   },
   {
-    type: 'function',
-    function: {
-      name: 'list',
-      description:
-        'List contents of your directory or any capability you have a pet name for. ' +
-        'With no arguments, lists pet names in your root directory. ' +
-        'With a name, looks up that capability and calls list() on it ' +
-        '(works on ReadableTree, WritableTree, directories, etc.).',
-      parameters: {
-        type: 'object',
-        properties: {
-          name: {
-            oneOf: [
-              { type: 'string' },
-              { type: 'array', items: { type: 'string' } },
-            ],
-            description:
-              'Optional pet name or path of a capability to list. ' +
-              'Omit to list your own root directory.',
-          },
-        },
-        required: [],
-      },
-    },
+    name: 'list',
+    summary:
+      'List contents of your directory or any capability you have a pet name for. ' +
+      'With no arguments, lists pet names in your root directory. ' +
+      'With a name, looks up that capability and calls list() on it. ' +
+      'Optional argument: name (string or string[]).',
   },
   {
-    type: 'function',
-    function: {
-      name: 'lookup',
-      description:
-        'Resolve a pet name or path to its value. Returns the value stored under that name.',
-      parameters: {
-        type: 'object',
-        properties: {
-          petNameOrPath: {
-            oneOf: [
-              { type: 'string' },
-              { type: 'array', items: { type: 'string' } },
-            ],
-            description:
-              'A pet name string like "counter" or a path array like ["subdir", "value"].',
-          },
-        },
-        required: ['petNameOrPath'],
-      },
-    },
+    name: 'lookup',
+    summary:
+      'Resolve a pet name or path to its value. Returns the value stored under that name. ' +
+      'Argument: petNameOrPath (string or string[]).',
   },
   {
-    type: 'function',
-    function: {
-      name: 'remove',
-      description:
-        'Remove a pet name from the directory. The underlying value is not deleted, just the name mapping.',
-      parameters: {
-        type: 'object',
-        properties: {
-          petNamePath: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'The pet name path to remove.',
-          },
-        },
-        required: ['petNamePath'],
-      },
-    },
+    name: 'remove',
+    summary:
+      'Remove a pet name from the directory. The underlying value is not deleted, just the name mapping. ' +
+      'Argument: petNamePath (string[]).',
   },
   {
-    type: 'function',
-    function: {
-      name: 'move',
-      description:
-        'Move/rename a reference from one name to another. The original name is removed.',
-      parameters: {
-        type: 'object',
-        properties: {
-          fromPath: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'The source pet name path.',
-          },
-          toPath: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'The destination pet name path.',
-          },
-        },
-        required: ['fromPath', 'toPath'],
-      },
-    },
+    name: 'move',
+    summary:
+      'Move/rename a reference from one name to another. The original name is removed. ' +
+      'Arguments: fromPath (string[]), toPath (string[]).',
   },
   {
-    type: 'function',
-    function: {
-      name: 'copy',
-      description:
-        'Copy a reference to a new name. Both names will refer to the same value.',
-      parameters: {
-        type: 'object',
-        properties: {
-          fromPath: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'The source pet name path.',
-          },
-          toPath: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'The destination pet name path.',
-          },
-        },
-        required: ['fromPath', 'toPath'],
-      },
-    },
+    name: 'copy',
+    summary:
+      'Copy a reference to a new name. Both names will refer to the same value. ' +
+      'Arguments: fromPath (string[]), toPath (string[]).',
   },
   {
-    type: 'function',
-    function: {
-      name: 'makeDirectory',
-      description: 'Create a new subdirectory at the given path.',
-      parameters: {
-        type: 'object',
-        properties: {
-          petNamePath: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'The path for the new directory.',
-          },
-        },
-        required: ['petNamePath'],
-      },
-    },
+    name: 'makeDirectory',
+    summary:
+      'Create a new subdirectory at the given path. ' +
+      'Argument: petNamePath (string[]).',
   },
 
   // --- Mail operations ---
   {
-    type: 'function',
-    function: {
-      name: 'listMessages',
-      description:
-        'List all messages in your inbox. Returns an array of message objects with number, date, from, type, and content.',
-      parameters: {
-        type: 'object',
-        properties: {},
-        required: [],
-      },
-    },
+    name: 'listMessages',
+    summary:
+      'List all messages in your inbox. Returns an array of message objects ' +
+      'with number, date, from, type, and content. No arguments.',
   },
   {
-    type: 'function',
-    function: {
-      name: 'resolve',
-      description:
-        'Respond to a request message by providing a named value. The requester receives the resolved value.',
-      parameters: {
-        type: 'object',
-        properties: {
-          messageNumber: {
-            type: 'string',
-            description:
-              'The message number (BigInt). Use SmallCaps format: "+5" for message 5.',
-          },
-          petNameOrPath: {
-            oneOf: [
-              { type: 'string' },
-              { type: 'array', items: { type: 'string' } },
-            ],
-            description: 'The pet name of the value to send as the response.',
-          },
-        },
-        required: ['messageNumber', 'petNameOrPath'],
-      },
-    },
+    name: 'resolve',
+    summary:
+      'Respond to a request message by providing a named value. ' +
+      'Arguments: messageNumber (SmallCaps BigInt like "+5"), petNameOrPath.',
   },
   {
-    type: 'function',
-    function: {
-      name: 'reject',
-      description:
-        'Decline a request message. The requester receives an error.',
-      parameters: {
-        type: 'object',
-        properties: {
-          messageNumber: {
-            type: 'string',
-            description:
-              'The message number (BigInt). Use SmallCaps format: "+5" for message 5.',
-          },
-          reason: {
-            type: 'string',
-            description: 'Optional reason for declining.',
-          },
-        },
-        required: ['messageNumber'],
-      },
-    },
+    name: 'reject',
+    summary:
+      'Decline a request message. The requester receives an error. ' +
+      'Arguments: messageNumber (SmallCaps BigInt like "+5"), optional reason (string).',
   },
   {
-    type: 'function',
-    function: {
-      name: 'adopt',
-      description:
-        'Adopt a value from an incoming package message, giving it a pet name. ' +
-        'Edge names are the labels the sender attached to values in the package.',
-      parameters: {
-        type: 'object',
-        properties: {
-          messageNumber: {
-            type: 'string',
-            description:
-              'The message number (BigInt). Use SmallCaps format: "+5" for message 5.',
-          },
-          edgeName: {
-            oneOf: [
-              { type: 'string' },
-              { type: 'array', items: { type: 'string' } },
-            ],
-            description: 'The edge name (label) of the value in the message.',
-          },
-          petName: {
-            oneOf: [
-              { type: 'string' },
-              { type: 'array', items: { type: 'string' } },
-            ],
-            description: 'The pet name to give the adopted value.',
-          },
-        },
-        required: ['messageNumber', 'edgeName', 'petName'],
-      },
-    },
+    name: 'adopt',
+    summary:
+      'Adopt a value from an incoming package message, giving it a pet name. ' +
+      'Arguments: messageNumber, edgeName, petName.',
   },
   {
-    type: 'function',
-    function: {
-      name: 'dismiss',
-      description:
-        'Remove a message from your inbox. Use after you have processed a message.',
-      parameters: {
-        type: 'object',
-        properties: {
-          messageNumber: {
-            type: 'string',
-            description:
-              'The message number (BigInt). Use SmallCaps format: "+5" for message 5.',
-          },
-        },
-        required: ['messageNumber'],
-      },
-    },
+    name: 'dismiss',
+    summary:
+      'Remove a message from your inbox. Use after you have processed a message. ' +
+      'Argument: messageNumber (SmallCaps BigInt like "+5").',
   },
   {
-    type: 'function',
-    function: {
-      name: 'request',
-      description:
-        'Send a request to another agent asking for a capability. ' +
-        'The recipient sees your request and can resolve or reject it.',
-      parameters: {
-        type: 'object',
-        properties: {
-          recipientName: {
-            oneOf: [
-              { type: 'string' },
-              { type: 'array', items: { type: 'string' } },
-            ],
-            description:
-              'The pet name of the recipient, e.g., "@host" for your host.',
-          },
-          description: {
-            type: 'string',
-            description: 'A description of what capability you are requesting.',
-          },
-          responseName: {
-            oneOf: [
-              { type: 'string' },
-              { type: 'array', items: { type: 'string' } },
-            ],
-            description: 'Optional pet name to store the response under.',
-          },
-        },
-        required: ['recipientName', 'description'],
-      },
-    },
+    name: 'request',
+    summary:
+      'Send a request to another agent asking for a capability. ' +
+      'Arguments: recipientName, description (string), optional responseName.',
   },
   {
-    type: 'function',
-    function: {
-      name: 'send',
-      description: `\
-Send a package message with values to another agent.
-
-The message is constructed from alternating text strings and value references:
-- strings: Array of text fragments
-- edgeNames: Array of labels for the values being sent (one fewer than strings)
-- petNames: Array of pet names providing the values (same length as edgeNames)
-
-Example: To send "Here is [counter] for you" where counter is a value:
-  send("@host", ["Here is ", " for you"], ["counter"], ["my-counter"])
-
-The recipient sees: "Here is @counter for you" and can adopt @counter.
-
-IMPORTANT for code: When sending code, use a single string without edge names:
-  send("@host", ["Here is the code:\\n\`\`\`javascript\\nconst x = 1;\\n\`\`\`"], [], [])
-
-For multi-line content, include literal newlines in the string.`,
-      parameters: {
-        type: 'object',
-        properties: {
-          recipientName: {
-            oneOf: [
-              { type: 'string' },
-              { type: 'array', items: { type: 'string' } },
-            ],
-            description:
-              'The pet name of the recipient, e.g., "@host" for your host.',
-          },
-          strings: {
-            type: 'array',
-            items: { type: 'string' },
-            description:
-              'Text fragments. Length should be edgeNames.length + 1.',
-          },
-          edgeNames: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Labels for the values being sent.',
-          },
-          petNames: {
-            type: 'array',
-            items: {
-              oneOf: [
-                { type: 'string' },
-                { type: 'array', items: { type: 'string' } },
-              ],
-            },
-            description:
-              'Pet names of values to include (same length as edgeNames).',
-          },
-        },
-        required: ['recipientName', 'strings', 'edgeNames', 'petNames'],
-      },
-    },
+    name: 'send',
+    summary:
+      'Send a package message with values to another agent. ' +
+      'Arguments: recipientName, strings (string[]), edgeNames (string[]), petNames. ' +
+      'For text-only messages: send("@host", ["text"], [], []).',
   },
-
   {
-    type: 'function',
-    function: {
-      name: 'reply',
-      description: `\
-Reply to a message in your inbox, threading the response to the original message.
-Use this instead of send() when responding to a received message.
-
-The reply is automatically sent to the other party in the original conversation
-and is threaded as a reply (the daemon sets replyTo on the outgoing message).
-
-The message is constructed the same way as send():
-- strings: Array of text fragments
-- edgeNames: Array of labels for the values being sent
-- petNames: Array of pet names providing the values
-
-IMPORTANT: Always use reply() instead of send() when responding to a message.
-Use send() only for initiating brand new conversations.`,
-      parameters: {
-        type: 'object',
-        properties: {
-          messageNumber: {
-            type: 'string',
-            description:
-              'The message number (BigInt) to reply to. Use SmallCaps format: "+5" for message 5.',
-          },
-          strings: {
-            type: 'array',
-            items: { type: 'string' },
-            description:
-              'Text fragments. Length should be edgeNames.length + 1.',
-          },
-          edgeNames: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Labels for the values being sent.',
-          },
-          petNames: {
-            type: 'array',
-            items: {
-              oneOf: [
-                { type: 'string' },
-                { type: 'array', items: { type: 'string' } },
-              ],
-            },
-            description:
-              'Pet names of values to include (same length as edgeNames).',
-          },
-        },
-        required: ['messageNumber', 'strings', 'edgeNames', 'petNames'],
-      },
-    },
+    name: 'reply',
+    summary:
+      'Reply to a message in your inbox, threading the response to the original message. ' +
+      'Use this instead of send() when responding to a received message. ' +
+      'Arguments: messageNumber, strings (string[]), edgeNames (string[]), petNames.',
   },
 
   // --- Identity ---
   {
-    type: 'function',
-    function: {
-      name: 'locate',
-      description:
-        'Get the locator URL for a pet name. Returns an "endo://..." URL string. ' +
-        'Use locate(["@self"]) to get your own locator, then compare it against ' +
-        'the "from" field of messages to determine if you sent them. ' +
-        'Only pass pet names you know exist (use list() first if unsure).',
-      parameters: {
-        type: 'object',
-        properties: {
-          petNamePath: {
-            type: 'array',
-            items: { type: 'string' },
-            description:
-              'The pet name path to locate, e.g., ["@self"] or ["@host"].',
-          },
-        },
-        required: ['petNamePath'],
-      },
-    },
+    name: 'locate',
+    summary:
+      'Get the locator URL for a pet name. Returns an "endo://..." URL string. ' +
+      'Use locate(["@self"]) to get your own locator. ' +
+      'Argument: petNamePath (string[]).',
   },
 
   // --- Capability operations ---
   {
-    type: 'function',
-    function: {
-      name: 'inspect',
-      description:
-        'Look up a capability by pet name and call its help() method to learn how to use it. ' +
-        'Use this to discover what methods a capability provides.',
-      parameters: {
-        type: 'object',
-        properties: {
-          petNameOrPath: {
-            oneOf: [
-              { type: 'string' },
-              { type: 'array', items: { type: 'string' } },
-            ],
-            description: 'The pet name or path of the capability to inspect.',
-          },
-        },
-        required: ['petNameOrPath'],
-      },
-    },
+    name: 'inspect',
+    summary:
+      'Look up a capability by pet name and call its help() method to learn how to use it. ' +
+      'Argument: petNameOrPath.',
   },
   {
-    type: 'function',
-    function: {
-      name: 'readText',
-      description:
-        'Read text content from a capability (ReadableTree, WritableTree, etc.). ' +
-        'Looks up the capability by pet name and calls readText(fileName) on it.',
-      parameters: {
-        type: 'object',
-        properties: {
-          petNameOrPath: {
-            oneOf: [
-              { type: 'string' },
-              { type: 'array', items: { type: 'string' } },
-            ],
-            description: 'The pet name or path of the capability to read from.',
-          },
-          fileName: {
-            type: 'string',
-            description: 'The file name to read within the capability.',
-          },
-        },
-        required: ['petNameOrPath', 'fileName'],
-      },
-    },
+    name: 'readText',
+    summary:
+      'Read text content from a capability (ReadableTree, WritableTree, etc.). ' +
+      'Arguments: petNameOrPath, fileName (string).',
   },
   {
-    type: 'function',
-    function: {
-      name: 'writeText',
-      description:
-        'Write text content to a capability (WritableTree, etc.). ' +
-        'Looks up the capability by pet name and calls writeText(fileName, content) on it.',
-      parameters: {
-        type: 'object',
-        properties: {
-          petNameOrPath: {
-            oneOf: [
-              { type: 'string' },
-              { type: 'array', items: { type: 'string' } },
-            ],
-            description: 'The pet name or path of the capability to write to.',
-          },
-          fileName: {
-            type: 'string',
-            description: 'The file name to write within the capability.',
-          },
-          content: {
-            type: 'string',
-            description: 'The text content to write.',
-          },
-        },
-        required: ['petNameOrPath', 'fileName', 'content'],
-      },
-    },
+    name: 'writeText',
+    summary:
+      'Write text content to a capability (WritableTree, etc.). ' +
+      'Arguments: petNameOrPath, fileName (string), content (string).',
   },
 
   // --- Code evaluation ---
   {
-    type: 'function',
-    function: {
-      name: 'evaluate',
-      description: `\
-Evaluate JavaScript code directly.
-
-The code executes immediately and returns the result. The result is stored under
-the pet name you specify as resultName. You can then lookup(resultName) or send
-it to the requester.
-
-The code can reference values from your directory using the codeNames/edgeNames mapping:
-- codeNames: Variable names that will be available in your source code
-- edgeNames: Pet names of values from your directory to provide as those variables
-
-Example: To run "E(counter).increment()" where counter is a value you have named "my-counter",
-and store the result as "increment-result":
-  evaluate(undefined, "E(counter).increment()", ["counter"], ["my-counter"], "increment-result")`,
-      parameters: {
-        type: 'object',
-        properties: {
-          workerName: {
-            type: 'string',
-            description:
-              'Optional worker name to execute in. Use undefined for the default worker.',
-          },
-          source: {
-            type: 'string',
-            description: 'The JavaScript source code to evaluate.',
-          },
-          codeNames: {
-            type: 'array',
-            items: { type: 'string' },
-            description:
-              'Variable names used in the source code that need to be provided.',
-          },
-          edgeNames: {
-            type: 'array',
-            items: { type: 'string' },
-            description:
-              'Pet names from your directory providing the values for each codeName.',
-          },
-          resultName: {
-            oneOf: [
-              { type: 'string' },
-              { type: 'array', items: { type: 'string' } },
-            ],
-            description:
-              'Pet name (or path) where the evaluation result will be stored. You can then lookup and send the result.',
-          },
-        },
-        required: ['source', 'codeNames', 'edgeNames', 'resultName'],
-      },
-    },
+    name: 'evaluate',
+    summary:
+      'Evaluate JavaScript code directly. Arguments: workerName (string|undefined), ' +
+      'source (string), codeNames (string[]), edgeNames (string[]), resultName.',
   },
 
   // --- Define (code with slots for host to fill) ---
   {
-    type: 'function',
-    function: {
-      name: 'define',
-      description: `\
-Propose a reusable program with named capability slots for the host to fill.
-Unlike evaluate(), you do NOT provide the capabilities yourself — the host
-chooses what to bind from their own inventory. This is the preferred way to
-request code execution when you don't have the required capabilities.
-
-The host sees the code and slot labels, fills each slot with a capability
-from their pet store, and the code is executed. The host can submit the
-program multiple times with different bindings. You do not receive any
-notification when the program is submitted — the result is private to the host.
-
-Example: To request incrementing a counter you don't have:
-  define("E(counter).increment()", {"counter": {"label": "A counter to increment"}})
-
-The host will choose which counter to provide.`,
-      parameters: {
-        type: 'object',
-        properties: {
-          source: {
-            type: 'string',
-            description: 'The JavaScript source code to evaluate.',
-          },
-          slots: {
-            type: 'object',
-            description:
-              'Named capability slots. Keys are variable names in source, values are objects with a "label" string describing what capability is needed.',
-            additionalProperties: {
-              type: 'object',
-              properties: {
-                label: {
-                  type: 'string',
-                  description:
-                    'Human-readable description of what this slot needs.',
-                },
-              },
-              required: ['label'],
-            },
-          },
-        },
-        required: ['source', 'slots'],
-      },
-    },
+    name: 'define',
+    summary:
+      'Propose a reusable program with named capability slots for the host to fill. ' +
+      'Unlike evaluate(), you do NOT provide the capabilities yourself. ' +
+      'Arguments: source (string), slots (object mapping slot name to { label }).',
   },
 ];
 
@@ -782,226 +308,52 @@ before resorting to \`evaluate()\`. For unfamiliar capabilities, use
 `;
 
 // ============================================================================
-// Agent Implementation
+// Tool Dispatch
 // ============================================================================
 
+// SmallCaps marshal for decoding pi-ai tool call arguments. pi-ai passes
+// arguments as plain objects after JSON-parsing; this round-trip lets the
+// LLM emit SmallCaps tokens like "+5" (BigInt 5) and "#undefined" inside
+// argument values, preserving the existing protocol.
+const { unserialize } = makeMarshal(undefined, undefined, {
+  serializeBodyFormat: 'smallcaps',
+});
+
 /**
- * Spawn a worker loop that follows a guest's inbox and processes messages
- * using the given LLM configuration.
+ * Decode a value that may contain SmallCaps-encoded primitives. The pi-ai
+ * harness gives us objects with already-parsed JSON; we round-trip through
+ * SmallCaps to recover BigInts and other SmallCaps-only primitives.
  *
- * @param {any} powers - Guest powers (manager's own or a sub-guest's)
- * @param {Promise<object> | object | null | undefined} context - Context for cancellation
- * @param {{ LAL_HOST?: string, LAL_MODEL?: string, LAL_AUTH_TOKEN?: string, provider?: { chat: (messages: object[], tools: object[]) => Promise<{ message: object }> } }} workerEnv - LLM provider config. Pass `provider` to inject a pre-built provider (e.g. for tests); otherwise the LAL_* env vars are used to construct one.
- * @returns {Promise<void>}
+ * @param {unknown} value
+ * @returns {unknown}
  */
-export const spawnWorkerLoop = async (powers, context, workerEnv) => {
-  const getCancelled = async () => {
-    if (!context) return null;
-    const resolvedContext = await context;
-    if (!resolvedContext) return null;
-    if (typeof resolvedContext.whenCancelled === 'function') {
-      return E(resolvedContext).whenCancelled();
-    }
-    if (resolvedContext.cancelled) {
-      return resolvedContext.cancelled;
-    }
-    return null;
-  };
+const decodeSmallcapsValue = value => {
+  if (value === undefined || value === null) return value;
+  try {
+    // Re-serialize as JSON, then ask the SmallCaps marshal to deserialize
+    // the structure. This preserves the existing "+N" => BigInt convention
+    // while passing through plain primitives untouched.
+    const jsonString =
+      typeof value === 'string' ? value : JSON.stringify(value);
+    return unserialize({ body: `#${jsonString}`, slots: [] });
+  } catch {
+    return value;
+  }
+};
 
-  const provider = workerEnv.provider || createProvider(workerEnv);
-
-  /**
-   * Chat with the LLM.
-   * @param {ChatMessage[]} messages
-   * @returns {Promise<{message: ChatMessage}>}
-   */
-  const chat = messages => provider.chat(messages, tools);
-
-  // ---- Transcript Node Store ----
-  // Each transcript is a linked chain of nodes. Each node stores only the
-  // messages appended at that step, plus a pointer to the parent node.
-  // The full transcript is assembled by walking the chain when calling the LLM.
-
-  /** @import { TranscriptNode } from './agent.types.js' */
-
-  /** @type {Map<string, TranscriptNode>} */
-  const nodeCache = new Map();
-
-  /**
-   * Look up a transcript node, loading from durable storage if needed.
-   * @param {string} messageId
-   * @returns {Promise<TranscriptNode | undefined>}
-   */
-  const getNode = async messageId => {
-    const cached = nodeCache.get(messageId);
-    if (cached !== undefined) return cached;
-
-    const petName = `transcript-${messageId}`;
-    try {
-      if (await E(powers).has(petName)) {
-        const stored = /** @type {TranscriptNode} */ (
-          await E(powers).lookup(petName)
-        );
-        // The stored node is hardened; make a mutable working copy.
-        const mutable = { ...stored, messages: [...stored.messages] };
-        nodeCache.set(messageId, mutable);
-        return mutable;
-      }
-    } catch {
-      // Storage lookup failed; treat as missing.
-    }
-    return undefined;
-  };
-
-  /**
-   * Store a transcript node both in cache and durable storage.
-   * @param {TranscriptNode} node
-   */
-  const putNode = async node => {
-    nodeCache.set(node.messageId, node);
-    const petName = `transcript-${node.messageId}`;
-    try {
-      // Harden a snapshot for storage; the working node stays mutable.
-      await E(powers).storeValue(
-        harden({ ...node, messages: [...node.messages] }),
-        petName,
-      );
-    } catch (error) {
-      console.error(
-        `[transcript] Failed to persist node ${node.messageId}:`,
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-  };
-
-  /**
-   * Assemble the full LLM transcript by walking the chain from leaf to root.
-   * @param {string} leafMessageId
-   * @returns {Promise<ChatMessage[]>}
-   */
-  const assembleTranscript = async leafMessageId => {
-    /** @type {ChatMessage[][]} */
-    const chain = [];
-    /** @type {string | null} */
-    let current = leafMessageId;
-    while (current !== null) {
-      const node = await getNode(current);
-      if (node === undefined) break;
-      chain.push(node.messages);
-      current = node.parentMessageId;
-    }
-    chain.reverse();
-    return chain.flat();
-  };
-
-  /**
-   * Compute the conversational depth of a transcript (user + assistant turns).
-   * @param {ChatMessage[]} messages
-   * @returns {number}
-   */
-  const computeDepth = messages => {
-    let count = 0;
-    for (const msg of messages) {
-      if (msg.role === 'user' || msg.role === 'assistant') {
-        count += 1;
-      }
-    }
-    return count;
-  };
-
-  let nextRootId = 0;
-  /**
-   * Generate a unique string for use as a root node messageId.
-   * These are only used as internal transcript-store keys, not as
-   * cryptographic identifiers.
-   * @returns {string}
-   */
-  const makeRootNodeId = () => {
-    nextRootId += 1;
-    return `root-${Date.now()}-${nextRootId}`;
-  };
-
-  // SmallCaps marshal for decoding LLM tool call arguments
-  const { unserialize } = makeMarshal(undefined, undefined, {
-    serializeBodyFormat: 'smallcaps',
-  });
-
-  /**
-   * Decode SmallCaps JSON string to passable value.
-   * @param {string} jsonString - Raw JSON string with SmallCaps encoding
-   * @returns {unknown}
-   */
-  const decodeSmallcaps = jsonString =>
-    unserialize({ body: `#${jsonString}`, slots: [] });
-
-  /**
-   * Extract tool calls embedded in assistant content.
-   * @param {string} content
-   * @returns {{ toolCalls: ToolCall[], cleanedContent: string }}
-   */
-  const extractToolCallsFromContent = content => {
-    /** @type {ToolCall[]} */
-    const toolCalls = [];
-    const toolCallRe = /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/g;
-    const matches = content.matchAll(toolCallRe);
-    let index = 0;
-    for (const match of matches) {
-      const block = match[1].trim();
-      let name = '';
-      /** @type {string | object} */
-      let args = '{}';
-      try {
-        const parsed = JSON.parse(block);
-        if (parsed && typeof parsed === 'object') {
-          name = parsed.name || '';
-          if (parsed.arguments !== undefined) {
-            args =
-              typeof parsed.arguments === 'string'
-                ? parsed.arguments
-                : JSON.stringify(parsed.arguments);
-          }
-        }
-      } catch {
-        const nameMatch = block.match(/"name"\s*:\s*"([^"]+)"/);
-        const argsMatch = block.match(/"arguments"\s*:\s*({[\s\S]*})/);
-        name = nameMatch ? nameMatch[1] : '';
-        args = argsMatch ? argsMatch[1].trim() : '{}';
-      }
-      if (name) {
-        toolCalls.push({
-          id: `tool_${Date.now()}_${index}`,
-          function: {
-            name,
-            arguments: args,
-          },
-        });
-        index += 1;
-      }
-    }
-
-    let cleanedContent = content.replace(toolCallRe, '');
-    cleanedContent = cleanedContent.replace(/<think>[\s\S]*?<\/think>/g, '');
-    cleanedContent = cleanedContent.trim();
-
-    return { toolCalls, cleanedContent };
-  };
-
-  /**
-   * The transcript node for the currently active agentic loop.
-   * Set by runAgenticLoop before processing tool calls so that
-   * the reply tool can compute and prepend transcript depth.
-   * @type {TranscriptNode | null}
-   */
-  let activeLeafNode = null;
-
-  /**
-   * Execute a tool call and return the result.
-   *
-   * @param {string} name - Tool name
-   * @param {ToolCallArgs} args - Tool arguments
-   * @returns {Promise<unknown>} The result of the tool call
-   */
-  const executeTool = async (name, args) => {
+/**
+ * Build the executeTool callback bound to a specific guest's powers. The
+ * returned function is the `execTool` parameter to `makePiAgent`; it must
+ * always resolve (errors propagate as the tool's `details`/`content`).
+ *
+ * @param {any} powers - Guest powers
+ * @returns {(name: string, args: ToolCallArgs) => Promise<unknown>}
+ */
+const makeExecuteTool = powers => {
+  const executeTool = async (name, rawArgs) => {
+    // pi-agent-core delivers args as an object. Run SmallCaps decoding so
+    // numeric-shaped strings like "+5" become BigInts before dispatch.
+    const args = /** @type {ToolCallArgs} */ (decodeSmallcapsValue(rawArgs));
     switch (name) {
       // Self-documentation
       case 'help': {
@@ -1019,9 +371,9 @@ export const spawnWorkerLoop = async (powers, context, workerEnv) => {
       }
       case 'list': {
         // eslint-disable-next-line no-shadow
-        const { name } = args;
-        if (name !== undefined) {
-          const capability = await E(powers).lookup(name);
+        const { name: lookupName } = args;
+        if (lookupName !== undefined) {
+          const capability = await E(powers).lookup(lookupName);
           return E(capability).list();
         }
         return E(powers).list();
@@ -1148,26 +500,7 @@ export const spawnWorkerLoop = async (powers, context, workerEnv) => {
             'messageNumber, strings, edgeNames, and petNames are required',
           );
         }
-        // Prepend transcript depth to the first string fragment
-        let depthStrings = strings;
-        if (activeLeafNode !== null) {
-          const transcript = await assembleTranscript(activeLeafNode.messageId);
-          const depth = computeDepth(transcript);
-          if (depthStrings.length !== 0) {
-            depthStrings = [
-              `[depth:${depth}] ${depthStrings[0]}`,
-              ...depthStrings.slice(1),
-            ];
-          } else {
-            depthStrings = [`[depth:${depth}]`];
-          }
-        }
-        return E(powers).reply(
-          messageNumber,
-          depthStrings,
-          edgeNames,
-          petNames,
-        );
+        return E(powers).reply(messageNumber, strings, edgeNames, petNames);
       }
 
       // Identity
@@ -1240,13 +573,10 @@ export const spawnWorkerLoop = async (powers, context, workerEnv) => {
         if (resultName === undefined) {
           throw new Error('resultName is required');
         }
-        // Convert "undefined" string to actual undefined
         const workerName =
           rawWorkerName === 'undefined' || rawWorkerName === '#undefined'
             ? undefined
             : rawWorkerName;
-
-        // Execute code directly
         return E(powers).evaluate(
           workerName,
           source,
@@ -1273,174 +603,139 @@ export const spawnWorkerLoop = async (powers, context, workerEnv) => {
     }
   };
 
+  return executeTool;
+};
+
+// ============================================================================
+// Worker Loop
+// ============================================================================
+
+/**
+ * Spawn a worker loop that follows a guest's inbox and processes messages
+ * using a pi-agent-core–backed PiAgent. The PiAgent's internal message
+ * state is the durable transcript for the worker's lifetime; cross-restart
+ * conversation continuity is intentionally not preserved by this migration
+ * (see the PR body's *Memory migration* section).
+ *
+ * @param {any} powers - Guest powers (manager's own or a sub-guest's)
+ * @param {Promise<object> | object | null | undefined} context
+ * @param {{ LAL_HOST?: string, LAL_MODEL?: string, LAL_AUTH_TOKEN?: string }} workerEnv
+ * @returns {Promise<void>}
+ */
+export const spawnWorkerLoop = async (powers, context, workerEnv) => {
+  const getCancelled = async () => {
+    if (!context) return null;
+    const resolvedContext = await context;
+    if (!resolvedContext) return null;
+    if (typeof resolvedContext.whenCancelled === 'function') {
+      return E(resolvedContext).whenCancelled();
+    }
+    if (resolvedContext.cancelled) {
+      return resolvedContext.cancelled;
+    }
+    return null;
+  };
+
+  // Resolve the model string for pi-ai. lal historically selected a provider
+  // from LAL_HOST and a model from LAL_MODEL. The pi-ai registry takes a
+  // single "provider/modelId" string instead; we keep accepting the legacy
+  // LAL_* variables and translate them.
+  const model = resolveModelString(workerEnv);
+  if (workerEnv.LAL_AUTH_TOKEN) {
+    setProviderApiKey(model, workerEnv.LAL_AUTH_TOKEN);
+  }
+
+  // Bind the tool dispatcher to this guest's powers, then build the
+  // listTools / execTool pair pi-agent-core expects.
+  const executeTool = makeExecuteTool(powers);
+  const listTools = () =>
+    toolDefs.map(({ name, summary }) => ({ name, summary }));
+  const execTool = async (name, args) => executeTool(name, args);
+
+  const piAgent = await makePiAgent({
+    model,
+    systemPrompt,
+    listTools,
+    execTool,
+  });
+
   /**
-   * Process tool calls from the LLM response.
+   * Run one chat round on the PiAgent, forwarding tool-call activity to
+   * the console and dispatching tool errors via the LLM transcript.
    *
-   * @param {ToolCall[]} toolCalls - Array of tool calls from the LLM
-   * @returns {Promise<ToolResult[]>} Array of tool results to feed back to the LLM
+   * @param {string} prompt - User-role content for this round.
    */
-  const processToolCalls = async toolCalls => {
-    /** @type {ToolResult[]} */
-    const results = [];
-
-    for (const toolCall of toolCalls) {
-      const { name, arguments: argsRaw } = toolCall.function;
-
-      // Decode SmallCaps arguments ("+7" -> 7n, "#undefined" -> undefined).
-      // Falls back to plain JSON.parse if SmallCaps decoding fails, since
-      // some tool arguments (e.g. define's nested slots objects) are plain
-      // JSON that SmallCaps cannot decode.
-      /** @type {ToolCallArgs} */
-      let args;
-      const jsonString =
-        typeof argsRaw === 'string' ? argsRaw : JSON.stringify(argsRaw);
-      try {
-        args = /** @type {ToolCallArgs} */ (decodeSmallcaps(jsonString));
-      } catch {
-        try {
-          args = /** @type {ToolCallArgs} */ (JSON.parse(jsonString));
-        } catch {
-          args = {};
+  const runOneRound = async prompt => {
+    for await (const event of runAgentRound(piAgent, prompt)) {
+      switch (event.type) {
+        case 'ToolCallStart': {
+          const argsPreview = (() => {
+            try {
+              const s =
+                typeof event.args === 'string'
+                  ? event.args
+                  : passableAsJustin(harden(event.args ?? {}), false);
+              return s.length > 200 ? `${s.slice(0, 200)}...` : s;
+            } catch {
+              return '(args)';
+            }
+          })();
+          console.log(`[tool] ${event.toolName}(${argsPreview})`);
+          break;
         }
-      }
-
-      console.log(`[tool] ${name}(${passableAsJustin(harden(args), false)})`);
-
-      /** @type {unknown} */
-      let result;
-      try {
-        result = await executeTool(name, args);
-        console.log(`[tool] ${name} -> ${passableAsJustin(result, false)}`);
-      } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
-        result = harden({ error: errorMessage });
-        console.error(`[tool] ${name} error: ${errorMessage}`);
-      }
-
-      results.push({
-        role: 'tool',
-        content: passableAsJustin(result, false),
-        tool_call_id: toolCall.id,
-      });
-    }
-
-    return results;
-  };
-
-  /**
-   * Run the agentic loop for a specific transcript node.
-   * @param {TranscriptNode} leafNode - The leaf node of the transcript chain
-   * @returns {Promise<void>}
-   */
-  const runAgenticLoop = async leafNode => {
-    activeLeafNode = leafNode;
-    let continueLoop = true;
-    while (continueLoop) {
-      // Assemble the full transcript from the chain
-      const transcript = await assembleTranscript(leafNode.messageId);
-
-      console.log(
-        `[lal] ${JSON.stringify(transcript[transcript.length - 1], null, 2)}`,
-      );
-      const response = await chat(transcript);
-
-      const { message: responseMessage } = response;
-      if (!responseMessage) {
-        break;
-      }
-
-      if (
-        (!responseMessage.tool_calls ||
-          responseMessage.tool_calls.length === 0) &&
-        responseMessage.content
-      ) {
-        const extracted = extractToolCallsFromContent(responseMessage.content);
-        if (extracted.toolCalls.length > 0) {
-          responseMessage.tool_calls = extracted.toolCalls;
-          responseMessage.content = extracted.cleanedContent;
+        case 'ToolCallEnd': {
+          if ('error' in event && event.error) {
+            console.error(
+              `[tool] ${event.toolName} error: ${event.error.message}`,
+            );
+          } else {
+            const out = (() => {
+              try {
+                return passableAsJustin(event.result, false);
+              } catch {
+                return String(event.result);
+              }
+            })();
+            console.log(`[tool] ${event.toolName} -> ${out}`);
+          }
+          break;
         }
-      }
-
-      // Add the assistant's response to the leaf node
-      leafNode.messages.push(/** @type {ChatMessage} */ (responseMessage));
-      console.log(
-        `[lal] sent: ${JSON.stringify(leafNode.messages[leafNode.messages.length - 1], null, 2)}`,
-      );
-
-      // Check if there are tool calls to process
-      const toolCalls = Array.isArray(responseMessage.tool_calls)
-        ? responseMessage.tool_calls
-        : [];
-      if (toolCalls.length !== 0) {
-        const toolResults = await processToolCalls(
-          /** @type {ToolCall[]} */ (toolCalls),
-        );
-        console.log(
-          `[lal] tool results: ${JSON.stringify(toolResults, null, 2)}`,
-        );
-        leafNode.messages.push(...toolResults);
-        await putNode(leafNode);
-      } else {
-        continueLoop = false;
-        await putNode(leafNode);
-        activeLeafNode = null;
-
-        // If the LLM produced text content (which it shouldn't), log it
-        if (responseMessage.content) {
-          console.log(`[assistant] ${responseMessage.content}`);
+        case 'Message': {
+          if (event.role === 'assistant' && event.content) {
+            // The LLM's text response is logged for visibility; lal's
+            // protocol is tool-call-only, so any prose surfaces here as a
+            // debugging breadcrumb rather than being sent to a peer.
+            console.log(`[assistant] ${event.content}`);
+          }
+          break;
         }
+        case 'Error': {
+          console.error(`[agent] LLM error: ${event.message}`);
+          throw event.cause || new Error(event.message);
+        }
+        default:
+          break;
       }
     }
   };
 
   /**
-   * Build the user-role message content for an inbound message.
-   * @param {InboxMessage & {type?: string}} _message
-   * @param _message
+   * Build the user-role content for an inbound message. lal's prompt is
+   * intentionally minimal: the LLM is expected to call listMessages() to
+   * inspect the inbox itself.
+   *
    * @returns {string}
    */
-  const formatInboundMessage = _message => {
-    return 'You have new mail. Check your messages and respond appropriately.';
-  };
-
-  /**
-   * Handle an own outbound message: create an alias so future replies
-   * to this outbound messageId find the correct transcript chain.
-   * @param {InboxMessage & {messageId?: string, replyTo?: string}} message
-   */
-  const handleOwnMessage = async message => {
-    const { messageId, replyTo } = message;
-    if (typeof messageId !== 'string' || typeof replyTo !== 'string') {
-      return;
-    }
-
-    // replyTo points to the inbound message that triggered this response.
-    // Create an alias: outboundMessageId → same node as replyTo.
-    const node = await getNode(replyTo);
-    if (node !== undefined) {
-      nodeCache.set(messageId, node);
-      const petName = `transcript-${messageId}`;
-      try {
-        await E(powers).storeValue(harden(node), petName);
-      } catch (error) {
-        console.error(
-          `[transcript] Failed to alias ${messageId}:`,
-          error instanceof Error ? error.message : String(error),
-        );
-      }
-    }
-  };
+  const formatInboundMessage = () =>
+    'You have new mail. Check your messages and respond appropriately.';
 
   /**
    * Run the agent loop, processing incoming messages.
-   * Each reply chain is routed to an independent transcript.
    *
    * @returns {Promise<void>}
    */
   const runAgent = async () => {
     // Announce ourselves with a call to action.
-    // The host sees this from whatever pet name they gave us.
     await E(powers).send(
       '@host',
       [
@@ -1467,7 +762,6 @@ export const spawnWorkerLoop = async (powers, context, workerEnv) => {
         )
       : null;
 
-    // Follow messages and route each to the correct transcript chain
     const messageIterator = makeRefIterator(E(powers).followMessages());
     while (true) {
       const nextMessage = messageIterator.next();
@@ -1493,98 +787,119 @@ export const spawnWorkerLoop = async (powers, context, workerEnv) => {
         /** @type {InboxMessage & {type?: string, messageId?: string, replyTo?: string}} */ (
           message
         );
-      const {
-        from: fromLocator,
-        number,
-        type,
-        messageId,
-        replyTo,
-      } = inboxMessage;
+      const { from: fromLocator, number, type } = inboxMessage;
 
-      // Own outbound messages: index them for future reply lookups
+      // Skip our own outbound messages.
       // eslint-disable-next-line @endo/restrict-comparison-operands
       if (fromLocator === selfLocator) {
-        await handleOwnMessage(inboxMessage);
-      } else {
-        console.log(
-          `[mail] New message #${number} (type: ${type || 'package'})`,
-        );
+        continue;
+      }
 
-        // Resolve or create the transcript chain for this message.
-        /** @type {TranscriptNode | undefined} */
-        let parentNode;
-        /** @type {string} */
-        let parentId;
+      console.log(`[mail] New message #${number} (type: ${type || 'package'})`);
 
-        if (typeof replyTo === 'string') {
-          parentNode = await getNode(replyTo);
-        }
-
-        if (parentNode !== undefined) {
-          // Continue existing conversation.
-          parentId = /** @type {string} */ (replyTo);
-          console.log(
-            `[transcript] Continuing chain from ${parentId.slice(0, 12)}...`,
-          );
-        } else {
-          // New conversation — create a root node with the system prompt.
-          const rootId = makeRootNodeId();
-          /** @type {TranscriptNode} */
-          const rootNode = {
-            messageId: rootId,
-            parentMessageId: null,
-            messages: [{ role: 'system', content: systemPrompt }],
-          };
-          await putNode(rootNode);
-          parentId = rootId;
-          console.log('[transcript] Starting new conversation chain');
-        }
-
-        // Create a new node for this turn, chained to the parent.
-        const userContent = formatInboundMessage(inboxMessage);
-
-        /** @type {TranscriptNode} */
-        const turnNode = {
-          messageId:
-            typeof messageId === 'string' ? messageId : makeRootNodeId(),
-          parentMessageId: parentId,
-          messages: [{ role: 'user', content: userContent }],
-          lastInboxNumber: number,
-        };
-        await putNode(turnNode);
-
-        // Run the agentic loop for this transcript chain
+      try {
+        await runOneRound(formatInboundMessage());
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        console.error('[agent] LLM error, notifying sender:', errorMessage);
         try {
-          await runAgenticLoop(turnNode);
-        } catch (error) {
-          const errorMessage =
-            error instanceof Error ? error.message : String(error);
-          console.error('[agent] LLM error, notifying sender:', errorMessage);
-          try {
-            await E(powers).reply(
-              number,
-              [`LLM provider error: ${errorMessage}`],
-              [],
-              [],
-            );
-          } catch (replyError) {
-            console.error('[agent] Failed to notify sender:', replyError);
-          }
+          await E(powers).reply(
+            number,
+            [`LLM provider error: ${errorMessage}`],
+            [],
+            [],
+          );
+        } catch (replyError) {
+          console.error('[agent] Failed to notify sender:', replyError);
         }
-
-        const transcriptLength = (await assembleTranscript(turnNode.messageId))
-          .length;
-        console.log(
-          `[lal] Transcript chain has ${transcriptLength} messages after processing`,
-        );
       }
     }
   };
 
-  // Start the worker loop
   await runAgent();
 };
 harden(spawnWorkerLoop);
+
+// ============================================================================
+// Model + Provider Resolution
+// ============================================================================
+//
+// pi-ai expects a single "provider/modelId" string and reads provider API
+// keys from `process.env.<PROVIDER>_API_KEY`. lal's historical configuration
+// passes LAL_HOST + LAL_MODEL + LAL_AUTH_TOKEN. The helpers below translate
+// the legacy LAL_* variables into the pi-ai shape so existing
+// `.env.example` files continue to work.
+
+/**
+ * Translate the legacy LAL_HOST + LAL_MODEL pair into a single
+ * "provider/modelId" string suitable for pi-ai's getModel(). Recognized
+ * LAL_HOST patterns:
+ *
+ *   contains "anthropic.com"  -> provider "anthropic"
+ *   contains "generativelanguage.googleapis.com" or "gemini" -> "gemini"
+ *   contains "openai.com"     -> provider "openai"
+ *   contains "openrouter"     -> provider "openrouter"
+ *   contains ":11434"         -> provider "ollama"
+ *   otherwise (incl. "/v1" llama.cpp servers) -> provider "openai"
+ *     (pi-ai's openai-completions adaptor speaks the same protocol)
+ *
+ * LAL_MODEL is used as the model id; a sensible default is chosen if
+ * LAL_MODEL is empty.
+ *
+ * @param {{ LAL_HOST?: string, LAL_MODEL?: string }} env
+ * @returns {string}
+ */
+function resolveModelString(env) {
+  const host = (env.LAL_HOST || 'http://localhost:11434').toLowerCase();
+  let provider = 'ollama';
+  let defaultModel = 'qwen3';
+  if (host.includes('anthropic.com')) {
+    provider = 'anthropic';
+    defaultModel = 'claude-opus-4-5-20251101';
+  } else if (
+    host.includes('generativelanguage.googleapis.com') ||
+    host.includes('gemini')
+  ) {
+    provider = 'gemini';
+    defaultModel = 'gemini-2.0-flash';
+  } else if (host.includes('openrouter')) {
+    provider = 'openrouter';
+    defaultModel = 'openrouter/auto';
+  } else if (host.includes('openai.com')) {
+    provider = 'openai';
+    defaultModel = 'gpt-4o-mini';
+  } else if (host.includes(':11434')) {
+    // Native Ollama port.
+    provider = 'ollama';
+    defaultModel = 'qwen3';
+  } else if (host.includes('/v1')) {
+    // Any OpenAI-compatible local server (llama.cpp, vLLM, tgi).
+    provider = 'openai';
+    defaultModel = 'qwen3';
+  }
+  const modelId = env.LAL_MODEL || defaultModel;
+  return `${provider}/${modelId}`;
+}
+
+/**
+ * Install the caller-supplied API key into the appropriate environment
+ * variable so pi-ai's provider adaptor finds it. We avoid clobbering an
+ * already-set variable; this is best-effort and explicitly per-worker.
+ *
+ * @param {string} modelString - "provider/modelId"
+ * @param {string} authToken
+ */
+function setProviderApiKey(modelString, authToken) {
+  // eslint-disable-next-line no-undef
+  const env = globalThis?.process?.env;
+  if (!env) return;
+  const [provider] = modelString.split('/');
+  const keyName = `${provider.toUpperCase()}_API_KEY`;
+  if (!env[keyName] || env[keyName] === 'ollama') {
+    env[keyName] = authToken;
+  }
+}
 
 // ============================================================================
 // Manager / Entry Point
@@ -1597,14 +912,13 @@ harden(spawnWorkerLoop);
  * creates a new guest profile and spawns a worker loop for it.
  *
  * @param {FarRef<GuestPowers>} guestPowers - Guest powers from the Endo daemon
- * @param {Promise<LalContext> | LalContext | undefined} _context - Context for cancellation support
+ * @param {Promise<LalContext> | LalContext | undefined} _context
  * @returns {object} The Lal exo object
  */
 export const make = (guestPowers, _context) => {
   /** @type {any} */
   const powers = guestPowers;
 
-  // Send the configuration form to HOST for adding agents.
   const runManager = async () => {
     await E(powers).form(
       '@host',
@@ -1633,13 +947,11 @@ export const make = (guestPowers, _context) => {
       ]),
     );
 
-    // Resolve the host agent reference for provideGuest calls.
     const agent = await E(powers).lookup('host-agent');
     const selfLocator = await E(powers).locate('@self');
     const activeWorkers = new Map();
 
     // Check in the primer directory as a content-addressed readable-tree.
-    // Stored once in the host namespace; each sub-guest gets a reference.
     const primerDirPath = new URL('./primer', import.meta.url).pathname;
     const localPrimerTree = makeLocalTree(primerDirPath);
     await E(agent).storeTree(localPrimerTree, 'lal-primer');
@@ -1658,9 +970,6 @@ export const make = (guestPowers, _context) => {
       }
     };
 
-    // Pre-scan existing messages to find our latest form messageId so that
-    // old value messages (from prior sessions) that reply to an earlier form
-    // are not accidentally matched when the iterator replays history.
     /** @type {string | undefined} */
     let formMessageId;
     const existingMessages = /** @type {any[]} */ (
@@ -1680,7 +989,6 @@ export const make = (guestPowers, _context) => {
 
       const msg = /** @type {any} */ (message);
 
-      // Capture the form's messageId from our own outbound message.
       // eslint-disable-next-line @endo/restrict-comparison-operands
       if (msg.from === selfLocator && msg.type === 'form') {
         formMessageId = msg.messageId;
@@ -1689,9 +997,7 @@ export const make = (guestPowers, _context) => {
         // eslint-disable-next-line @endo/restrict-comparison-operands
         msg.replyTo === formMessageId
       ) {
-        // Only process value messages that reply to our form.
         try {
-          // Resolve the submitted values from the value message.
           const config =
             /** @type {{ name: string, host: string, model: string, authToken: string }} */ (
               await E(powers).lookupById(msg.valueId)
@@ -1700,7 +1006,6 @@ export const make = (guestPowers, _context) => {
           const { name } = config;
 
           if (activeWorkers.has(name)) {
-            // A worker is already running for this name.
             await E(powers).reply(
               msg.number,
               [`Agent "${name}" already exists.`],
@@ -1708,10 +1013,6 @@ export const make = (guestPowers, _context) => {
               [],
             );
           } else {
-            // Create the guest profile via the host agent.
-            // provideGuest returns the full EndoGuest (not the handle).
-            // Guard with has() — on restart the guest already exists and
-            // re-running provideGuest hits "Formula already exists".
             let guest;
             if (await E(agent).has(name)) {
               guest = await E(agent).lookup(name);
@@ -1721,10 +1022,8 @@ export const make = (guestPowers, _context) => {
               });
             }
 
-            // Ensure the sub-guest has the primer directory.
             await provisionPrimer(guest);
 
-            // Spawn a worker loop for this guest.
             const workerP = spawnWorkerLoop(guest, null, {
               LAL_HOST: config.host,
               LAL_MODEL: config.model,
