@@ -14,9 +14,12 @@ import { makePiAgent, runAgentRound } from '@endo/genie';
 /** @import { FarRef } from '@endo/eventual-send' */
 /** @import { GuestPowers, ToolCallArgs, InboxMessage, LalContext } from './agent.types.js' */
 
-// Register pi-ai's built-in providers (anthropic, openai, gemini, ollama, etc.)
+// Register pi-ai's built-in API providers (anthropic, openai, google,
+// openrouter, mistral, deepseek, groq, xai, github-copilot, and ~20 others)
 // so getModel(provider, modelId) lookups succeed for any caller-supplied
-// "provider/modelId" string.
+// "provider/modelId" string. Ollama is *not* in this registry; @endo/genie's
+// makePiAgent treats "ollama/<id>" specially by constructing a custom
+// Model that points at a local OpenAI-compatible Ollama endpoint.
 registerBuiltInApiProviders();
 
 // ============================================================================
@@ -789,29 +792,28 @@ export const spawnWorkerLoop = async (powers, context, workerEnv) => {
         );
       const { from: fromLocator, number, type } = inboxMessage;
 
-      // Skip our own outbound messages.
+      // Skip our own outbound messages; only act on inbound mail.
       // eslint-disable-next-line @endo/restrict-comparison-operands
-      if (fromLocator === selfLocator) {
-        continue;
-      }
-
-      console.log(`[mail] New message #${number} (type: ${type || 'package'})`);
-
-      try {
-        await runOneRound(formatInboundMessage());
-      } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
-        console.error('[agent] LLM error, notifying sender:', errorMessage);
+      if (fromLocator !== selfLocator) {
+        console.log(
+          `[mail] New message #${number} (type: ${type || 'package'})`,
+        );
         try {
-          await E(powers).reply(
-            number,
-            [`LLM provider error: ${errorMessage}`],
-            [],
-            [],
-          );
-        } catch (replyError) {
-          console.error('[agent] Failed to notify sender:', replyError);
+          await runOneRound(formatInboundMessage());
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
+          console.error('[agent] LLM error, notifying sender:', errorMessage);
+          try {
+            await E(powers).reply(
+              number,
+              [`LLM provider error: ${errorMessage}`],
+              [],
+              [],
+            );
+          } catch (replyError) {
+            console.error('[agent] Failed to notify sender:', replyError);
+          }
         }
       }
     }
@@ -837,7 +839,7 @@ harden(spawnWorkerLoop);
  * LAL_HOST patterns:
  *
  *   contains "anthropic.com"  -> provider "anthropic"
- *   contains "generativelanguage.googleapis.com" or "gemini" -> "gemini"
+ *   contains "generativelanguage.googleapis.com" or "gemini" -> "google"
  *   contains "openai.com"     -> provider "openai"
  *   contains "openrouter"     -> provider "openrouter"
  *   contains ":11434"         -> provider "ollama"
@@ -861,7 +863,8 @@ function resolveModelString(env) {
     host.includes('generativelanguage.googleapis.com') ||
     host.includes('gemini')
   ) {
-    provider = 'gemini';
+    // pi-ai exposes Google's Gemini models under the provider name 'google'.
+    provider = 'google';
     defaultModel = 'gemini-2.0-flash';
   } else if (host.includes('openrouter')) {
     provider = 'openrouter';
