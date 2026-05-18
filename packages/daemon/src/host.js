@@ -2,7 +2,7 @@
 /// <reference types="ses"/>
 
 /** @import { ERef } from '@endo/eventual-send' */
-/** @import { AgentDeferredTaskParams, ChannelDeferredTaskParams, Context, DaemonCore, DeferredTasks, EndoGuest, EndoHost, EnvRecord, EvalDeferredTaskParams, FormulaIdentifier, FormulaNumber, InvitationDeferredTaskParams, MakeCapletDeferredTaskParams, MakeCapletOptions, MakeDirectoryNode, MakeHostOrGuestOptions, MakeMailbox, MountDeferredTaskParams, Name, NameOrPath, NamePath, NodeNumber, PeerInfo, PetName, ReadableBlobDeferredTaskParams, ReadableTreeDeferredTaskParams, MarshalDeferredTaskParams, ScratchMountDeferredTaskParams, WorkerDeferredTaskParams } from './types.js' */
+/** @import { AgentDeferredTaskParams, ChannelDeferredTaskParams, Context, DaemonCore, DeferredTasks, EndoGuest, EndoHost, EnvRecord, EvalDeferredTaskParams, FormulaIdentifier, FormulaNumber, HttpClientDeferredTaskParams, InvitationDeferredTaskParams, MakeCapletDeferredTaskParams, MakeCapletOptions, MakeDirectoryNode, MakeHostOrGuestOptions, MakeMailbox, MountDeferredTaskParams, Name, NameOrPath, NamePath, NodeNumber, PeerInfo, PetName, ReadableBlobDeferredTaskParams, ReadableTreeDeferredTaskParams, MarshalDeferredTaskParams, ScratchMountDeferredTaskParams, WorkerDeferredTaskParams } from './types.js' */
 
 import { E } from '@endo/far';
 import { makeExo } from '@endo/exo';
@@ -73,6 +73,7 @@ const normalizeHostOrGuestOptions = opts => {
  * @param {DaemonCore['checkinTree']} args.checkinTree
  * @param {DaemonCore['formulateMount']} args.formulateMount
  * @param {DaemonCore['formulateScratchMount']} args.formulateScratchMount
+ * @param {DaemonCore['formulateHttpClient']} args.formulateHttpClient
  * @param {DaemonCore['formulateInvitation']} args.formulateInvitation
  * @param {DaemonCore['formulateDirectoryForStore']} args.formulateDirectoryForStore
  * @param {DaemonCore['getPeerIdForNodeIdentifier']} args.getPeerIdForNodeIdentifier
@@ -108,6 +109,7 @@ export const makeHostMaker = ({
   checkinTree,
   formulateMount,
   formulateScratchMount,
+  formulateHttpClient,
   formulateInvitation,
   formulateDirectoryForStore,
   getPeerIdForNodeIdentifier,
@@ -1021,6 +1023,48 @@ export const makeHostMaker = ({
     };
 
     /**
+     * Create a paired HTTP controller + client capability and register
+     * the two facets under the given pet names.  See
+     * `designs/cli-http-client.md` § Cap surface for the rationale.
+     *
+     * Phase 1 of the design lands the immutable-allowlist subset only:
+     * the controller exposes `inspect()` (no mutators, no `revoke()`),
+     * and the client exposes `request()` and `allowedOrigins()` (no
+     * rate / size / timing guards, no methods beyond GET, no streaming
+     * body).  Mutators, revocation, and the defense knobs land in
+     * subsequent phases.
+     *
+     * @param {PetName} controllerName - Pet name for the host-retained controller.
+     * @param {PetName} clientName - Pet name for the guest-granted client.
+     * @param {string[]} allowedOrigins - Initial allowlist.
+     */
+    const makeHttpClientCmd = async (
+      controllerName,
+      clientName,
+      allowedOrigins,
+    ) => {
+      assertPetName(controllerName);
+      assertPetName(clientName);
+      if (controllerName === clientName) {
+        throw makeError(
+          X`Controller and client pet names must differ; both were ${q(
+            controllerName,
+          )}`,
+        );
+      }
+      /** @type {DeferredTasks<HttpClientDeferredTaskParams>} */
+      const tasks = makeDeferredTasks();
+      tasks.push(identifiers =>
+        petStore.storeIdentifier(controllerName, identifiers.httpControllerId),
+      );
+      tasks.push(identifiers =>
+        petStore.storeIdentifier(clientName, identifiers.httpClientId),
+      );
+      const { value } = await formulateHttpClient(allowedOrigins, tasks);
+      return value;
+    };
+
+    /**
      * Create a new channel and store it under the given pet name.
      * @param {PetName} petName - Pet name to store the channel under.
      * @param {string} channelProposedName - Display name for the channel creator.
@@ -1466,6 +1510,7 @@ export const makeHostMaker = ({
       deliver,
       makeChannel: makeChannelCmd,
       makeTimer: makeTimerCmd,
+      makeHttpClient: makeHttpClientCmd,
       invite,
       accept,
       endow,

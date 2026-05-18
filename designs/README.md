@@ -152,7 +152,7 @@ PR #151 row-format unblocker; sibling of
 | [base64-native-fallthrough](base64-native-fallthrough.md) | 2026-04-23 | 2026-04-23 | Not Started |
 | [ci-no-npm-lifecycle](ci-no-npm-lifecycle.md) | 2026-04-23 | 2026-04-23 | Not Started |
 | [break-dev-dependency-cycles](break-dev-dependency-cycles.md) | 2026-05-11 | 2026-05-11 | In Progress |
-| [cli-http-client](cli-http-client.md) | 2026-05-09 | 2026-05-09 | Proposed (PR #144 design revision) |
+| [cli-http-client](cli-http-client.md) | 2026-05-09 | 2026-05-18 | In Progress (Phase 1: `endo http mk`) |
 | [endor-bus-tui](endor-bus-tui.md) | 2026-04-23 | 2026-04-23 | Not Started |
 | [endor-tui](endor-tui.md) | 2026-04-23 | 2026-04-23 | Not Started |
 | [hex-package](hex-package.md) | 2026-04-23 | 2026-04-23 | In Progress |
@@ -162,7 +162,7 @@ PR #151 row-format unblocker; sibling of
 | [weblet-next](weblet-next.md) | 2026-03-24 | 2026-03-24 | Reference |
 | [workers-panel](workers-panel.md) | 2026-02-14 | 2026-02-24 | Not Started |
 
-**Totals:** 29 Complete/Implemented, 17 In Progress, 44 Not Started, 16 Proposed, 3 Active, 4 Reference, 2 Deprecated, 1 Draft, 1 Superseded (118 designs)
+**Totals:** 29 Complete/Implemented, 18 In Progress, 44 Not Started, 15 Proposed, 3 Active, 4 Reference, 2 Deprecated, 1 Draft, 1 Superseded (118 designs)
 
 ## Roadmap
 

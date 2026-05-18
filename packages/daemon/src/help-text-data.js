@@ -246,8 +246,27 @@ export const helpTextEntries = harden([
         'writeText(content) -> Promise<void>\nWrite a string to the file. Throws if read-only.',
       writeBytes:
         'writeBytes(readableRef) -> Promise<void>\nWrite bytes from an async iterator. Throws if read-only.',
-      readOnly:
-        'readOnly() -> EndoMountFile\nReturns a read-only view of this file.',
+      readOnly: 'readOnly() -> EndoMountFile',
+    },
+  ],
+  [
+    'EndoHttpController',
+    {
+      '': 'EndoHttpController - Host-retained policy capability for an HTTP client.\n\nPhase 1 of designs/cli-http-client.md.\nThe controller bears the policy (the origin allowlist) and is what\nthe host retains; the paired EndoHttpClient bears the\nuse-the-policy authority.\nThe controller has no `request` method by design — a guest holding\nonly the controller cannot make outbound HTTP calls.\nMutators (`addAllowedOrigin`, `setMaxRequestsPerMinute`, etc.) and\n`revoke()` land in subsequent phases.',
+      help: 'help(methodName?) -> string\nGet documentation for this interface or a specific method.',
+      inspect:
+        'inspect() -> Promise<{ allowedOrigins: string[] }>\nReturn the policy this controller bears.\nPhase 1: the allowed origin set only.',
+    },
+  ],
+  [
+    'EndoHttpClient',
+    {
+      '': 'EndoHttpClient - Use-the-policy authority paired with an EndoHttpController.\n\nPhase 1 of designs/cli-http-client.md.\nThe client bears the `request()` method and enforces the\nhost-curated origin allowlist on every call.\nThe client cannot widen its own allowlist; the host mutates\nor revokes through the paired controller.\nPhase 1 limits the surface to GET-class verbs and a buffered\nresponse body; rate / size / timing guards and response\nstreaming land in subsequent phases.',
+      help: 'help(methodName?) -> string\nGet documentation for this interface or a specific method.',
+      request:
+        "request(req) -> Promise<Response>\nMake an HTTP request against the controller-bound allowlist.\nreq: { url: string, method?: string, headers?: Record<string, string> }\nThe URL's origin must match a member of the controller's allowlist;\notherwise the call rejects with a structured \"not in allowlist\" error.\nfetch is invoked with `redirect: 'manual'` to defang the\nallowed-to-disallowed redirect SSRF vector.\nReturns a Response with { status, statusText, ok, headers, body }\nwhere `body` is the response body buffered as a UTF-8 string.",
+      allowedOrigins:
+        'allowedOrigins() -> Promise<string[]>\nReturn the live allowlist as read through the paired controller.\n\nReturns a read-only view of this file.',
     },
   ],
 ]);

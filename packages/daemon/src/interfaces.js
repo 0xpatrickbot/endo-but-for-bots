@@ -365,6 +365,14 @@ export const HostInterface = M.interface('EndoHost', {
   makeTimer: M.call(NameShape, M.number())
     .optional(M.string())
     .returns(M.promise()),
+  // Create an HTTP controller + client pair under two pet names.
+  // Phase 1 of designs/cli-http-client.md: immutable allowlist, GET-class
+  // verbs, no rate / size / timing guards yet.
+  makeHttpClient: M.call(
+    NameShape, // controllerName
+    NameShape, // clientName
+    M.arrayOf(M.string()), // allowedOrigins
+  ).returns(M.promise()),
   // Cancel a value
   cancel: M.call(NameOrPathShape).optional(M.error()).returns(M.promise()),
   // Get the greeter
@@ -536,6 +544,52 @@ export const MountFileInterface = M.interface('EndoMountFile', {
   writeBytes: M.call(M.remotable()).returns(M.promise()),
   readOnly: M.call().returns(M.remotable()),
   help: M.call().returns(M.string()),
+});
+
+// HTTP client surface per designs/cli-http-client.md Phase 1.
+// The kit is a paired Controller + Client; the host retains the
+// controller, the guest holds the client.  Phase 1 lands the
+// immutable-allowlist subset (inspect, request, allowedOrigins);
+// subsequent phases add mutators, revoke, rate / size / timing guards,
+// methods beyond GET, and response streaming.
+
+const HttpPolicyShape = M.splitRecord(
+  {
+    allowedOrigins: M.arrayOf(M.string()),
+  },
+  {},
+);
+
+const HttpRequestShape = M.splitRecord(
+  { url: M.string() },
+  {
+    method: M.string(),
+    headers: M.recordOf(M.string(), M.string()),
+  },
+);
+
+const HttpResponseShape = M.splitRecord(
+  {
+    status: M.number(),
+    statusText: M.string(),
+    ok: M.boolean(),
+    headers: M.recordOf(M.string(), M.string()),
+    body: M.string(),
+  },
+  {},
+);
+
+export const HttpControllerInterface = M.interface('EndoHttpController', {
+  inspect: M.call().returns(M.or(M.promise(), HttpPolicyShape)),
+  help: M.call().optional(M.string()).returns(M.string()),
+});
+
+export const HttpClientInterface = M.interface('EndoHttpClient', {
+  request: M.call(HttpRequestShape).returns(
+    M.or(M.promise(), HttpResponseShape),
+  ),
+  allowedOrigins: M.call().returns(M.promise()),
+  help: M.call().optional(M.string()).returns(M.string()),
 });
 
 export const ReadableTreeInterface = M.interface('EndoReadableTree', {
