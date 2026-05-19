@@ -8,8 +8,12 @@ import { passableAsJustin, makeMarshal } from '@endo/marshal';
 import { makeRefIterator } from '@endo/daemon/ref-reader.js';
 import { makeLocalTree } from '@endo/platform/fs/node';
 
-import { registerBuiltInApiProviders } from '@mariozechner/pi-ai';
-import { makePiAgent, runAgentRound } from '@endo/genie';
+import { Agent as PiAgent } from '@mariozechner/pi-agent-core';
+import { registerBuiltInApiProviders, getModel } from '@mariozechner/pi-ai';
+import { runAgentRound } from '@endo/genie';
+
+/** @import { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core' */
+/** @import { Model } from '@mariozechner/pi-ai' */
 
 /** @import { FarRef } from '@endo/eventual-send' */
 /** @import { GuestPowers, ToolCallArgs, InboxMessage, LalContext } from './agent.types.js' */
@@ -37,8 +41,8 @@ const LalInterface = M.interface('Lal', {
 // Each tool is named, has a one-line summary (used by pi-agent-core as the
 // tool description sent to the LLM), and an `execute(powers, args)` callback
 // that calls into the daemon. The `parameters` field captures the JSON-schema
-// shape the LLM should target; `makePiAgent` accepts a permissive open object
-// schema by default, so the field is primarily for documentation today. When
+// shape the LLM should target; `toAgentTool` (defined below) wraps each spec
+// in the permissive open-object schema pi-agent-core ships today. When
 // `pi-agent-core` learns to forward custom parameter schemas this field will
 // be wired through directly.
 //
@@ -649,17 +653,41 @@ export const spawnWorkerLoop = async (powers, context, workerEnv) => {
   }
 
   // Bind the tool dispatcher to this guest's powers, then build the
-  // listTools / execTool pair pi-agent-core expects.
+  // AgentTool array pi-agent-core consumes directly. We construct the
+  // PiAgent in-line rather than via @endo/genie's `makePiAgent` so that
+  //   (a) we are free to seed `initialState.messages` from prior
+  //       transcripts when cross-restart continuity lands (see PR body),
+  //   (b) we control the system prompt verbatim (no genie claw policy
+  //       suffix or security-notes wrapping is applied), and
+  //   (c) the per-tool parameter schema lives at the tool boundary,
+  //       which lets `@endo/patterns` validation guard inbound args.
   const executeTool = makeExecuteTool(powers);
-  const listTools = () =>
-    toolDefs.map(({ name, summary }) => ({ name, summary }));
-  const execTool = async (name, args) => executeTool(name, args);
+  const agentTools = toolDefs.map(({ name, summary }) =>
+    toAgentTool(name, summary, executeTool),
+  );
 
-  const piAgent = await makePiAgent({
-    model,
-    systemPrompt,
-    listTools,
-    execTool,
+  const resolvedModel = await resolveModel(model);
+  const isOllama = resolvedModel.name?.startsWith('ollama/');
+
+  const piAgent = new PiAgent({
+    initialState: {
+      systemPrompt,
+      model: resolvedModel,
+      tools: agentTools,
+      messages: [],
+      thinkingLevel: resolvedModel.reasoning ? 'medium' : 'off',
+    },
+    convertToLlm: msgs =>
+      msgs.filter(
+        m =>
+          m.role === 'user' ||
+          m.role === 'assistant' ||
+          m.role === 'toolResult',
+      ),
+    toolExecution: 'sequential',
+    ...(isOllama
+      ? { getApiKey: async _provider => getOllamaApiKey() }
+      : {}),
   });
 
   /**
@@ -902,6 +930,105 @@ function setProviderApiKey(modelString, authToken) {
   if (!env[keyName] || env[keyName] === 'ollama') {
     env[keyName] = authToken;
   }
+}
+
+/**
+ * Resolve a "provider/modelId" string into a pi-ai Model object. Mirrors
+ * the resolution genie's `makePiAgent` performs internally: known providers
+ * go through `getModel(provider, modelId)`; the `ollama/` prefix is treated
+ * specially (Ollama is not in pi-ai's built-in registry and exposes an
+ * OpenAI-compatible /v1 endpoint).
+ *
+ * @param {string} modelString
+ * @returns {Promise<Model<'openai-completions'>>}
+ */
+async function resolveModel(modelString) {
+  const parts = modelString.split('/');
+  const provider = parts[0];
+  const modelId = parts.slice(1).join('/');
+  if (provider === 'ollama') {
+    return buildOllamaModel(modelId);
+  }
+  // pi-ai's KnownProvider overloads of getModel typically resolve the modelId
+  // to `never` for the generic call site; we want the runtime registry lookup
+  // here, which works for any string the caller passed.
+  // @ts-expect-error - permissive runtime lookup against KnownProvider overloads
+  return getModel(provider, modelId);
+}
+
+/**
+ * Build a pi-ai Model object for a local Ollama instance. Ollama exposes
+ * an OpenAI-compatible /v1/chat/completions endpoint, so we masquerade as
+ * the "openai" provider with a custom baseUrl. Matches the shape genie
+ * uses internally.
+ *
+ * @param {string} id - The ollama model name (e.g. "qwen3")
+ * @returns {Promise<Model<'openai-completions'>>}
+ */
+async function buildOllamaModel(id) {
+  await Promise.resolve();
+  // eslint-disable-next-line no-undef
+  const env = globalThis?.process?.env ?? {};
+  const ollamaHost = env.OLLAMA_HOST || 'http://127.0.0.1:11434';
+  return harden({
+    id,
+    name: `ollama/${id}`,
+    api: 'openai-completions',
+    provider: 'openai',
+    baseUrl: `${ollamaHost}/v1`,
+    reasoning: false,
+    input: ['text'],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 32768,
+    maxTokens: 8192,
+  });
+}
+
+/**
+ * API-key resolver for Ollama models. Ollama itself does not require a key,
+ * but pi-ai's openai-completions adaptor refuses requests without one.
+ * Prefer `OLLAMA_API_KEY` (in case the operator has set one for a remote
+ * Ollama), else fall back to a harmless sentinel that the operator's setup
+ * commonly uses already.
+ *
+ * @returns {string}
+ */
+function getOllamaApiKey() {
+  // eslint-disable-next-line no-undef
+  const env = globalThis?.process?.env ?? {};
+  return env.OLLAMA_API_KEY || 'ollama';
+}
+
+/**
+ * Convert a lal tool definition into a pi-agent-core AgentTool. The
+ * `parameters` field is a permissive open-object schema; per-tool argument
+ * validation lives in `executeTool` via the SmallCaps marshal + explicit
+ * keys check. When pi-agent-core's tool-schema forwarding stabilizes we
+ * can promote the per-tool schemas into this field.
+ *
+ * @param {string} name
+ * @param {string} summary
+ * @param {(name: string, args: any) => Promise<any>} executeTool
+ * @returns {AgentTool<any>}
+ */
+function toAgentTool(name, summary, executeTool) {
+  return {
+    name,
+    label: name,
+    description: summary,
+    parameters: { type: 'object', additionalProperties: true },
+    execute: async (_toolCallId, params, _signal, _onUpdate) => {
+      const result = await executeTool(name, params);
+      const text =
+        typeof result === 'string' ? result : JSON.stringify(result);
+      /** @type {AgentToolResult<any>} */
+      const toolResult = {
+        content: [{ type: 'text', text }],
+        details: result,
+      };
+      return toolResult;
+    },
+  };
 }
 
 // ============================================================================
