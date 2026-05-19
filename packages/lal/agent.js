@@ -2,7 +2,7 @@
 /* eslint-disable no-await-in-loop */
 
 import { makeExo } from '@endo/exo';
-import { M } from '@endo/patterns';
+import { M, mustMatch } from '@endo/patterns';
 import { E } from '@endo/eventual-send';
 import { passableAsJustin, makeMarshal } from '@endo/marshal';
 import { makeRefIterator } from '@endo/daemon/ref-reader.js';
@@ -56,7 +56,20 @@ const LalInterface = M.interface('Lal', {
  * @property {string} name
  * @property {string} summary - one-line description sent to the LLM.
  * @property {object} [parameters] - JSON-schema-like shape (for documentation).
+ * @property {import('@endo/patterns').Pattern} [params] - `@endo/patterns`
+ *   matcher run against the SmallCaps-decoded args object before dispatch.
+ *   Inspired by `packages/genie/src/tools/common.js`, which uses the same
+ *   matcher discipline to validate tool inputs at the `@endo/patterns` layer
+ *   that the rest of the Endo capability surface already speaks.
  */
+
+// A pet name path is an array of one or more strings (each path segment).
+// A "name or path" accepts either a single string or such an array.
+const NamePathShape = M.arrayOf(M.string());
+const NameOrPathShape = M.or(M.string(), NamePathShape);
+// Message numbers arrive as SmallCaps BigInts (via decodeSmallcapsValue);
+// permit a plain number too for ergonomic LLM emission of small integers.
+const MessageNumberShape = M.or(M.bigint(), M.number());
 
 /** @type {LalToolDef[]} */
 const toolDefs = [
@@ -66,6 +79,7 @@ const toolDefs = [
     summary:
       'Get documentation for guest capabilities or a specific method. ' +
       'Call with no arguments for an overview, or with a method name for specific documentation.',
+    params: M.splitRecord({}, { methodName: M.string() }),
   },
 
   // --- Directory operations ---
@@ -74,6 +88,7 @@ const toolDefs = [
     summary:
       'Check if a pet name exists in the directory. Returns true or false. ' +
       'Argument: petNamePath (string[]).',
+    params: M.splitRecord({ petNamePath: NamePathShape }),
   },
   {
     name: 'list',
@@ -82,36 +97,42 @@ const toolDefs = [
       'With no arguments, lists pet names in your root directory. ' +
       'With a name, looks up that capability and calls list() on it. ' +
       'Optional argument: name (string or string[]).',
+    params: M.splitRecord({}, { name: NameOrPathShape }),
   },
   {
     name: 'lookup',
     summary:
       'Resolve a pet name or path to its value. Returns the value stored under that name. ' +
       'Argument: petNameOrPath (string or string[]).',
+    params: M.splitRecord({ petNameOrPath: NameOrPathShape }),
   },
   {
     name: 'remove',
     summary:
       'Remove a pet name from the directory. The underlying value is not deleted, just the name mapping. ' +
       'Argument: petNamePath (string[]).',
+    params: M.splitRecord({ petNamePath: NamePathShape }),
   },
   {
     name: 'move',
     summary:
       'Move/rename a reference from one name to another. The original name is removed. ' +
       'Arguments: fromPath (string[]), toPath (string[]).',
+    params: M.splitRecord({ fromPath: NamePathShape, toPath: NamePathShape }),
   },
   {
     name: 'copy',
     summary:
       'Copy a reference to a new name. Both names will refer to the same value. ' +
       'Arguments: fromPath (string[]), toPath (string[]).',
+    params: M.splitRecord({ fromPath: NamePathShape, toPath: NamePathShape }),
   },
   {
     name: 'makeDirectory',
     summary:
       'Create a new subdirectory at the given path. ' +
       'Argument: petNamePath (string[]).',
+    params: M.splitRecord({ petNamePath: NamePathShape }),
   },
 
   // --- Mail operations ---
@@ -120,36 +141,55 @@ const toolDefs = [
     summary:
       'List all messages in your inbox. Returns an array of message objects ' +
       'with number, date, from, type, and content. No arguments.',
+    params: M.splitRecord({}),
   },
   {
     name: 'resolve',
     summary:
       'Respond to a request message by providing a named value. ' +
       'Arguments: messageNumber (SmallCaps BigInt like "+5"), petNameOrPath.',
+    params: M.splitRecord({
+      messageNumber: MessageNumberShape,
+      petNameOrPath: NameOrPathShape,
+    }),
   },
   {
     name: 'reject',
     summary:
       'Decline a request message. The requester receives an error. ' +
       'Arguments: messageNumber (SmallCaps BigInt like "+5"), optional reason (string).',
+    params: M.splitRecord(
+      { messageNumber: MessageNumberShape },
+      { reason: M.string() },
+    ),
   },
   {
     name: 'adopt',
     summary:
       'Adopt a value from an incoming package message, giving it a pet name. ' +
       'Arguments: messageNumber, edgeName, petName.',
+    params: M.splitRecord({
+      messageNumber: MessageNumberShape,
+      edgeName: NameOrPathShape,
+      petName: NameOrPathShape,
+    }),
   },
   {
     name: 'dismiss',
     summary:
       'Remove a message from your inbox. Use after you have processed a message. ' +
       'Argument: messageNumber (SmallCaps BigInt like "+5").',
+    params: M.splitRecord({ messageNumber: MessageNumberShape }),
   },
   {
     name: 'request',
     summary:
       'Send a request to another agent asking for a capability. ' +
       'Arguments: recipientName, description (string), optional responseName.',
+    params: M.splitRecord(
+      { recipientName: NameOrPathShape, description: M.string() },
+      { responseName: NameOrPathShape },
+    ),
   },
   {
     name: 'send',
@@ -157,6 +197,12 @@ const toolDefs = [
       'Send a package message with values to another agent. ' +
       'Arguments: recipientName, strings (string[]), edgeNames (string[]), petNames. ' +
       'For text-only messages: send("@host", ["text"], [], []).',
+    params: M.splitRecord({
+      recipientName: NameOrPathShape,
+      strings: M.arrayOf(M.string()),
+      edgeNames: M.arrayOf(M.string()),
+      petNames: M.arrayOf(NameOrPathShape),
+    }),
   },
   {
     name: 'reply',
@@ -164,6 +210,12 @@ const toolDefs = [
       'Reply to a message in your inbox, threading the response to the original message. ' +
       'Use this instead of send() when responding to a received message. ' +
       'Arguments: messageNumber, strings (string[]), edgeNames (string[]), petNames.',
+    params: M.splitRecord({
+      messageNumber: MessageNumberShape,
+      strings: M.arrayOf(M.string()),
+      edgeNames: M.arrayOf(M.string()),
+      petNames: M.arrayOf(NameOrPathShape),
+    }),
   },
 
   // --- Identity ---
@@ -173,6 +225,7 @@ const toolDefs = [
       'Get the locator URL for a pet name. Returns an "endo://..." URL string. ' +
       'Use locate(["@self"]) to get your own locator. ' +
       'Argument: petNamePath (string[]).',
+    params: M.splitRecord({ petNamePath: NamePathShape }),
   },
 
   // --- Capability operations ---
@@ -181,18 +234,28 @@ const toolDefs = [
     summary:
       'Look up a capability by pet name and call its help() method to learn how to use it. ' +
       'Argument: petNameOrPath.',
+    params: M.splitRecord({ petNameOrPath: NameOrPathShape }),
   },
   {
     name: 'readText',
     summary:
       'Read text content from a capability (ReadableTree, WritableTree, etc.). ' +
       'Arguments: petNameOrPath, fileName (string).',
+    params: M.splitRecord({
+      petNameOrPath: NameOrPathShape,
+      fileName: M.string(),
+    }),
   },
   {
     name: 'writeText',
     summary:
       'Write text content to a capability (WritableTree, etc.). ' +
       'Arguments: petNameOrPath, fileName (string), content (string).',
+    params: M.splitRecord({
+      petNameOrPath: NameOrPathShape,
+      fileName: M.string(),
+      content: M.string(),
+    }),
   },
 
   // --- Code evaluation ---
@@ -201,6 +264,18 @@ const toolDefs = [
     summary:
       'Evaluate JavaScript code directly. Arguments: workerName (string|undefined), ' +
       'source (string), codeNames (string[]), edgeNames (string[]), resultName.',
+    // workerName + codeNames + edgeNames are optional in the dispatcher
+    // (codeNames/edgeNames default to [] and workerName accepts the
+    // "#undefined" SmallCaps sentinel). Allow either undefined or the
+    // expected primitive shape.
+    params: M.splitRecord(
+      { source: M.string(), resultName: NameOrPathShape },
+      {
+        workerName: M.or(M.string(), M.undefined()),
+        codeNames: M.arrayOf(M.string()),
+        edgeNames: M.arrayOf(M.string()),
+      },
+    ),
   },
 
   // --- Define (code with slots for host to fill) ---
@@ -210,6 +285,10 @@ const toolDefs = [
       'Propose a reusable program with named capability slots for the host to fill. ' +
       'Unlike evaluate(), you do NOT provide the capabilities yourself. ' +
       'Arguments: source (string), slots (object mapping slot name to { label }).',
+    params: M.splitRecord({
+      source: M.string(),
+      slots: M.recordOf(M.string(), M.splitRecord({ label: M.string() })),
+    }),
   },
 ];
 
@@ -348,10 +427,58 @@ const decodeSmallcapsValue = value => {
   }
 };
 
+// Pre-index each tool's @endo/patterns matcher by tool name. The matcher
+// validates the SmallCaps-decoded args object before dispatch, matching
+// the discipline `packages/genie/src/tools/common.js` applies (per-tool
+// schema + nested-JSON fixup), but expressed at the args-record level
+// since lal's tools share one switch-dispatcher rather than per-tool
+// closures.
+const paramsByTool = new Map(
+  toolDefs.filter(t => t.params !== undefined).map(t => [t.name, t.params]),
+);
+
+/**
+ * Validate decoded args against the tool's `@endo/patterns` matcher.
+ * If the first attempt fails and any field is a string that parses as JSON,
+ * we retry once with those fields un-JSON-fied. Some LLMs (notably smaller
+ * Ollama models) emit nested arrays/objects as JSON-encoded strings; the
+ * same retry idea is used in genie's `common.js`.
+ *
+ * @param {string} name
+ * @param {Record<string, unknown>} args
+ * @returns {Record<string, unknown>} Possibly fixed-up args.
+ */
+const validateAndFixupArgs = (name, args) => {
+  const pattern = paramsByTool.get(name);
+  if (pattern === undefined) return args;
+  try {
+    mustMatch(harden(args), pattern, `${name} args`);
+    return args;
+  } catch (err) {
+    if (typeof args !== 'object' || args === null) throw err;
+    let fixedAny = false;
+    /** @type {Record<string, unknown>} */
+    const next = { ...args };
+    for (const [key, val] of Object.entries(args)) {
+      if (typeof val === 'string') {
+        try {
+          next[key] = JSON.parse(val);
+          fixedAny = true;
+        } catch {
+          // not JSON; leave as-is
+        }
+      }
+    }
+    if (!fixedAny) throw err;
+    mustMatch(harden(next), pattern, `${name} args`);
+    return next;
+  }
+};
+
 /**
  * Build the executeTool callback bound to a specific guest's powers. The
- * returned function is the `execTool` parameter to `makePiAgent`; it must
- * always resolve (errors propagate as the tool's `details`/`content`).
+ * returned function is the `execTool` parameter to `new PiAgent({tools:[...]})`;
+ * it must always resolve (errors propagate as the tool's `details`/`content`).
  *
  * @param {any} powers - Guest powers
  * @returns {(name: string, args: ToolCallArgs) => Promise<unknown>}
@@ -360,7 +487,15 @@ const makeExecuteTool = powers => {
   const executeTool = async (name, rawArgs) => {
     // pi-agent-core delivers args as an object. Run SmallCaps decoding so
     // numeric-shaped strings like "+5" become BigInts before dispatch.
-    const args = /** @type {ToolCallArgs} */ (decodeSmallcapsValue(rawArgs));
+    const decoded = decodeSmallcapsValue(rawArgs);
+    // Validate against the tool's @endo/patterns matcher so a malformed
+    // args record fails fast with a structured error instead of cascading
+    // into a confusing E(powers).<method>() failure mid-dispatch.
+    const args = /** @type {ToolCallArgs} */ (
+      validateAndFixupArgs(name, /** @type {Record<string, unknown>} */ (
+        decoded ?? {}
+      ))
+    );
     switch (name) {
       // Self-documentation
       case 'help': {
