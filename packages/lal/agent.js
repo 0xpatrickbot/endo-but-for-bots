@@ -492,9 +492,10 @@ const makeExecuteTool = powers => {
     // args record fails fast with a structured error instead of cascading
     // into a confusing E(powers).<method>() failure mid-dispatch.
     const args = /** @type {ToolCallArgs} */ (
-      validateAndFixupArgs(name, /** @type {Record<string, unknown>} */ (
-        decoded ?? {}
-      ))
+      validateAndFixupArgs(
+        name,
+        /** @type {Record<string, unknown>} */ (decoded ?? {}),
+      )
     );
     switch (name) {
       // Self-documentation
@@ -820,9 +821,7 @@ export const spawnWorkerLoop = async (powers, context, workerEnv) => {
           m.role === 'toolResult',
       ),
     toolExecution: 'sequential',
-    ...(isOllama
-      ? { getApiKey: async _provider => getOllamaApiKey() }
-      : {}),
+    ...(isOllama ? { getApiKey: async _provider => getOllamaApiKey() } : {}),
   });
 
   /**
@@ -1154,8 +1153,7 @@ function toAgentTool(name, summary, executeTool) {
     parameters: { type: 'object', additionalProperties: true },
     execute: async (_toolCallId, params, _signal, _onUpdate) => {
       const result = await executeTool(name, params);
-      const text =
-        typeof result === 'string' ? result : JSON.stringify(result);
+      const text = typeof result === 'string' ? result : JSON.stringify(result);
       /** @type {AgentToolResult<any>} */
       const toolResult = {
         content: [{ type: 'text', text }],
