@@ -72,7 +72,7 @@ const NameOrPathShape = M.or(M.string(), NamePathShape);
 const MessageNumberShape = M.or(M.bigint(), M.number());
 
 /** @type {LalToolDef[]} */
-const toolDefs = [
+export const toolDefs = [
   // --- Self-documentation ---
   {
     name: 'help',
@@ -483,7 +483,7 @@ const validateAndFixupArgs = (name, args) => {
  * @param {any} powers - Guest powers
  * @returns {(name: string, args: ToolCallArgs) => Promise<unknown>}
  */
-const makeExecuteTool = powers => {
+export const makeExecuteTool = powers => {
   const executeTool = async (name, rawArgs) => {
     // pi-agent-core delivers args as an object. Run SmallCaps decoding so
     // numeric-shaped strings like "+5" become BigInts before dispatch.
@@ -1145,7 +1145,7 @@ function getOllamaApiKey() {
  * @param {(name: string, args: any) => Promise<any>} executeTool
  * @returns {AgentTool<any>}
  */
-function toAgentTool(name, summary, executeTool) {
+export function toAgentTool(name, summary, executeTool) {
   return {
     name,
     label: name,
