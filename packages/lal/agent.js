@@ -1175,13 +1175,14 @@ export function toAgentTool(name, summary, executeTool) {
  * creates a new guest profile and spawns a worker loop for it.
  *
  * @param {FarRef<GuestPowers>} guestPowers - Guest powers from the Endo daemon
- * @param {Promise<LalContext> | LalContext | undefined} _context
+ * @param {Promise<LalContext> | LalContext | undefined} _context - Context for cancellation support
  * @returns {object} The Lal exo object
  */
 export const make = (guestPowers, _context) => {
   /** @type {any} */
   const powers = guestPowers;
 
+  // Send the configuration form to HOST for adding agents.
   const runManager = async () => {
     await E(powers).form(
       '@host',
@@ -1210,11 +1211,13 @@ export const make = (guestPowers, _context) => {
       ]),
     );
 
+    // Resolve the host agent reference for provideGuest calls.
     const agent = await E(powers).lookup('host-agent');
     const selfLocator = await E(powers).locate('@self');
     const activeWorkers = new Map();
 
     // Check in the primer directory as a content-addressed readable-tree.
+    // Stored once in the host namespace; each sub-guest gets a reference.
     const primerDirPath = new URL('./primer', import.meta.url).pathname;
     const localPrimerTree = makeLocalTree(primerDirPath);
     await E(agent).storeTree(localPrimerTree, 'lal-primer');
@@ -1233,6 +1236,9 @@ export const make = (guestPowers, _context) => {
       }
     };
 
+    // Pre-scan existing messages to find our latest form messageId so that
+    // old value messages (from prior sessions) that reply to an earlier form
+    // are not accidentally matched when the iterator replays history.
     /** @type {string | undefined} */
     let formMessageId;
     const existingMessages = /** @type {any[]} */ (
@@ -1252,6 +1258,7 @@ export const make = (guestPowers, _context) => {
 
       const msg = /** @type {any} */ (message);
 
+      // Capture the form's messageId from our own outbound message.
       // eslint-disable-next-line @endo/restrict-comparison-operands
       if (msg.from === selfLocator && msg.type === 'form') {
         formMessageId = msg.messageId;
@@ -1260,7 +1267,9 @@ export const make = (guestPowers, _context) => {
         // eslint-disable-next-line @endo/restrict-comparison-operands
         msg.replyTo === formMessageId
       ) {
+        // Only process value messages that reply to our form.
         try {
+          // Resolve the submitted values from the value message.
           const config =
             /** @type {{ name: string, host: string, model: string, authToken: string }} */ (
               await E(powers).lookupById(msg.valueId)
@@ -1269,6 +1278,7 @@ export const make = (guestPowers, _context) => {
           const { name } = config;
 
           if (activeWorkers.has(name)) {
+            // A worker is already running for this name.
             await E(powers).reply(
               msg.number,
               [`Agent "${name}" already exists.`],
@@ -1276,6 +1286,11 @@ export const make = (guestPowers, _context) => {
               [],
             );
           } else {
+            // Create the guest profile via the host agent.
+            // provideGuest returns the full EndoGuest (not the handle).
+            // Guard with has() so restart re-uses the existing guest;
+            // re-running provideGuest on an existing name throws
+            // "Formula already exists".
             let guest;
             if (await E(agent).has(name)) {
               guest = await E(agent).lookup(name);
@@ -1285,8 +1300,10 @@ export const make = (guestPowers, _context) => {
               });
             }
 
+            // Ensure the sub-guest has the primer directory.
             await provisionPrimer(guest);
 
+            // Spawn a worker loop for this guest.
             const workerP = spawnWorkerLoop(guest, null, {
               LAL_HOST: config.host,
               LAL_MODEL: config.model,
