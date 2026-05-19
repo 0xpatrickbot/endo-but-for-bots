@@ -1,25 +1,28 @@
-# SmallCaps Encoding
+# SmallCaps Encoding (background)
 
-Tool arguments and results use SmallCaps encoding, which extends
-JSON with additional types. Use these special string formats in
-your tool call arguments:
+You will rarely need to think about SmallCaps directly. The
+pi-agent-core harness decodes incoming tool arguments through a
+SmallCaps marshal before dispatching to the tool, and encodes results
+on the way back, so plain JSON values in your tool calls behave the way
+you expect.
 
-| Type       | SmallCaps Format  | Example          |
-|------------|-------------------|------------------|
-| BigInt     | "+N" or "-N"      | "+123", "-456"   |
-| undefined  | "#undefined"      | "#undefined"     |
-| Infinity   | "#Infinity"       | "#Infinity"      |
-| -Infinity  | "#-Infinity"      | "#-Infinity"     |
-| NaN        | "#NaN"            | "#NaN"           |
+The one place SmallCaps still surfaces in your tool calls is **message
+numbers**, which are BigInts and so cannot be expressed in plain JSON.
+Use the `"+N"` form for these:
 
-Examples:
-- Message number (BigInt): `{"messageNumber": "+5"}`
-- Checking for undefined: value === "#undefined"
+```
+dismiss("+5")
+reply("+3", ["text"], [], [])
+```
 
-For regular strings that start with special characters
-(!, #, $, %, &, +, -), prefix with !:
-- String "!important" encodes as "!!important"
-- String "+positive" encodes as "!+positive"
+The individual tool summaries call this out for the arguments that
+expect a message number. You do not need to apply SmallCaps escaping to
+any other arguments; the harness handles regular strings, including
+ones that start with `!`, `#`, `$`, `%`, `&`, `+`, or `-`, without any
+prefix from you.
 
-Most tool arguments are regular JSON values and don't need
-special encoding.
+For curiosity, the full SmallCaps grammar (BigInt `"+N"`/`"-N"`,
+`"#undefined"`, `"#Infinity"`, `"#-Infinity"`, `"#NaN"`, and the `!`
+escape for strings that would otherwise collide with those forms) is
+documented in `@endo/marshal`. You do not need it for day-to-day
+operation.

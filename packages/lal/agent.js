@@ -320,9 +320,11 @@ There are two kinds of name in your inventory:
   freely. They are lowercase alphanumeric with hyphens
   (\`a-z0-9-\`, 1-128 chars).
 
-## SmallCaps
+## Message numbers
 
-Message numbers are BigInt. Use \`"+N"\` format: \`dismiss("+5")\`, \`reply("+3", ...)\`
+Message numbers are BigInts. Express them as \`"+N"\`: \`dismiss("+5")\`, \`reply("+3", ...)\`.
+The harness decodes other tool arguments from JSON for you; see
+\`readText("primer", "smallcaps.md")\` only if you need the background.
 
 ## Key Rules
 
