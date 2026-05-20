@@ -4,7 +4,7 @@
 import { makeExo } from '@endo/exo';
 import { M, mustMatch } from '@endo/patterns';
 import { E } from '@endo/eventual-send';
-import { passableAsJustin, makeMarshal } from '@endo/marshal';
+import { passableAsJustin } from '@endo/marshal';
 import { makeRefIterator } from '@endo/daemon/ref-reader.js';
 import { makeLocalTree } from '@endo/platform/fs/node';
 
@@ -57,18 +57,30 @@ const LalInterface = M.interface('Lal', {
  * @property {string} summary - one-line description sent to the LLM.
  * @property {object} [parameters] - JSON-schema-like shape (for documentation).
  * @property {import('@endo/patterns').Pattern} [params] - `@endo/patterns`
- *   matcher run against the SmallCaps-decoded args object before dispatch.
- *   Inspired by `packages/genie/src/tools/common.js`, which uses the same
- *   matcher discipline to validate tool inputs at the `@endo/patterns` layer
- *   that the rest of the Endo capability surface already speaks.
+ *   matcher run against the decoded args object before dispatch. Inspired by
+ *   `packages/genie/src/tools/common.js`, which uses the same matcher
+ *   discipline to validate tool inputs at the `@endo/patterns` layer that
+ *   the rest of the Endo capability surface already speaks.
+ * @property {readonly string[]} [bigintArgs] - field names whose values
+ *   should be coerced from a SmallCaps-shaped BigInt literal (`"+N"` or
+ *   `"-N"`) into an actual BigInt before pattern validation. These are
+ *   the *only* fields where SmallCaps interpretation is applied: every
+ *   other field passes through verbatim so an LLM-emitted string like
+ *   `"+15551234567"`, `"#main"`, or `"%percentage"` lands at the tool
+ *   boundary as the literal string the model wrote (per maintainer
+ *   feedback on #290: a SmallCaps walk over the whole args record is a
+ *   footgun because every special-prefixed string in user-text fields
+ *   like `strings`, `content`, or `source` would be inadvertently
+ *   reinterpreted as a BigInt, sentinel, symbol, or remotable).
  */
 
 // A pet name path is an array of one or more strings (each path segment).
 // A "name or path" accepts either a single string or such an array.
 const NamePathShape = M.arrayOf(M.string());
 const NameOrPathShape = M.or(M.string(), NamePathShape);
-// Message numbers arrive as SmallCaps BigInts (via decodeSmallcapsValue);
-// permit a plain number too for ergonomic LLM emission of small integers.
+// Message numbers arrive as SmallCaps BigInts coerced from `"+N"` literals
+// per-tool by `coerceBigintArgs`; permit a plain number too for ergonomic
+// LLM emission of small integers.
 const MessageNumberShape = M.or(M.bigint(), M.number());
 
 /** @type {LalToolDef[]} */
@@ -152,6 +164,7 @@ export const toolDefs = [
       messageNumber: MessageNumberShape,
       petNameOrPath: NameOrPathShape,
     }),
+    bigintArgs: ['messageNumber'],
   },
   {
     name: 'reject',
@@ -162,6 +175,7 @@ export const toolDefs = [
       { messageNumber: MessageNumberShape },
       { reason: M.string() },
     ),
+    bigintArgs: ['messageNumber'],
   },
   {
     name: 'adopt',
@@ -173,6 +187,7 @@ export const toolDefs = [
       edgeName: NameOrPathShape,
       petName: NameOrPathShape,
     }),
+    bigintArgs: ['messageNumber'],
   },
   {
     name: 'dismiss',
@@ -180,6 +195,7 @@ export const toolDefs = [
       'Remove a message from your inbox. Use after you have processed a message. ' +
       'Argument: messageNumber (SmallCaps BigInt like "+5").',
     params: M.splitRecord({ messageNumber: MessageNumberShape }),
+    bigintArgs: ['messageNumber'],
   },
   {
     name: 'request',
@@ -216,6 +232,7 @@ export const toolDefs = [
       edgeNames: M.arrayOf(M.string()),
       petNames: M.arrayOf(NameOrPathShape),
     }),
+    bigintArgs: ['messageNumber'],
   },
 
   // --- Identity ---
@@ -399,44 +416,79 @@ before resorting to \`evaluate()\`. For unfamiliar capabilities, use
 // Tool Dispatch
 // ============================================================================
 
-// SmallCaps marshal for decoding pi-ai tool call arguments. pi-ai passes
-// arguments as plain objects after JSON-parsing; this round-trip lets the
-// LLM emit SmallCaps tokens like "+5" (BigInt 5) and "#undefined" inside
-// argument values, preserving the existing protocol.
-const { unserialize } = makeMarshal(undefined, undefined, {
-  serializeBodyFormat: 'smallcaps',
-});
+// Per-tool SmallCaps BigInt-coercion. The previous harness ran the entire
+// args record through a SmallCaps marshal, which silently re-interpreted any
+// LLM-emitted string starting with a SmallCaps special prefix (`!"#$%&'()*+,-`)
+// as a BigInt, sentinel, symbol, or remotable. That was a footgun: a phone
+// number `"+15551234567"`, a literal `"+5"` typed by the user, a hashtag
+// `"#main"`, or the word `"%percentage"` in `strings` / `content` / `source`
+// would all be silently mutated before the tool ever saw them (#290 review,
+// kriskowal, 2026-05-20). To stay rigorous on SmallCaps as long as we are
+// using JSON as the wire format, we coerce *only* the per-tool fields
+// declared as `bigintArgs` (the documented `messageNumber` surface) and
+// leave every other string verbatim. The `@endo/patterns` matchers then
+// catch any drift (a string in a `petNamePath: string[]` slot, a number in
+// a `petName: string` slot, etc.) at the args boundary.
+
+const BIGINT_LITERAL_RE = /^[+-]\d+$/;
 
 /**
- * Decode a value that may contain SmallCaps-encoded primitives. The pi-ai
- * harness gives us objects with already-parsed JSON; we round-trip through
- * SmallCaps to recover BigInts and other SmallCaps-only primitives.
+ * Coerce a single value to a BigInt when it is shaped like a SmallCaps
+ * BigInt literal (`"+N"` or `"-N"`). Plain numbers and existing BigInts
+ * are passed through; the pattern matcher tolerates both. Anything that
+ * does not look like a BigInt literal is returned unchanged so the
+ * matcher can reject it with a clear "must be a bigint" diagnostic.
  *
  * @param {unknown} value
  * @returns {unknown}
  */
-const decodeSmallcapsValue = value => {
-  if (value === undefined || value === null) return value;
+const coerceBigintArg = value => {
+  if (typeof value !== 'string') return value;
+  if (!BIGINT_LITERAL_RE.test(value)) return value;
   try {
-    // Re-serialize as JSON, then ask the SmallCaps marshal to deserialize
-    // the structure. This preserves the existing "+N" => BigInt convention
-    // while passing through plain primitives untouched.
-    const jsonString =
-      typeof value === 'string' ? value : JSON.stringify(value);
-    return unserialize({ body: `#${jsonString}`, slots: [] });
+    return BigInt(value);
   } catch {
     return value;
   }
 };
 
-// Pre-index each tool's @endo/patterns matcher by tool name. The matcher
-// validates the SmallCaps-decoded args object before dispatch, matching
-// the discipline `packages/genie/src/tools/common.js` applies (per-tool
-// schema + nested-JSON fixup), but expressed at the args-record level
-// since lal's tools share one switch-dispatcher rather than per-tool
+/**
+ * Coerce the named bigint-typed fields of an args record in place
+ * (returning a fresh object). Non-bigint fields are copied through
+ * verbatim with no SmallCaps interpretation. This is the entirety of
+ * SmallCaps decoding the harness performs on inbound tool args; every
+ * other primitive shape is left to the LLM's JSON.
+ *
+ * @param {Record<string, unknown>} args
+ * @param {readonly string[]} bigintArgs
+ * @returns {Record<string, unknown>}
+ */
+const coerceBigintArgs = (args, bigintArgs) => {
+  if (bigintArgs.length === 0) return args;
+  /** @type {Record<string, unknown>} */
+  const next = { ...args };
+  for (const key of bigintArgs) {
+    if (Object.hasOwn(next, key)) {
+      next[key] = coerceBigintArg(next[key]);
+    }
+  }
+  return next;
+};
+
+// Pre-index each tool's @endo/patterns matcher and its bigint-arg list by
+// tool name. The matcher validates the decoded args record before dispatch,
+// matching the discipline `packages/genie/src/tools/common.js` applies
+// (per-tool schema + nested-JSON fixup) but expressed at the args-record
+// level since lal's tools share one switch-dispatcher rather than per-tool
 // closures.
 const paramsByTool = new Map(
   toolDefs.filter(t => t.params !== undefined).map(t => [t.name, t.params]),
+);
+/** @type {Map<string, readonly string[]>} */
+const bigintArgsByTool = new Map(
+  toolDefs
+    .filter(t => t.bigintArgs && t.bigintArgs.length > 0)
+    .map(t => [t.name, /** @type {readonly string[]} */ (t.bigintArgs)]),
 );
 
 /**
@@ -487,17 +539,21 @@ const validateAndFixupArgs = (name, args) => {
  */
 export const makeExecuteTool = powers => {
   const executeTool = async (name, rawArgs) => {
-    // pi-agent-core delivers args as an object. Run SmallCaps decoding so
-    // numeric-shaped strings like "+5" become BigInts before dispatch.
-    const decoded = decodeSmallcapsValue(rawArgs);
+    // pi-agent-core delivers args as a plain object after JSON-parsing.
+    // Coerce only the declared bigint-typed fields (the `messageNumber`
+    // surface) from `"+N"` literals to actual BigInts. Every other field
+    // passes through verbatim so user-text fields like `strings`,
+    // `content`, and `source` cannot be inadvertently reinterpreted as
+    // SmallCaps tokens (#290 review, kriskowal: a JSON-over-the-wire
+    // protocol needs rigorous SmallCaps treatment, not a recursive walk).
+    const argsRecord = /** @type {Record<string, unknown>} */ (rawArgs ?? {});
+    const bigintArgs = bigintArgsByTool.get(name) ?? [];
+    const decoded = coerceBigintArgs(argsRecord, bigintArgs);
     // Validate against the tool's @endo/patterns matcher so a malformed
     // args record fails fast with a structured error instead of cascading
     // into a confusing E(powers).<method>() failure mid-dispatch.
     const args = /** @type {ToolCallArgs} */ (
-      validateAndFixupArgs(
-        name,
-        /** @type {Record<string, unknown>} */ (decoded ?? {}),
-      )
+      validateAndFixupArgs(name, decoded)
     );
     switch (name) {
       // Self-documentation
@@ -1138,9 +1194,10 @@ function getOllamaApiKey() {
 /**
  * Convert a lal tool definition into a pi-agent-core AgentTool. The
  * `parameters` field is a permissive open-object schema; per-tool argument
- * validation lives in `executeTool` via the SmallCaps marshal + explicit
- * keys check. When pi-agent-core's tool-schema forwarding stabilizes we
- * can promote the per-tool schemas into this field.
+ * validation lives in `executeTool` (per-field BigInt coercion plus the
+ * `@endo/patterns` matcher + JSON-string fixup retry). When pi-agent-core's
+ * tool-schema forwarding stabilizes we can promote the per-tool schemas
+ * into this field.
  *
  * @param {string} name
  * @param {string} summary

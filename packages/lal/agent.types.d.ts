@@ -10,9 +10,11 @@ export type { NameOrPath };
 
 /**
  * Arguments passed into the tool dispatcher in `agent.js`. pi-agent-core
- * delivers tool arguments as already-parsed JSON objects; SmallCaps decoding
- * is applied per-call so BigInt-shaped strings like "+5" round-trip into the
- * fields below as actual BigInts.
+ * delivers tool arguments as already-parsed JSON objects; SmallCaps
+ * interpretation is applied only to per-tool `bigintArgs` fields (the
+ * documented `messageNumber` surface), so BigInt-shaped strings like
+ * "+5" round-trip into `messageNumber` as actual BigInts while every
+ * other string field arrives verbatim from the LLM.
  */
 export type ToolCallArgs = {
   methodName?: string;
