@@ -1,18 +1,63 @@
 name: Familiar Release
 
+# Builds the Familiar Electron shell for every supported MVR target
+# (macOS arm64, macOS x64, Linux x64) per designs/familiar-release.md G1.
+#
+# Triggers:
+#   - pull_request and push to llm/master, gated by path filters so the
+#     multi-platform build only runs when familiar / daemon / chat /
+#     bundled-agent / build infrastructure code changes. Each run uploads
+#     the per-platform `out/make/` output as a workflow artifact so the
+#     maintainer can download and smoke-test releases manually from the
+#     run's Artifacts panel.
+#   - workflow_dispatch for ad-hoc manual builds (e.g., to smoke-test a
+#     branch that did not trip the path filters).
+#   - push of a `familiar-v*` tag, which additionally promotes the
+#     artifacts into a draft GitHub Release via the `release` job below.
+#
+# The `release` job is gated on tag push or workflow_dispatch with an
+# explicit version input; pull_request and branch-push runs never publish
+# a release.
+
 on:
+  pull_request:
+    paths:
+      - 'packages/familiar/**'
+      - 'packages/daemon/**'
+      - 'packages/chat/**'
+      - 'packages/lal/**'
+      - 'packages/fae/**'
+      - '.github/workflows/familiar-release.yml'
+  push:
+    branches:
+      - llm
+      - master
+    paths:
+      - 'packages/familiar/**'
+      - 'packages/daemon/**'
+      - 'packages/chat/**'
+      - 'packages/lal/**'
+      - 'packages/fae/**'
+      - '.github/workflows/familiar-release.yml'
+    tags:
+      - 'familiar-v*'
   workflow_dispatch:
     inputs:
       version:
         description: 'Release version (e.g. 0.1.0)'
         required: false
         type: string
-  push:
-    tags:
-      - 'familiar-v*'
 
 permissions:
   contents: write
+
+# Cancel in-progress runs for the same ref when a new run starts. The
+# multi-platform make matrix is the longest-running CI surface in this
+# repo; without this group a rapid sequence of pushes during familiar
+# development queues up redundant macos-14/macos-13/ubuntu-latest builds.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 # Defense in depth against npm lifecycle scripts running implicitly at install.
 # See designs/ci-no-npm-lifecycle.md.
@@ -64,6 +109,10 @@ jobs:
     runs-on: ${{ matrix.runner }}
 
     strategy:
+      # Keep building the remaining platforms when one fails so the
+      # maintainer can still pick up a partial artifact set for smoke
+      # testing while the failing platform is investigated.
+      fail-fast: false
       matrix:
         include:
           - runner: macos-14
@@ -126,6 +175,12 @@ jobs:
     name: Create release
     needs: make
     runs-on: ubuntu-latest
+    # Promote artifacts into a draft GitHub Release only when this run
+    # was triggered by a `familiar-v*` tag push or by a workflow_dispatch
+    # that supplied an explicit version input. Pull-request and
+    # branch-push runs never enter this job; their artifacts stop at the
+    # workflow run's Artifacts panel and remain downloadable for the
+    # run's artifact-retention window.
     if: startsWith(github.ref, 'refs/tags/familiar-v') || github.event.inputs.version != ''
 
     steps:
