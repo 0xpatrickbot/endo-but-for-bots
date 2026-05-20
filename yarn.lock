@@ -633,6 +633,22 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@ax-llm/ax@npm:^21.0.0":
+  version: 21.0.7
+  resolution: "@ax-llm/ax@npm:21.0.7"
+  dependencies:
+    "@opentelemetry/api": "npm:^1.9.0"
+  peerDependencies:
+    zod: ^3.24.0 || ^4.0.0
+  peerDependenciesMeta:
+    zod:
+      optional: true
+  bin:
+    ax: cli/index.mjs
+  checksum: 10c0/bca48fceaa6cfa929c68bf3880a7462319922028facf767b0f012c1f452dee9a5bfcabb8a61fda6f166bd052e9981213e4239bc9e232d8a4815ced0cf1f547cf
+  languageName: node
+  linkType: hard
+
 "@babel/code-frame@npm:^7.0.0, @babel/code-frame@npm:^7.27.1":
   version: 7.27.1
   resolution: "@babel/code-frame@npm:7.27.1"
@@ -2174,6 +2190,7 @@ __metadata:
   resolution: "@endo/lal@workspace:packages/lal"
   dependencies:
     "@anthropic-ai/sdk": "npm:^0.95.1"
+    "@ax-llm/ax": "npm:^21.0.0"
     "@endo/cli": "workspace:^"
     "@endo/daemon": "workspace:^"
     "@endo/errors": "workspace:^"
@@ -5066,6 +5083,13 @@ __metadata:
   dependencies:
     "@octokit/openapi-types": "npm:^12.11.0"
   checksum: 10c0/81cfa58e5524bf2e233d75a346e625fd6e02a7b919762c6ddb523ad6fb108943ef9d34c0298ff3c5a44122e449d9038263bc22959247fd6ff8894a48888ac705
+  languageName: node
+  linkType: hard
+
+"@opentelemetry/api@npm:^1.9.0":
+  version: 1.9.1
+  resolution: "@opentelemetry/api@npm:1.9.1"
+  checksum: 10c0/c608485fc8b5a91e1f7e05e843b45b509307456b31cd2ad365933d90813e40ebfedf179f1451c762037e82d7c76aa8500e95d2da3609f640a1206cde5322cd14
   languageName: node
   linkType: hard
 
