@@ -14,12 +14,14 @@ import { runAgentRound } from '@endo/genie';
 
 import { systemPrompt } from './prompts/system.js';
 import { tools } from './tools/index.js';
+import { noopHooks } from './hooks/index.js';
 
 /** @import { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core' */
 /** @import { Model } from '@mariozechner/pi-ai' */
 
 /** @import { FarRef } from '@endo/eventual-send' */
 /** @import { GuestPowers, ToolCallArgs, InboxMessage, LalContext } from './agent.types.js' */
+/** @import { Hooks } from './hooks/index.js' */
 
 // Register pi-ai's built-in API providers (anthropic, openai, google,
 // openrouter, mistral, deepseek, groq, xai, github-copilot, and ~20 others)
@@ -228,9 +230,17 @@ export const makeExecuteTool = powers => {
  * @param {any} powers - Guest powers (manager's own or a sub-guest's)
  * @param {Promise<object> | object | null | undefined} context
  * @param {{ LAL_HOST?: string, LAL_MODEL?: string, LAL_AUTH_TOKEN?: string }} workerEnv
+ * @param {Hooks} [hooks] - Observation hooks; defaults to `noopHooks`.
+ *   See `hooks/index.js`. Used by the eval harness to record a trace
+ *   without monkey-patching agent.js.
  * @returns {Promise<void>}
  */
-export const spawnWorkerLoop = async (powers, context, workerEnv) => {
+export const spawnWorkerLoop = async (
+  powers,
+  context,
+  workerEnv,
+  hooks = noopHooks,
+) => {
   const getCancelled = async () => {
     if (!context) return null;
     const resolvedContext = await context;
@@ -311,6 +321,7 @@ export const spawnWorkerLoop = async (powers, context, workerEnv) => {
             }
           })();
           console.log(`[tool] ${event.toolName}(${argsPreview})`);
+          hooks.onToolCallStart(event);
           break;
         }
         case 'ToolCallEnd': {
@@ -328,6 +339,7 @@ export const spawnWorkerLoop = async (powers, context, workerEnv) => {
             })();
             console.log(`[tool] ${event.toolName} -> ${out}`);
           }
+          hooks.onToolCallEnd(event);
           break;
         }
         case 'Message': {
@@ -337,15 +349,18 @@ export const spawnWorkerLoop = async (powers, context, workerEnv) => {
             // debugging breadcrumb rather than being sent to a peer.
             console.log(`[assistant] ${event.content}`);
           }
+          hooks.onMessage(event);
           break;
         }
         case 'Error': {
           console.error(`[agent] LLM error: ${event.message}`);
+          hooks.onEvent(event);
           throw event.cause || new Error(event.message);
         }
         default:
           break;
       }
+      hooks.onEvent(event);
     }
   };
 

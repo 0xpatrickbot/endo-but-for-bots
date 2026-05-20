@@ -72,7 +72,8 @@
     "src",
     "primer",
     "prompts",
-    "tools"
+    "tools",
+    "hooks"
   ],
   "publishConfig": {
     "access": "public"
