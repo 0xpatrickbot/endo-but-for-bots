@@ -1433,7 +1433,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@endo/agentry@workspace:packages/agentry":
+"@endo/agentry@workspace:^, @endo/agentry@workspace:packages/agentry":
   version: 0.0.0-use.local
   resolution: "@endo/agentry@workspace:packages/agentry"
   dependencies:
@@ -2203,7 +2203,7 @@ __metadata:
   resolution: "@endo/lal@workspace:packages/lal"
   dependencies:
     "@anthropic-ai/sdk": "npm:^0.95.1"
-    "@ax-llm/ax": "npm:^21.0.0"
+    "@endo/agentry": "workspace:^"
     "@endo/cli": "workspace:^"
     "@endo/daemon": "workspace:^"
     "@endo/errors": "workspace:^"
