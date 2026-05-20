@@ -71,6 +71,7 @@
     "lib",
     "src",
     "primer",
+    "prompts",
     "tools"
   ],
   "publishConfig": {
