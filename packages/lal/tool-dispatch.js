@@ -16,6 +16,7 @@
  *   today (per-tool argument validation happens inside `executeTool`).
  */
 
+import { coerceBigintArgs } from '@endo/agentry/smallcaps';
 import { mustMatch } from '@endo/patterns';
 
 import { tools } from './tools/index.js';
@@ -40,52 +41,9 @@ import { tools } from './tools/index.js';
 // `messageNumber` surface) and leave every other string verbatim. The
 // `@endo/patterns` matchers then catch any drift (a string in a
 // `petNamePath: string[]` slot, a number in a `petName: string` slot,
-// etc.) at the args boundary.
-
-const BIGINT_LITERAL_RE = /^[+-]\d+$/;
-
-/**
- * Coerce a single value to a BigInt when it is shaped like a SmallCaps
- * BigInt literal (`"+N"` or `"-N"`). Plain numbers and existing BigInts
- * are passed through; the pattern matcher tolerates both. Anything that
- * does not look like a BigInt literal is returned unchanged so the
- * matcher can reject it with a clear "must be a bigint" diagnostic.
- *
- * @param {unknown} value
- * @returns {unknown}
- */
-const coerceBigintArg = value => {
-  if (typeof value !== 'string') return value;
-  if (!BIGINT_LITERAL_RE.test(value)) return value;
-  try {
-    return BigInt(value);
-  } catch {
-    return value;
-  }
-};
-
-/**
- * Coerce the named bigint-typed fields of an args record in place
- * (returning a fresh object). Non-bigint fields are copied through
- * verbatim with no SmallCaps interpretation. This is the entirety of
- * SmallCaps decoding the harness performs on inbound tool args; every
- * other primitive shape is left to the LLM's JSON.
- *
- * @param {Record<string, unknown>} args
- * @param {readonly string[]} bigintArgs
- * @returns {Record<string, unknown>}
- */
-const coerceBigintArgs = (args, bigintArgs) => {
-  if (bigintArgs.length === 0) return args;
-  /** @type {Record<string, unknown>} */
-  const next = { ...args };
-  for (const key of bigintArgs) {
-    if (Object.hasOwn(next, key)) {
-      next[key] = coerceBigintArg(next[key]);
-    }
-  }
-  return next;
-};
+// etc.) at the args boundary. The per-field coercion helper itself
+// lives in @endo/agentry/smallcaps; lal supplies the per-tool
+// bigintArgs list.
 
 // ============================================================================
 // Tool registry indices
