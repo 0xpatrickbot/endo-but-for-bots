@@ -13,6 +13,7 @@ import { registerBuiltInApiProviders, getModel } from '@mariozechner/pi-ai';
 import { runAgentRound } from '@endo/genie';
 
 import { systemPrompt } from './prompts/system.js';
+import { tools } from './tools/index.js';
 
 /** @import { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core' */
 /** @import { Model } from '@mariozechner/pi-ai' */
@@ -40,276 +41,23 @@ const LalInterface = M.interface('Lal', {
 // Endo Capability Tool Specs
 // ============================================================================
 //
-// Each tool is named, has a one-line summary (used by pi-agent-core as the
-// tool description sent to the LLM), and an `execute(powers, args)` callback
-// that calls into the daemon. The `parameters` field captures the JSON-schema
-// shape the LLM should target; `toAgentTool` (defined below) wraps each spec
-// in the permissive open-object schema pi-agent-core ships today. When
-// `pi-agent-core` learns to forward custom parameter schemas this field will
-// be wired through directly.
+// The set of tools the LLM can call is built up from per-tool files under
+// `tools/`. Each file exports a hardened
+// `{ name, summary, [params], [bigintArgs], execute }` record; the aggregated
+// `tools` array lives in `tools/index.js`. The `summary` is what
+// pi-agent-core sends to the LLM as the tool description; `params` is the
+// `@endo/patterns` matcher run against the decoded args before dispatch;
+// `bigintArgs` names the fields that should be SmallCaps-coerced; `execute`
+// is the per-tool handler that the dispatcher invokes with the guest's
+// powers and the validated args record.
 //
-// Tool dispatch lives entirely in this module: `executeTool` is the single
-// `switch` that maps tool names to `E(powers)` calls. The set of tools is the
-// same surface lal exposed before the genie migration; only the agent loop
-// driving them has been replaced.
-
-/**
- * @typedef {object} LalToolDef
- * @property {string} name
- * @property {string} summary - one-line description sent to the LLM.
- * @property {object} [parameters] - JSON-schema-like shape (for documentation).
- * @property {import('@endo/patterns').Pattern} [params] - `@endo/patterns`
- *   matcher run against the decoded args object before dispatch. Inspired by
- *   `packages/genie/src/tools/common.js`, which uses the same matcher
- *   discipline to validate tool inputs at the `@endo/patterns` layer that
- *   the rest of the Endo capability surface already speaks.
- * @property {readonly string[]} [bigintArgs] - field names whose values
- *   should be coerced from a SmallCaps-shaped BigInt literal (`"+N"` or
- *   `"-N"`) into an actual BigInt before pattern validation. These are
- *   the *only* fields where SmallCaps interpretation is applied: every
- *   other field passes through verbatim so an LLM-emitted string like
- *   `"+15551234567"`, `"#main"`, or `"%percentage"` lands at the tool
- *   boundary as the literal string the model wrote (per maintainer
- *   feedback on #290: a SmallCaps walk over the whole args record is a
- *   footgun because every special-prefixed string in user-text fields
- *   like `strings`, `content`, or `source` would be inadvertently
- *   reinterpreted as a BigInt, sentinel, symbol, or remotable).
- */
-
-// A pet name path is an array of one or more strings (each path segment).
-// A "name or path" accepts either a single string or such an array.
-const NamePathShape = M.arrayOf(M.string());
-const NameOrPathShape = M.or(M.string(), NamePathShape);
-// Message numbers arrive as SmallCaps BigInts coerced from `"+N"` literals
-// per-tool by `coerceBigintArgs`; permit a plain number too for ergonomic
-// LLM emission of small integers.
-const MessageNumberShape = M.or(M.bigint(), M.number());
-
-/** @type {LalToolDef[]} */
-export const toolDefs = [
-  // --- Self-documentation ---
-  {
-    name: 'help',
-    summary:
-      'Get documentation for guest capabilities or a specific method. ' +
-      'Call with no arguments for an overview, or with a method name for specific documentation.',
-    params: M.splitRecord({}, { methodName: M.string() }),
-  },
-
-  // --- Directory operations ---
-  {
-    name: 'has',
-    summary:
-      'Check if a pet name exists in the directory. Returns true or false. ' +
-      'Argument: petNamePath (string[]).',
-    params: M.splitRecord({ petNamePath: NamePathShape }),
-  },
-  {
-    name: 'list',
-    summary:
-      'List contents of your directory or any capability you have a pet name for. ' +
-      'With no arguments, lists pet names in your root directory. ' +
-      'With a name, looks up that capability and calls list() on it. ' +
-      'Optional argument: name (string or string[]).',
-    params: M.splitRecord({}, { name: NameOrPathShape }),
-  },
-  {
-    name: 'lookup',
-    summary:
-      'Resolve a pet name or path to its value. Returns the value stored under that name. ' +
-      'Argument: petNameOrPath (string or string[]).',
-    params: M.splitRecord({ petNameOrPath: NameOrPathShape }),
-  },
-  {
-    name: 'remove',
-    summary:
-      'Remove a pet name from the directory. The underlying value is not deleted, just the name mapping. ' +
-      'Argument: petNamePath (string[]).',
-    params: M.splitRecord({ petNamePath: NamePathShape }),
-  },
-  {
-    name: 'move',
-    summary:
-      'Move/rename a reference from one name to another. The original name is removed. ' +
-      'Arguments: fromPath (string[]), toPath (string[]).',
-    params: M.splitRecord({ fromPath: NamePathShape, toPath: NamePathShape }),
-  },
-  {
-    name: 'copy',
-    summary:
-      'Copy a reference to a new name. Both names will refer to the same value. ' +
-      'Arguments: fromPath (string[]), toPath (string[]).',
-    params: M.splitRecord({ fromPath: NamePathShape, toPath: NamePathShape }),
-  },
-  {
-    name: 'makeDirectory',
-    summary:
-      'Create a new subdirectory at the given path. ' +
-      'Argument: petNamePath (string[]).',
-    params: M.splitRecord({ petNamePath: NamePathShape }),
-  },
-
-  // --- Mail operations ---
-  {
-    name: 'listMessages',
-    summary:
-      'List all messages in your inbox. Returns an array of message objects ' +
-      'with number, date, from, type, and content. No arguments.',
-    params: M.splitRecord({}),
-  },
-  {
-    name: 'resolve',
-    summary:
-      'Respond to a request message by providing a named value. ' +
-      'Arguments: messageNumber (SmallCaps BigInt like "+5"), petNameOrPath.',
-    params: M.splitRecord({
-      messageNumber: MessageNumberShape,
-      petNameOrPath: NameOrPathShape,
-    }),
-    bigintArgs: ['messageNumber'],
-  },
-  {
-    name: 'reject',
-    summary:
-      'Decline a request message. The requester receives an error. ' +
-      'Arguments: messageNumber (SmallCaps BigInt like "+5"), optional reason (string).',
-    params: M.splitRecord(
-      { messageNumber: MessageNumberShape },
-      { reason: M.string() },
-    ),
-    bigintArgs: ['messageNumber'],
-  },
-  {
-    name: 'adopt',
-    summary:
-      'Adopt a value from an incoming package message, giving it a pet name. ' +
-      'Arguments: messageNumber, edgeName, petName.',
-    params: M.splitRecord({
-      messageNumber: MessageNumberShape,
-      edgeName: NameOrPathShape,
-      petName: NameOrPathShape,
-    }),
-    bigintArgs: ['messageNumber'],
-  },
-  {
-    name: 'dismiss',
-    summary:
-      'Remove a message from your inbox. Use after you have processed a message. ' +
-      'Argument: messageNumber (SmallCaps BigInt like "+5").',
-    params: M.splitRecord({ messageNumber: MessageNumberShape }),
-    bigintArgs: ['messageNumber'],
-  },
-  {
-    name: 'request',
-    summary:
-      'Send a request to another agent asking for a capability. ' +
-      'Arguments: recipientName, description (string), optional responseName.',
-    params: M.splitRecord(
-      { recipientName: NameOrPathShape, description: M.string() },
-      { responseName: NameOrPathShape },
-    ),
-  },
-  {
-    name: 'send',
-    summary:
-      'Send a package message with values to another agent. ' +
-      'Arguments: recipientName, strings (string[]), edgeNames (string[]), petNames. ' +
-      'For text-only messages: send("@host", ["text"], [], []).',
-    params: M.splitRecord({
-      recipientName: NameOrPathShape,
-      strings: M.arrayOf(M.string()),
-      edgeNames: M.arrayOf(M.string()),
-      petNames: M.arrayOf(NameOrPathShape),
-    }),
-  },
-  {
-    name: 'reply',
-    summary:
-      'Reply to a message in your inbox, threading the response to the original message. ' +
-      'Use this instead of send() when responding to a received message. ' +
-      'Arguments: messageNumber, strings (string[]), edgeNames (string[]), petNames.',
-    params: M.splitRecord({
-      messageNumber: MessageNumberShape,
-      strings: M.arrayOf(M.string()),
-      edgeNames: M.arrayOf(M.string()),
-      petNames: M.arrayOf(NameOrPathShape),
-    }),
-    bigintArgs: ['messageNumber'],
-  },
-
-  // --- Identity ---
-  {
-    name: 'locate',
-    summary:
-      'Get the locator URL for a pet name. Returns an "endo://..." URL string. ' +
-      'Use locate(["@self"]) to get your own locator. ' +
-      'Argument: petNamePath (string[]).',
-    params: M.splitRecord({ petNamePath: NamePathShape }),
-  },
-
-  // --- Capability operations ---
-  {
-    name: 'inspect',
-    summary:
-      'Look up a capability by pet name and call its help() method to learn how to use it. ' +
-      'Argument: petNameOrPath.',
-    params: M.splitRecord({ petNameOrPath: NameOrPathShape }),
-  },
-  {
-    name: 'readText',
-    summary:
-      'Read text content from a capability (ReadableTree, WritableTree, etc.). ' +
-      'Arguments: petNameOrPath, fileName (string).',
-    params: M.splitRecord({
-      petNameOrPath: NameOrPathShape,
-      fileName: M.string(),
-    }),
-  },
-  {
-    name: 'writeText',
-    summary:
-      'Write text content to a capability (WritableTree, etc.). ' +
-      'Arguments: petNameOrPath, fileName (string), content (string).',
-    params: M.splitRecord({
-      petNameOrPath: NameOrPathShape,
-      fileName: M.string(),
-      content: M.string(),
-    }),
-  },
-
-  // --- Code evaluation ---
-  {
-    name: 'evaluate',
-    summary:
-      'Evaluate JavaScript code directly. Arguments: workerName (string|undefined), ' +
-      'source (string), codeNames (string[]), edgeNames (string[]), resultName.',
-    // workerName + codeNames + edgeNames are optional in the dispatcher
-    // (codeNames/edgeNames default to [] and workerName accepts the
-    // "#undefined" SmallCaps sentinel). Allow either undefined or the
-    // expected primitive shape.
-    params: M.splitRecord(
-      { source: M.string(), resultName: NameOrPathShape },
-      {
-        workerName: M.or(M.string(), M.undefined()),
-        codeNames: M.arrayOf(M.string()),
-        edgeNames: M.arrayOf(M.string()),
-      },
-    ),
-  },
-
-  // --- Define (code with slots for host to fill) ---
-  {
-    name: 'define',
-    summary:
-      'Propose a reusable program with named capability slots for the host to fill. ' +
-      'Unlike evaluate(), you do NOT provide the capabilities yourself. ' +
-      'Arguments: source (string), slots (object mapping slot name to { label }).',
-    params: M.splitRecord({
-      source: M.string(),
-      slots: M.recordOf(M.string(), M.splitRecord({ label: M.string() })),
-    }),
-  },
-];
+// `toAgentTool` (defined below) wraps each spec in the permissive
+// open-object parameter schema pi-agent-core ships today. When
+// `pi-agent-core` learns to forward custom parameter schemas, the per-tool
+// `params` will be wired through directly.
+//
+// Tool dispatch lives in `makeExecuteTool` below: a single
+// registry-lookup-and-call replaces the previous inline switch.
 
 // ============================================================================
 // Tool Dispatch
@@ -374,21 +122,23 @@ const coerceBigintArgs = (args, bigintArgs) => {
   return next;
 };
 
-// Pre-index each tool's @endo/patterns matcher and its bigint-arg list by
-// tool name. The matcher validates the decoded args record before dispatch,
-// matching the discipline `packages/genie/src/tools/common.js` applies
-// (per-tool schema + nested-JSON fixup) but expressed at the args-record
-// level since lal's tools share one switch-dispatcher rather than per-tool
-// closures.
+// Pre-index each tool's @endo/patterns matcher, bigint-arg list, and execute
+// callback by tool name. The matcher validates the decoded args record before
+// dispatch, matching the discipline `packages/genie/src/tools/common.js`
+// applies (per-tool schema + nested-JSON fixup) but expressed at the
+// args-record level. The execute index turns dispatch into a single registry
+// lookup, replacing the previous switch that lived in this module.
 const paramsByTool = new Map(
-  toolDefs.filter(t => t.params !== undefined).map(t => [t.name, t.params]),
+  tools.filter(t => t.params !== undefined).map(t => [t.name, t.params]),
 );
 /** @type {Map<string, readonly string[]>} */
 const bigintArgsByTool = new Map(
-  toolDefs
+  tools
     .filter(t => t.bigintArgs && t.bigintArgs.length > 0)
     .map(t => [t.name, /** @type {readonly string[]} */ (t.bigintArgs)]),
 );
+/** @type {Map<string, (powers: any, args: ToolCallArgs) => Promise<unknown>>} */
+const executeByTool = new Map(tools.map(t => [t.name, t.execute]));
 
 /**
  * Validate decoded args against the tool's `@endo/patterns` matcher.
@@ -454,253 +204,11 @@ export const makeExecuteTool = powers => {
     const args = /** @type {ToolCallArgs} */ (
       validateAndFixupArgs(name, decoded)
     );
-    switch (name) {
-      // Self-documentation
-      case 'help': {
-        const { methodName } = args;
-        return E(powers).help(methodName);
-      }
-
-      // Directory operations
-      case 'has': {
-        const { petNamePath } = args;
-        if (!petNamePath) {
-          throw new Error('petNamePath is required');
-        }
-        return E(powers).has(...petNamePath);
-      }
-      case 'list': {
-        // eslint-disable-next-line no-shadow
-        const { name: lookupName } = args;
-        if (lookupName !== undefined) {
-          const capability = await E(powers).lookup(lookupName);
-          return E(capability).list();
-        }
-        return E(powers).list();
-      }
-      case 'lookup': {
-        const { petNameOrPath } = args;
-        if (petNameOrPath === undefined) {
-          throw new Error('petNameOrPath is required');
-        }
-        return E(powers).lookup(petNameOrPath);
-      }
-      case 'remove': {
-        const { petNamePath } = args;
-        if (!petNamePath) {
-          throw new Error('petNamePath is required');
-        }
-        return E(powers).remove(...petNamePath);
-      }
-      case 'move': {
-        const { fromPath, toPath } = args;
-        if (!fromPath || !toPath) {
-          throw new Error('fromPath and toPath are required');
-        }
-        return E(powers).move(fromPath, toPath);
-      }
-      case 'copy': {
-        const { fromPath, toPath } = args;
-        if (!fromPath || !toPath) {
-          throw new Error('fromPath and toPath are required');
-        }
-        return E(powers).copy(fromPath, toPath);
-      }
-      case 'makeDirectory': {
-        const { petNamePath } = args;
-        if (!petNamePath) {
-          throw new Error('petNamePath is required');
-        }
-        return E(powers).makeDirectory(petNamePath);
-      }
-
-      // Mail operations
-      case 'listMessages': {
-        const rawMessages = await E(powers).listMessages();
-        return harden(
-          rawMessages.map(
-            (
-              /** @type {InboxMessage & {messageId?: string, replyTo?: string}} */ msg,
-            ) => ({
-              number: msg.number,
-              date: msg.date,
-              from: msg.from,
-              to: msg.to,
-              type: msg.type,
-              strings: msg.strings,
-              names: msg.names,
-              messageId: msg.messageId,
-              replyTo: msg.replyTo,
-            }),
-          ),
-        );
-      }
-      case 'resolve': {
-        const { messageNumber, petNameOrPath } = args;
-        if (messageNumber === undefined || petNameOrPath === undefined) {
-          throw new Error('messageNumber and petNameOrPath are required');
-        }
-        return E(powers).resolve(messageNumber, petNameOrPath);
-      }
-      case 'reject': {
-        const { messageNumber, reason } = args;
-        if (messageNumber === undefined) {
-          throw new Error('messageNumber is required');
-        }
-        return E(powers).reject(messageNumber, reason);
-      }
-      case 'adopt': {
-        const { messageNumber, edgeName, petName } = args;
-        if (
-          messageNumber === undefined ||
-          edgeName === undefined ||
-          petName === undefined
-        ) {
-          throw new Error('messageNumber, edgeName, and petName are required');
-        }
-        return E(powers).adopt(messageNumber, edgeName, petName);
-      }
-      case 'dismiss': {
-        const { messageNumber } = args;
-        if (messageNumber === undefined) {
-          throw new Error('messageNumber is required');
-        }
-        return E(powers).dismiss(messageNumber);
-      }
-      case 'request': {
-        const { recipientName, description, responseName } = args;
-        if (recipientName === undefined || description === undefined) {
-          throw new Error('recipientName and description are required');
-        }
-        return E(powers).request(recipientName, description, responseName);
-      }
-      case 'send': {
-        const { recipientName, strings, edgeNames, petNames } = args;
-        if (
-          recipientName === undefined ||
-          !strings ||
-          !edgeNames ||
-          !petNames
-        ) {
-          throw new Error(
-            'recipientName, strings, edgeNames, and petNames are required',
-          );
-        }
-        return E(powers).send(recipientName, strings, edgeNames, petNames);
-      }
-      case 'reply': {
-        const { messageNumber, strings, edgeNames, petNames } = args;
-        if (
-          messageNumber === undefined ||
-          !strings ||
-          !edgeNames ||
-          !petNames
-        ) {
-          throw new Error(
-            'messageNumber, strings, edgeNames, and petNames are required',
-          );
-        }
-        return E(powers).reply(messageNumber, strings, edgeNames, petNames);
-      }
-
-      // Identity
-      case 'locate': {
-        const { petNamePath } = args;
-        if (!petNamePath) {
-          throw new Error('petNamePath is required');
-        }
-        return E(powers).locate(...petNamePath);
-      }
-
-      // Capability operations
-      case 'inspect': {
-        const { petNameOrPath } = args;
-        if (petNameOrPath === undefined) {
-          throw new Error('petNameOrPath is required');
-        }
-        const capability = await E(powers).lookup(petNameOrPath);
-        const parts = [];
-        try {
-          const helpText = await E(capability).help();
-          parts.push(helpText);
-        } catch {
-          parts.push(
-            `Capability at "${petNameOrPath}" does not implement help().`,
-          );
-        }
-        try {
-          // eslint-disable-next-line no-underscore-dangle
-          const methods = await E(capability).__getMethodNames__();
-          parts.push(`\nMethods: ${methods.join(', ')}`);
-        } catch {
-          // No __getMethodNames__ available.
-        }
-        return parts.join('\n');
-      }
-      case 'readText': {
-        const { petNameOrPath, fileName } = args;
-        if (petNameOrPath === undefined || fileName === undefined) {
-          throw new Error('petNameOrPath and fileName are required');
-        }
-        const capability = await E(powers).lookup(petNameOrPath);
-        return E(capability).readText(fileName);
-      }
-      case 'writeText': {
-        const { petNameOrPath, fileName, content } = args;
-        if (
-          petNameOrPath === undefined ||
-          fileName === undefined ||
-          content === undefined
-        ) {
-          throw new Error('petNameOrPath, fileName, and content are required');
-        }
-        const capability = await E(powers).lookup(petNameOrPath);
-        return E(capability).writeText(fileName, content);
-      }
-
-      // Code evaluation
-      case 'evaluate': {
-        const {
-          workerName: rawWorkerName,
-          source,
-          codeNames = [],
-          edgeNames = [],
-          resultName,
-        } = args;
-        if (source === undefined) {
-          throw new Error('source is required');
-        }
-        if (resultName === undefined) {
-          throw new Error('resultName is required');
-        }
-        const workerName =
-          rawWorkerName === 'undefined' || rawWorkerName === '#undefined'
-            ? undefined
-            : rawWorkerName;
-        return E(powers).evaluate(
-          workerName,
-          source,
-          harden(codeNames),
-          harden(edgeNames),
-          resultName,
-        );
-      }
-
-      // Define code with slots for host to fill
-      case 'define': {
-        const { source, slots } = args;
-        if (source === undefined) {
-          throw new Error('source is required');
-        }
-        if (slots === undefined) {
-          throw new Error('slots is required');
-        }
-        return E(powers).define(source, harden(slots));
-      }
-
-      default:
-        throw new Error(`Unknown tool: ${name}`);
+    const execute = executeByTool.get(name);
+    if (execute === undefined) {
+      throw new Error(`Unknown tool: ${name}`);
     }
+    return execute(powers, args);
   };
 
   return executeTool;
@@ -755,7 +263,7 @@ export const spawnWorkerLoop = async (powers, context, workerEnv) => {
   //   (c) the per-tool parameter schema lives at the tool boundary,
   //       which lets `@endo/patterns` validation guard inbound args.
   const executeTool = makeExecuteTool(powers);
-  const agentTools = toolDefs.map(({ name, summary }) =>
+  const agentTools = tools.map(({ name, summary }) =>
     toAgentTool(name, summary, executeTool),
   );
 

@@ -1,7 +1,8 @@
 // @ts-check
 /**
  * Pin the new boundary between `PiAgent` (from `@mariozechner/pi-agent-core`)
- * and lal's tool surface (`toolDefs` + `makeExecuteTool` in `agent.js`).
+ * and lal's tool surface (`tools` from `tools/index.js` + `makeExecuteTool`
+ * in `agent.js`).
  *
  * The harness migration moved provider/normalization logic into pi-agent-core
  * (#292) and message shaping into pi-ai (#293), so the pre-migration
@@ -16,8 +17,9 @@
  *    validateAndFixupArgs retry)."
  *
  * Strategy: construct a `PiAgent` the same way `spawnWorkerLoop` does (same
- * `convertToLlm`, same tool surface built from `toolDefs` + `makeExecuteTool`
- * + `toAgentTool`), but supply a scripted `streamFn` so no provider is
+ * `convertToLlm`, same tool surface built from the per-tool `tools` registry
+ * + `makeExecuteTool` + `toAgentTool`), but supply a scripted `streamFn` so
+ * no provider is
  * called. The scripted stream emits one assistant turn carrying two tool
  * calls (one valid args record, one JSON-encoded-string args record) and a
  * second assistant turn that stops. We then assert on the mock powers that
@@ -29,7 +31,8 @@ import test from '@endo/ses-ava/prepare-endo.js';
 import { Agent as PiAgent } from '@mariozechner/pi-agent-core';
 import { createAssistantMessageEventStream } from '@mariozechner/pi-ai';
 
-import { toolDefs, makeExecuteTool, toAgentTool } from '../agent.js';
+import { makeExecuteTool, toAgentTool } from '../agent.js';
+import { tools } from '../tools/index.js';
 import { makeMockPowers } from '../tools/mock-powers.js';
 
 /**
@@ -134,7 +137,7 @@ test('PiAgent + lal tools: normal arg dispatch + validateAndFixupArgs JSON-strin
     return rawExecuteTool(name, rawArgs);
   };
 
-  const agentTools = toolDefs.map(({ name, summary }) =>
+  const agentTools = tools.map(({ name, summary }) =>
     toAgentTool(name, summary, executeTool),
   );
 

@@ -35,7 +35,8 @@ import test from '@endo/ses-ava/prepare-endo.js';
 import { Agent as PiAgent } from '@mariozechner/pi-agent-core';
 import { createAssistantMessageEventStream } from '@mariozechner/pi-ai';
 
-import { toolDefs, makeExecuteTool, toAgentTool } from '../agent.js';
+import { makeExecuteTool, toAgentTool } from '../agent.js';
+import { tools } from '../tools/index.js';
 import { makeMockPowers } from '../tools/mock-powers.js';
 
 /** @type {any} */
@@ -143,7 +144,7 @@ const buildAgent = script => {
   // E(powers).<method>() call. Both are useful; for these tests, the
   // powers boundary is the canonical surface to assert on.
 
-  const agentTools = toolDefs.map(({ name, summary }) =>
+  const agentTools = tools.map(({ name, summary }) =>
     toAgentTool(name, summary, async (toolName, rawArgs) => {
       dispatched.push({ name: toolName, args: rawArgs });
       return executeTool(toolName, rawArgs);
@@ -429,7 +430,7 @@ test('dismiss: powers boundary sees BigInt for "+5" messageNumber', async t => {
   });
 
   const executeTool = makeExecuteTool(observingPowers);
-  const agentTools = toolDefs.map(({ name, summary }) =>
+  const agentTools = tools.map(({ name, summary }) =>
     toAgentTool(name, summary, executeTool),
   );
 
@@ -478,7 +479,7 @@ test('reply: messageNumber "+3" coerces, strings stay literal', async t => {
     },
   });
   const executeTool = makeExecuteTool(powers);
-  const agentTools = toolDefs.map(({ name, summary }) =>
+  const agentTools = tools.map(({ name, summary }) =>
     toAgentTool(name, summary, executeTool),
   );
   const piAgent = new PiAgent({
