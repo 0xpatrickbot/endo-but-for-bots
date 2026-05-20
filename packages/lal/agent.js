@@ -4,18 +4,17 @@
 import { makeExo } from '@endo/exo';
 import { M } from '@endo/patterns';
 import { E } from '@endo/eventual-send';
-import { passableAsJustin } from '@endo/marshal';
 import { makeRefIterator } from '@endo/daemon/ref-reader.js';
 import { makeLocalTree } from '@endo/platform/fs/node';
 
 import { Agent as PiAgent } from '@mariozechner/pi-agent-core';
 import { registerBuiltInApiProviders } from '@mariozechner/pi-ai';
-import { runAgentRound } from '@endo/genie';
 
 import { systemPrompt } from './prompts/system.js';
 import { tools } from './tools/index.js';
 import { makeExecuteTool, toAgentTool } from './tool-dispatch.js';
 import { noopHooks } from './hooks/index.js';
+import { runRound } from './round-runner.js';
 import {
   resolveModelString,
   setProviderApiKey,
@@ -130,70 +129,10 @@ export const spawnWorkerLoop = async (
     ...(isOllama ? { getApiKey: async _provider => getOllamaApiKey() } : {}),
   });
 
-  /**
-   * Run one chat round on the PiAgent, forwarding tool-call activity to
-   * the console and dispatching tool errors via the LLM transcript.
-   *
-   * @param {string} prompt - User-role content for this round.
-   */
-  const runOneRound = async prompt => {
-    for await (const event of runAgentRound(piAgent, prompt)) {
-      switch (event.type) {
-        case 'ToolCallStart': {
-          const argsPreview = (() => {
-            try {
-              const s =
-                typeof event.args === 'string'
-                  ? event.args
-                  : passableAsJustin(harden(event.args ?? {}), false);
-              return s.length > 200 ? `${s.slice(0, 200)}...` : s;
-            } catch {
-              return '(args)';
-            }
-          })();
-          console.log(`[tool] ${event.toolName}(${argsPreview})`);
-          hooks.onToolCallStart(event);
-          break;
-        }
-        case 'ToolCallEnd': {
-          if ('error' in event && event.error) {
-            console.error(
-              `[tool] ${event.toolName} error: ${event.error.message}`,
-            );
-          } else {
-            const out = (() => {
-              try {
-                return passableAsJustin(event.result, false);
-              } catch {
-                return String(event.result);
-              }
-            })();
-            console.log(`[tool] ${event.toolName} -> ${out}`);
-          }
-          hooks.onToolCallEnd(event);
-          break;
-        }
-        case 'Message': {
-          if (event.role === 'assistant' && event.content) {
-            // The LLM's text response is logged for visibility; lal's
-            // protocol is tool-call-only, so any prose surfaces here as a
-            // debugging breadcrumb rather than being sent to a peer.
-            console.log(`[assistant] ${event.content}`);
-          }
-          hooks.onMessage(event);
-          break;
-        }
-        case 'Error': {
-          console.error(`[agent] LLM error: ${event.message}`);
-          hooks.onEvent(event);
-          throw event.cause || new Error(event.message);
-        }
-        default:
-          break;
-      }
-      hooks.onEvent(event);
-    }
-  };
+  // The per-round runner lives in `round-runner.js`; it is the seam
+  // where lal's diagnostic console output and the caller's `hooks`
+  // callbacks are invoked side by side.
+  const runOneRound = prompt => runRound(piAgent, prompt, hooks);
 
   /**
    * Build the user-role content for an inbound message. lal's prompt is
