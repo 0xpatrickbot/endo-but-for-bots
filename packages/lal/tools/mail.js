@@ -141,12 +141,7 @@ export const sendTool = {
   }),
   execute: async (powers, args) => {
     const { recipientName, strings, edgeNames, petNames } = args;
-    if (
-      recipientName === undefined ||
-      !strings ||
-      !edgeNames ||
-      !petNames
-    ) {
+    if (recipientName === undefined || !strings || !edgeNames || !petNames) {
       throw new Error(
         'recipientName, strings, edgeNames, and petNames are required',
       );
@@ -172,12 +167,7 @@ export const replyTool = {
   bigintArgs: ['messageNumber'],
   execute: async (powers, args) => {
     const { messageNumber, strings, edgeNames, petNames } = args;
-    if (
-      messageNumber === undefined ||
-      !strings ||
-      !edgeNames ||
-      !petNames
-    ) {
+    if (messageNumber === undefined || !strings || !edgeNames || !petNames) {
       throw new Error(
         'messageNumber, strings, edgeNames, and petNames are required',
       );

@@ -100,9 +100,7 @@ export const runInboxLoop = async ({ powers, getCancelled, runOneRound }) => {
     // Skip our own outbound messages; only act on inbound mail.
     // eslint-disable-next-line @endo/restrict-comparison-operands
     if (fromLocator !== selfLocator) {
-      console.log(
-        `[mail] New message #${number} (type: ${type || 'package'})`,
-      );
+      console.log(`[mail] New message #${number} (type: ${type || 'package'})`);
       try {
         await runOneRound(INBOUND_PROMPT);
       } catch (error) {

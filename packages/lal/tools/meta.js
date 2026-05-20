@@ -63,9 +63,7 @@ export const inspectTool = {
       const helpText = await E(capability).help();
       parts.push(helpText);
     } catch {
-      parts.push(
-        `Capability at "${petNameOrPath}" does not implement help().`,
-      );
+      parts.push(`Capability at "${petNameOrPath}" does not implement help().`);
     }
     try {
       // eslint-disable-next-line no-underscore-dangle

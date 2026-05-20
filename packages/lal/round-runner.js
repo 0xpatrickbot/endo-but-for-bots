@@ -68,7 +68,9 @@ export const runRound = async (piAgent, prompt, hooks) => {
   for await (const event of runAgentRound(piAgent, prompt)) {
     switch (event.type) {
       case 'ToolCallStart': {
-        console.log(`[tool] ${event.toolName}(${renderArgsPreview(event.args)})`);
+        console.log(
+          `[tool] ${event.toolName}(${renderArgsPreview(event.args)})`,
+        );
         hooks.onToolCallStart(event);
         break;
       }
