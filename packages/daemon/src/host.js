@@ -848,7 +848,7 @@ export const makeHostMaker = ({
 
     /**
      * @param {PetName} [petName]
-     * @param {ReturnType<typeof normalizeHostOrGuestOptions>} [opts]
+     * @param {MakeHostOrGuestOptions} [opts]
      * @returns {Promise<{id: FormulaIdentifier, value: Promise<EndoHost>}>}
      */
     const makeChildHost = async (
@@ -933,7 +933,7 @@ export const makeHostMaker = ({
 
     /**
      * @param {PetName} [handleName]
-     * @param {ReturnType<typeof normalizeHostOrGuestOptions>} [opts]
+     * @param {MakeHostOrGuestOptions} [opts]
      * @returns {Promise<{id: FormulaIdentifier, value: Promise<EndoGuest>}>}
      */
     const makeGuest = async (
