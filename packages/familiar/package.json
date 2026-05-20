@@ -42,6 +42,9 @@
     "@endo/where": "workspace:^",
     "electron": "^40.8.0"
   },
+  "engines": {
+    "node": "^22.0.0 || ^24.0.0"
+  },
   "devDependencies": {
     "@electron/packager": "^19.0.5",
     "@endo/compartment-mapper": "workspace:^",
