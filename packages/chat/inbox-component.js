@@ -72,17 +72,27 @@ export const inboxComponent = async (
   }, 150);
 
   const selfLocator = await E(powers).locate('@self');
-  // TODO(endojs/endo-but-for-bots#203): integrate the daemon
-  // `editMessage` / `messageHistory` capability surfaced by
-  // endojs/endo-but-for-bots#125.  When a sender edits a message,
-  // followMessages re-emits the same number with `done` and a new
-  // payload; this loop currently treats every emission as a fresh
-  // envelope and would therefore append a duplicate DOM node.  The
-  // intended behavior is to swap the existing `.message-envelope`
-  // contents in place, render `done: false` with a progress
-  // affordance, and offer a "view history" control that calls
-  // `E(powers).messageHistory(number)`.  Tracked as a follow-up
-  // design question in endojs/endo-but-for-bots#203.
+
+  /**
+   * Track the rendered `.message-envelope` element for each message number we
+   * have already seen.  When the daemon emits a revision of an existing
+   * message (via `editMessage`), `followMessages` re-emits the same number
+   * with a new envelope; we swap the existing DOM node in place rather than
+   * appending a duplicate.  Cleared when a message is dismissed.
+   *
+   * @type {Map<string, HTMLElement>}
+   */
+  const envelopeByNumber = new Map();
+
+  /**
+   * Track whether any revision history is known for a given message number,
+   * so the "view history" affordance can be hidden until at least one edit
+   * has been observed.
+   *
+   * @type {Set<string>}
+   */
+  const editedNumbers = new Set();
+
   for await (const message of makeRefIterator(E(powers).followMessages())) {
     // Read DOM at animation frame to determine whether to pin scroll to bottom
     // of the messages pane. Use 80px tolerance (matching channel-component)
@@ -143,14 +153,32 @@ export const inboxComponent = async (
       }
     }
 
+    const numberKey = String(number);
+    const isRevision = envelopeByNumber.has(numberKey);
+    if (isRevision) {
+      editedNumbers.add(numberKey);
+    }
+
     const $envelope = document.createElement('div');
     $envelope.className = 'message-envelope';
-    $envelope.dataset.number = String(number);
+    $envelope.dataset.number = numberKey;
     if (message.messageId) {
       $envelope.dataset.messageId = String(message.messageId);
     }
     if (message.replyTo) {
       $envelope.dataset.replyTo = String(message.replyTo);
+    }
+
+    // `done` defaults to true on legacy emissions; only emissions explicitly
+    // marked `done: false` are partial submissions.
+    const isPending =
+      'done' in message &&
+      /** @type {{done?: boolean}} */ (message).done === false;
+    if (isPending) {
+      $envelope.classList.add('message-envelope-pending');
+    }
+    if (editedNumbers.has(numberKey)) {
+      $envelope.classList.add('message-envelope-edited');
     }
 
     const $message = document.createElement('div');
@@ -162,6 +190,8 @@ export const inboxComponent = async (
 
     dismissed.then(() => {
       $envelope.remove();
+      envelopeByNumber.delete(numberKey);
+      editedNumbers.delete(numberKey);
     });
 
     const parsedDate = new Date(date);
@@ -192,6 +222,36 @@ export const inboxComponent = async (
         });
     };
     $controls.appendChild($dismiss);
+
+    // Edit and history controls are populated below for package messages
+    // that the local agent sent.  They are attached here so they live in
+    // the timestamp tooltip alongside the dismiss button.
+    /** @type {HTMLButtonElement | null} */
+    let $editButton = null;
+    /** @type {HTMLButtonElement | null} */
+    let $historyButton = null;
+    if (isSent && message.type === 'package') {
+      $historyButton = document.createElement('button');
+      $historyButton.className = 'history-button';
+      $historyButton.type = 'button';
+      $historyButton.innerText = '⏱';
+      $historyButton.title = 'View edit history';
+      // Hidden until at least one revision has been observed.
+      $historyButton.style.display = editedNumbers.has(numberKey) ? '' : 'none';
+      $controls.appendChild($historyButton);
+
+      $editButton = document.createElement('button');
+      $editButton.className = 'edit-button';
+      $editButton.type = 'button';
+      $editButton.innerText = '✎';
+      $editButton.title = 'Edit message';
+      // Hidden while the message is still settling.  An agent that wants
+      // to amend a not-yet-done message can do so via `editMessage`
+      // directly; the UI only exposes the affordance on settled messages
+      // to avoid racing with the sender's own streaming update.
+      $editButton.style.display = isPending ? 'none' : '';
+      $controls.appendChild($editButton);
+    }
 
     $tooltip.appendChild($controls);
 
@@ -817,9 +877,147 @@ export const inboxComponent = async (
     }
 
     $envelope.appendChild($message);
-    $parent.insertBefore($envelope, $end);
 
-    if (!isSent && Date.now() - new Date(date).getTime() < 2000) {
+    // Wire up the edit and history controls now that the message body has
+    // been rendered.  The controls were appended to the timestamp tooltip
+    // earlier so they appear in the same place across all package messages.
+    if (
+      $editButton &&
+      message.type === 'package' &&
+      Array.isArray(message.strings) &&
+      Array.isArray(message.names)
+    ) {
+      const initialText = message.strings.join('');
+      const currentEdgeNames = /** @type {string[]} */ (message.names);
+      const currentIds = /** @type {string[]} */ (message.ids ?? []);
+      $editButton.onclick = () => {
+        // Toggle the inline editor: if one is already mounted, the click
+        // closes it.
+        const $existing = $envelope.querySelector('.edit-editor');
+        if ($existing) {
+          $existing.remove();
+          $editButton.innerText = '✎';
+          return;
+        }
+        const $editor = document.createElement('div');
+        $editor.className = 'edit-editor';
+
+        const $textarea = document.createElement('textarea');
+        $textarea.className = 'edit-input';
+        $textarea.value = initialText;
+        $editor.appendChild($textarea);
+
+        const $actions = document.createElement('div');
+        $actions.className = 'edit-actions';
+
+        const $submit = document.createElement('button');
+        $submit.type = 'button';
+        $submit.className = 'edit-submit';
+        $submit.textContent = 'Save';
+        $submit.onclick = () => {
+          const text = $textarea.value;
+          // Preserve token positions when the edited text still contains
+          // every existing `@edgeName` reference; otherwise drop the
+          // bindings whose tokens were removed.  This keeps the simple
+          // text-only edit path one-call, while still permitting an agent
+          // to issue a richer edit programmatically.
+          const keptEdgeNames = currentEdgeNames.filter(name =>
+            text.includes(`@${name}`),
+          );
+          const keptIds = keptEdgeNames.map(name => {
+            const index = currentEdgeNames.indexOf(name);
+            return currentIds[index];
+          });
+          // The daemon validates `strings.length >= petNames.length`; a
+          // single-string payload satisfies that for any number of bindings.
+          E(powers)
+            .editMessage(number, [text], keptEdgeNames, keptIds)
+            .then(
+              () => {
+                $editor.remove();
+                $editButton.innerText = '✎';
+              },
+              (/** @type {Error} */ err) => {
+                $error.innerText = ` ${err.message}`;
+              },
+            );
+        };
+        $actions.appendChild($submit);
+
+        const $cancel = document.createElement('button');
+        $cancel.type = 'button';
+        $cancel.className = 'edit-cancel';
+        $cancel.textContent = 'Cancel';
+        $cancel.onclick = () => {
+          $editor.remove();
+          $editButton.innerText = '✎';
+        };
+        $actions.appendChild($cancel);
+
+        $editor.appendChild($actions);
+        $message.appendChild($editor);
+        $editButton.innerText = '×';
+        $textarea.focus();
+      };
+    }
+
+    if ($historyButton) {
+      $historyButton.onclick = () => {
+        const $existing = $envelope.querySelector('.history-panel');
+        if ($existing) {
+          $existing.remove();
+          return;
+        }
+        const $panel = document.createElement('div');
+        $panel.className = 'history-panel';
+        $panel.textContent = 'Loading history…';
+        $message.appendChild($panel);
+        E(powers)
+          .messageHistory(number)
+          .then(
+            (/** @type {unknown} */ revisions) => {
+              $panel.textContent = '';
+              const $list = document.createElement('ol');
+              $list.className = 'history-list';
+              const revisionArray =
+                /** @type {Array<{envelope?: {strings?: string[]}, done?: boolean, date?: string}>} */ (
+                  Array.isArray(revisions) ? revisions : []
+                );
+              for (const revision of revisionArray) {
+                const $item = document.createElement('li');
+                $item.className = 'history-item';
+                const strings = Array.isArray(revision.envelope?.strings)
+                  ? revision.envelope.strings.join('')
+                  : '';
+                const stamp = revision.date ? `[${revision.date}] ` : '';
+                const doneTag = revision.done === false ? ' (partial)' : '';
+                $item.textContent = `${stamp}${strings}${doneTag}`;
+                $list.appendChild($item);
+              }
+              $panel.appendChild($list);
+            },
+            (/** @type {Error} */ err) => {
+              $panel.textContent = `Error: ${err.message}`;
+            },
+          );
+      };
+    }
+
+    // Insert or replace.  A re-emission carries the same number; swap the
+    // existing envelope in place so the user does not see a duplicate.
+    const $previous = envelopeByNumber.get(numberKey);
+    if ($previous && $previous.parentElement === $parent) {
+      $parent.replaceChild($envelope, $previous);
+    } else {
+      $parent.insertBefore($envelope, $end);
+    }
+    envelopeByNumber.set(numberKey, $envelope);
+
+    if (
+      !isSent &&
+      !isRevision &&
+      Date.now() - new Date(date).getTime() < 2000
+    ) {
       playChime();
     }
 
