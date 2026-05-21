@@ -527,14 +527,18 @@ export const chatBarComponent = (
   // blocking state, but nothing flips it to true today.
   const commandSubmitting = false;
 
+  const pendingCommands = createPendingCommands($pendingRegion);
+
   /**
-   * Run a command with spinner/disabled state management.
+   * Dispatch a command into the pending region and surface its return
+   * value. The pending region's card owns the in-flight, success, and
+   * error UX (per `pending-commands.js`); this function forwards a
+   * successful command's value to the value modal when appropriate and
+   * otherwise returns once the executor settles.
    *
    * @param {string} commandName
    * @param {Record<string, unknown>} data
    */
-  const pendingCommands = createPendingCommands($pendingRegion);
-
   const executeWithSpinner = async (commandName, data) => {
     messagePicker.disable();
     $commandError.textContent = '';
