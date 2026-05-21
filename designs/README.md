@@ -101,7 +101,7 @@
 | [endor-bus-tui](endor-bus-tui.md) | 2026-04-23 | 2026-04-23 | Not Started |
 | [endor-tui](endor-tui.md) | 2026-04-23 | 2026-04-23 | Not Started |
 | [hex-package](hex-package.md) | 2026-04-23 | 2026-04-23 | Not Started |
-| [compartment-mapper-auxiliary-package-json](compartment-mapper-auxiliary-package-json.md) | 2026-05-06 | 2026-05-06 | Not Started |
+| [compartment-mapper-auxiliary-package-json](compartment-mapper-auxiliary-package-json.md) | 2026-05-06 | 2026-05-21 | Not Started |
 | [weblet-next](weblet-next.md) | 2026-03-24 | 2026-03-24 | Reference |
 | [workers-panel](workers-panel.md) | 2026-02-14 | 2026-02-24 | Not Started |
 
@@ -286,7 +286,7 @@ capabilities available to agents.
 | chat-playwright-smoke | Not Started | Add a build-and-load smoke for the Chat bundle to the existing `browser-tests` job |
 | base64-native-fallthrough | Not Started | `@endo/base64` dispatches to `Uint8Array.fromBase64` / `toBase64` when available |
 | hex-package | Not Started | New `@endo/hex` ponyfill with native fallthrough; audit and migrate scattered hex sites |
-| compartment-mapper-auxiliary-package-json | Not Started | Treat `name`-less `package.json` files as language-for-extension overrides on the enclosing named compartment; extract the package.json cache as a sibling module; new opt-in `mapNodeModulesWithAuxiliaryDescriptors` lane that preserves `mapNodeModules`'s contract |
+| compartment-mapper-auxiliary-package-json | Not Started | Treat `name`-less `package.json` files as language-for-extension overrides on the enclosing named compartment; extract the package.json cache as a sibling module; thread it through `mapNodeModules` via an opt-in `packageDescriptorCache` option and a sibling constructor that injects the cache by default; new compartment-descriptor field `languageForExtensionByPrefix` |
 
 **Exit criterion:** Someone can self-host a daemon with our Docker image
 and remote control it, by whatever means, using a local Familiar or a
@@ -498,7 +498,7 @@ Recalibrated on 2026-03-02 using observed velocity from 15 active work days
 | chat-playwright-smoke | S | 1 day | 1 | New `browser-test/tests/chat.spec.js`, serve `packages/chat/dist`, assert "Gateway not configured" + zero pageerrors |
 | base64-native-fallthrough | S | 1 day | 1 | Detect `Uint8Array.fromBase64`, dispatch, dual-path tests |
 | hex-package | S-M | 2-3 days | 1 | New `@endo/hex` package, migrate `daemon/src/hex.js`, `relay-server/src/protocol.js`, OCapN hex sites |
-| compartment-mapper-auxiliary-package-json | M | 3-5 days | 1 | Extract package.json cache into a sibling module; add `mapNodeModulesWithAuxiliaryDescriptors` lane that treats `name`-less `package.json` files as language-for-extension overrides on the enclosing named compartment |
+| compartment-mapper-auxiliary-package-json | M | 3-5 days | 1 | Extract package.json cache into a sibling module; thread it through `mapNodeModules` via an opt-in `packageDescriptorCache` option plus a sibling constructor that injects the cache by default; new compartment-descriptor field `languageForExtensionByPrefix` treats `name`-less `package.json` files as language-for-extension overrides on the enclosing named compartment |
 | ocapn-network-transport-separation | M-L | 1-1.5 weeks | 2 | Architectural refactor |
 | ocapn-tcp-for-test-extraction | S-M | 2-3 days | 2 | Code relocation |
 | ocapn-tcp-syrup-framing | S-M | 2-3 days | 2 | `@endo/syrup-frame` package, new `tcp+syrup-frame` netlayer, fix chunk-boundary bug in `tcp-test-only` |
