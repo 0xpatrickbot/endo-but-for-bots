@@ -522,11 +522,8 @@ export const chatBarComponent = (
     }
   });
 
-  // Pending commands no longer block the chat bar; `commandSubmitting`
-  // remains as a guard hook for any code path that might re-introduce a
-  // blocking state, but nothing flips it to true today.
-  const commandSubmitting = false;
-
+  // Pending commands no longer block the chat bar; submissions are
+  // tracked as cards in the pending region while the input stays live.
   const pendingCommands = createPendingCommands($pendingRegion);
 
   /**
@@ -617,7 +614,6 @@ export const chatBarComponent = (
     makeRefIterator,
     getContext: () => getCommandContext(), // eslint-disable-line no-use-before-define
     onSubmit: async (commandName, data) => {
-      if (commandSubmitting) return;
       await executeWithSpinner(commandName, data);
     },
     onCancel: () => {
@@ -625,9 +621,7 @@ export const chatBarComponent = (
       exitCommandMode(); // eslint-disable-line no-use-before-define
     },
     onValidityChange: isValid => {
-      if (!commandSubmitting) {
-        $commandSubmitButton.disabled = !isValid;
-      }
+      $commandSubmitButton.disabled = !isValid;
     },
     onMessageNumberClick: () => {
       // Enable picker and track the input
@@ -1397,7 +1391,6 @@ export const chatBarComponent = (
 
   // Command submit button
   $commandSubmitButton.addEventListener('click', async () => {
-    if (commandSubmitting) return;
     if (currentCommand && inlineForm.isValid()) {
       const data = inlineForm.getData();
       await executeWithSpinner(currentCommand, data);
