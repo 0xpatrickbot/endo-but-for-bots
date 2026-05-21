@@ -177,3 +177,38 @@ test('encodePassable byteArray cover sits between promise and boolean', t => {
   t.true(promiseEnc < byteEnc, `${promiseEnc} < ${byteEnc}`);
   t.true(byteEnc < boolTrue, `${byteEnc} < ${boolTrue}`);
 });
+
+test('decodePassable rejects malformed byteArray body', t => {
+  const decode = makeDecodePassable({ format: 'legacyOrdered' });
+  // The body after the leading 'a' must match /^(p[~]*[0-9]+:[0-9]+):([0-9a-f]*)$/.
+  // A body with no length-prefix-then-colon-then-hex shape must fail closed.
+  t.throws(() => decode('agarbage'), { message: /byteArray/ });
+});
+
+test('decodePassable rejects byteArray length-vs-body mismatch', t => {
+  const encode = makeEncodePassable({ format: 'legacyOrdered' });
+  const decode = makeDecodePassable({ format: 'legacyOrdered' });
+  // Header claims byteLength=3 but the hex body has 4 bytes (8 hex chars).
+  // The mismatch path is the explicit length check between the header and the
+  // hex body, distinct from the regex shape check above.
+  const lengthThree = encode(mkByteArray([0xaa, 0xbb, 0xcc]));
+  // lengthThree is `a<encodeBigInt(3n)>:aabbcc`; replace the body with 4 bytes.
+  const headerLen = lengthThree.lastIndexOf(':');
+  const mismatched = `${lengthThree.slice(0, headerLen + 1)}aabbccdd`;
+  t.throws(() => decode(mismatched), {
+    message: /byteArray length mismatch/,
+  });
+});
+
+test('capdata unserialize rejects byteArray with non-string data', t => {
+  const { unserialize } = makeMarshal(undefined, undefined, {
+    serializeBodyFormat: 'capdata',
+    errorTagging: 'off',
+  });
+  // The decoder asserts typeof data === 'string'; a number must fail closed
+  // rather than silently passing through to hexToByteArray.
+  const body = JSON.stringify({ '@qclass': 'byteArray', data: 42 });
+  t.throws(() => unserialize({ body, slots: [] }), {
+    message: /invalid byteArray data typeof/,
+  });
+});
