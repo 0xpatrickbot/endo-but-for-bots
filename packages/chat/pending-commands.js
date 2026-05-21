@@ -27,8 +27,6 @@ import harden from '@endo/harden';
  * @property {() => number} count
  */
 
-let nextId = 0;
-
 /**
  * Create the pending commands region.
  *
@@ -38,6 +36,8 @@ let nextId = 0;
 export const createPendingCommands = $container => {
   /** @type {Map<string, PendingCommandEntry>} */
   const entries = new Map();
+
+  let nextId = 0;
 
   /**
    * Format command params for display.
