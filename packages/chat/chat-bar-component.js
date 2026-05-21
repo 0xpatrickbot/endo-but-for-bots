@@ -577,30 +577,31 @@ export const chatBarComponent = (
       exitCommandMode(); // eslint-disable-line no-use-before-define
     }
 
-    // Track the execution as a pending command card.
+    // Track the execution as a pending command card. The card owns the
+    // success / error UX (per pending-commands.js); this function only
+    // forwards a successful result value to the value modal when
+    // appropriate. The executor catches its own errors and returns a
+    // { success: false, error } shape, so awaiting the promise here
+    // does not throw; the card handles the error state.
     const resultPromise = executor.execute(commandName, data);
     pendingCommands.track(commandName, data, resultPromise);
 
-    try {
-      const result = await resultPromise;
-      if (result.success) {
-        const resultName =
-          'resultName' in data && data.resultName
-            ? String(data.resultName)
-            : undefined;
-        const resultPath = resultName ? resultName.split('/') : undefined;
-        if (commandName === 'js') {
-          showValue(result.value, undefined, resultPath, undefined);
-        } else if (
-          result.value !== undefined &&
-          commandName !== 'show' &&
-          commandName !== 'list'
-        ) {
-          showValue(result.value, undefined, resultPath, undefined);
-        }
+    const result = await resultPromise;
+    if (result.success) {
+      const resultName =
+        'resultName' in data && data.resultName
+          ? String(data.resultName)
+          : undefined;
+      const resultPath = resultName ? resultName.split('/') : undefined;
+      if (commandName === 'js') {
+        showValue(result.value, undefined, resultPath, undefined);
+      } else if (
+        result.value !== undefined &&
+        commandName !== 'show' &&
+        commandName !== 'list'
+      ) {
+        showValue(result.value, undefined, resultPath, undefined);
       }
-    } catch {
-      // Error is handled by the pending command card.
     }
   };
 
