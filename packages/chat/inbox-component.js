@@ -222,20 +222,47 @@ export const inboxComponent = async (
     }
     $tooltip.appendChild($times);
 
-    // Render mode toggle (Markdown / Literal / Preformatted)
+    // Render mode toggle: three modes that answer distinct questions about
+    // the same message body.
+    //   md:  default. Markdown is parsed; code fences get syntax
+    //        highlighting; edge names become interactive token chips.
+    //   raw: no markdown parsing. Edge names appear inline as @name text.
+    //        Body text flows in the proportional font with normal
+    //        whitespace collapse. Use this to see what the sender literally
+    //        typed before markdown rendering decided what was a heading,
+    //        list, link, etc.
+    //   pre: no markdown parsing. Wrapped in <pre> with monospace font
+    //        and white-space: pre-wrap so consecutive spaces and newlines
+    //        are preserved. Use this for ASCII art, aligned columns, or
+    //        indentation-sensitive output that flowing text would mangle.
+    // raw and pre are deliberately separate: raw answers "what did the
+    // sender write?" in the reader's normal typography; pre answers "what
+    // does the literal whitespace look like?" in a monospace grid.
     const $renderModes = document.createElement('span');
     $renderModes.className = 'render-mode-toggle';
-    /** @type {Array<['markdown' | 'literal' | 'preformatted', string]>} */
+    /** @type {Array<['markdown' | 'literal' | 'preformatted', string, string]>} */
     const modes = [
-      ['markdown', 'Md'],
-      ['literal', 'Raw'],
-      ['preformatted', 'Pre'],
+      [
+        'markdown',
+        'md',
+        'Markdown: render headings, lists, code fences, and token chips',
+      ],
+      [
+        'literal',
+        'raw',
+        'Raw text: no markdown, edge names inline as @name, proportional font',
+      ],
+      [
+        'preformatted',
+        'pre',
+        'Preformatted: no markdown, monospace, whitespace preserved',
+      ],
     ];
-    for (const [mode, label] of modes) {
+    for (const [mode, label, title] of modes) {
       const $btn = document.createElement('button');
       $btn.className = 'render-mode-btn';
       $btn.textContent = label;
-      $btn.title = `${mode.charAt(0).toUpperCase()}${mode.slice(1)} view`;
+      $btn.title = title;
       if (mode === 'markdown') {
         $btn.classList.add('active');
       }
