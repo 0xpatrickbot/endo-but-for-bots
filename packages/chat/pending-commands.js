@@ -47,13 +47,13 @@ export const createPendingCommands = $container => {
    */
   const formatCommand = (commandName, params) => {
     const parts = [`/${commandName}`];
+    if (params.messageNumber !== undefined) {
+      parts.push(`#${params.messageNumber}`);
+    }
     for (const [key, value] of Object.entries(params)) {
       if (value !== undefined && value !== '' && key !== 'messageNumber') {
         parts.push(String(value));
       }
-    }
-    if (params.messageNumber !== undefined) {
-      parts.unshift(`#${params.messageNumber}`);
     }
     return parts.join(' ');
   };
