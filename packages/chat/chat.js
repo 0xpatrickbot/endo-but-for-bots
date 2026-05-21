@@ -50,6 +50,7 @@ const template = `
 </div>
 
 <div id="chat-bar">
+  <div id="pending-commands-region" class="pending-commands-region"></div>
   <div class="command-row">
     <div class="command-header">
       <span class="command-label" id="command-label">Command</span>
@@ -74,7 +75,6 @@ const template = `
     </div>
   </div>
   <div id="chat-modeline"></div>
-  <div id="pending-commands-region" class="pending-commands-region"></div>
 </div>
 
 <div id="eval-form-backdrop"></div>

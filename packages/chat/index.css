@@ -2589,7 +2589,16 @@ body.resizing * {
   opacity: 1;
 }
 
-/* Pending commands region */
+/* Pending commands region.
+ *
+ * Anchored above the command row inside #chat-bar (which itself
+ * sits at the bottom of the viewport) so pending cards sit between
+ * the transcript and the command bar, matching the design's
+ * "anchored to the bottom of the transcript, above the command bar"
+ * layout (designs/chat-pending-commands.md § Visual design). The
+ * region collapses to zero height when empty so the command bar
+ * stays flush with the viewport bottom.
+ */
 .pending-commands-region {
   display: none;
   flex-direction: column;
@@ -2599,6 +2608,9 @@ body.resizing * {
 
 .pending-commands-region.has-pending {
   display: flex;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 8px;
+  margin-bottom: 4px;
 }
 
 .pending-command-card {
