@@ -163,9 +163,8 @@ const nativeToHex =
   typeof toHex === 'function' ? /** @type {() => string} */ (toHex) : undefined;
 
 // Deterministic PRNG, same seed shape as other Endo fuzz tests.
-const defaultSeed = [
-  0xb0_b5_c0_ff, 0xee_fa_ca_de, 0xb0_b5_c0_ff, 0xee_fa_ca_de,
-];
+// eslint-disable-next-line unicorn/numeric-separators-style -- mnemonic seed (BOBSCOFF EEFACADE)
+const defaultSeed = [0xb0b5c0ff, 0xeefacade, 0xb0b5c0ff, 0xeefacade];
 const makeBytes = size => {
   const bytes = new Uint8Array(size);
   const prng = new XorShift(defaultSeed);
