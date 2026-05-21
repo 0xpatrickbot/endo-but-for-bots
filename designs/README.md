@@ -1,8 +1,13 @@
 # Endo Design Documents
 
-*Last updated: 2026-05-20 (daemon mount and git capability plans added — three new design docs revised per design-panel review: structured-result-shape migration deferred to Phase 7, `tree(ref)` and `readOnly()` both live on the `Git` cap, `NativeGitBackend` hardening envelope split off the essential `GitBackend` contract, `EndoMountBacking` pinned to a hidden Exo facet, credential-injection mechanism named, native git pinned to >=2.30, restart-mid-operation tests added, open-question debt reduced from 20 to 2; landed on top of the same-day forge-gap-analysis Reference design and the same-day full grooming pass that reconciled milestone-totals, added the 2026-05-20 calibration round, re-projected the Summary by Milestone and Gantt, and refreshed Progress-as-of; itself landed on top of the 2026-05-19 status-only sweep that reconciled Status fields with shipped state on `llm`, M½ project-hygiene milestone extracted from M1, endopi raft added, PR #302 consolidation absorbed, and patterns-diagnostic-feedback added)*
+*Last updated: 2026-05-21 (daemon-ocapn-external-connectivity M2 networking design added — M2 grows to 7 items, effort widens 4-5→6-8 weeks, total remaining 48→49; landed on top of the 2026-05-20 daemon mount and git capability plans: three new design docs revised per design-panel review: structured-result-shape migration deferred to Phase 7, `tree(ref)` and `readOnly()` both live on the `Git` cap, `NativeGitBackend` hardening envelope split off the essential `GitBackend` contract, `EndoMountBacking` pinned to a hidden Exo facet, credential-injection mechanism named, native git pinned to >=2.30, restart-mid-operation tests added, open-question debt reduced from 20 to 2; itself landed on top of the same-day forge-gap-analysis Reference design and the same-day full grooming pass that reconciled milestone-totals, added the 2026-05-20 calibration round, re-projected the Summary by Milestone and Gantt, and refreshed Progress-as-of; itself landed on top of the 2026-05-19 status-only sweep that reconciled Status fields with shipped state on `llm`, M½ project-hygiene milestone extracted from M1, endopi raft added, PR #302 consolidation absorbed, and patterns-diagnostic-feedback added)*
 
 *Recently added or revised:
+[daemon-ocapn-external-connectivity](daemon-ocapn-external-connectivity.md)
+(added 2026-05-21; the daemon adopts `@endo/ocapn` for the
+daemon-to-daemon peer edge — OCapN-Noise sessions replace the bespoke
+`EndoNetwork`/`EndoGreeter`/`RemoteControl` CapTP peer stack, while the
+worker, CLI, and web-gateway edges stay on CapTP),
 [daemon-mount-capabilities](daemon-mount-capabilities.md) (added
 2026-05-18, revised 2026-05-20; concrete completion plan for
 `EndoMount`, mount-scoped entry descriptors as values, snapshotting,
@@ -94,6 +99,7 @@ LLM-agent stack).*
 | [chat-test-coverage](chat-test-coverage.md) | 2026-03-02 | 2026-03-02 | **Complete** |
 | [daemon-256-bit-identifiers](daemon-256-bit-identifiers.md) | 2026-02-24 | 2026-03-02 | **Complete** |
 | [daemon-agent-network-identity](daemon-agent-network-identity.md) | 2026-03-02 | 2026-03-02 | Not Started |
+| [daemon-ocapn-external-connectivity](daemon-ocapn-external-connectivity.md) | 2026-05-21 | 2026-05-21 | Proposed |
 | [daemon-agent-tools](daemon-agent-tools.md) | 2026-03-02 | 2026-03-02 | Not Started |
 | [daemon-commands-as-messages](daemon-commands-as-messages.md) | 2026-03-11 | 2026-03-11 | Not Started |
 | [daemon-capability-bank](daemon-capability-bank.md) | 2026-02-15 | 2026-02-24 | Not Started |
@@ -197,7 +203,7 @@ LLM-agent stack).*
 | [namehub-interface-unification](namehub-interface-unification.md) | 2026-05-07 | 2026-05-07 | Proposed |
 | [forge-gap-analysis](forge-gap-analysis.md) | 2026-05-20 | 2026-05-20 | Reference (exploratory) |
 
-**Totals:** 39 Complete/Implemented, 18 In Progress, 36 Not Started, 20 Proposed, 2 Active, 7 Reference, 2 Deprecated, 1 Superseded (125 designs). Refreshed 2026-05-19 by a status-only sweep (consolidating the 2026-05-18 sweep with the 2026-05-19 batch update for 11 additional designs from closed PR #302) plus the patterns-diagnostic-feedback and ocapn-noise-session-reconnect Proposed entries; the 12-design jump in Complete/Implemented over the 2026-05-08 snapshot reflects shipped work whose Status field had not previously been updated, not new completions in this pass; see the corresponding "## Status" sections in each design file for evidence pointers (commit SHA or PR number). Totals reflect the 16 design files added on `llm` since the sweep's branch point (the endopi raft of `endopi` + 8 `endopi-*` gap-closing designs, `hardened-text-codecs-shim`, `hardened-url-shim`, namehub-interface-unification (Proposed) added by PR #117 on rebase, forge-gap-analysis (Reference) added 2026-05-20, and the daemon mount and git capability trio: `daemon-mount-capabilities` + `daemon-git-capability` + `daemon-git-remotes`).
+**Totals:** 39 Complete/Implemented, 18 In Progress, 36 Not Started, 21 Proposed, 2 Active, 7 Reference, 2 Deprecated, 1 Superseded (126 designs). Refreshed 2026-05-19 by a status-only sweep (consolidating the 2026-05-18 sweep with the 2026-05-19 batch update for 11 additional designs from closed PR #302) plus the patterns-diagnostic-feedback and ocapn-noise-session-reconnect Proposed entries; the 12-design jump in Complete/Implemented over the 2026-05-08 snapshot reflects shipped work whose Status field had not previously been updated, not new completions in this pass; see the corresponding "## Status" sections in each design file for evidence pointers (commit SHA or PR number). Totals reflect the 17 design files added on `llm` since the sweep's branch point (the endopi raft of `endopi` + 8 `endopi-*` gap-closing designs, `hardened-text-codecs-shim`, `hardened-url-shim`, namehub-interface-unification (Proposed) added by PR #117 on rebase, forge-gap-analysis (Reference) added 2026-05-20, the daemon mount and git capability trio: `daemon-mount-capabilities` + `daemon-git-capability` + `daemon-git-remotes`, and daemon-ocapn-external-connectivity (Proposed) added 2026-05-21).
 
 ## Roadmap
 
@@ -290,11 +296,16 @@ flowchart TD
         orev[ocapn-noise-cryptographic-review]
         onoise[ocapn-noise-network<br/><i>COMPLETE</i>]
         oreconn[ocapn-noise-session-reconnect]
+        docapn[daemon-ocapn-external-connectivity]
         onet --> otcp --> onoise
         orev --> onoise
         dnet --> onoise
         onoise --> oreconn
         orev --> oreconn
+        onet --> docapn
+        onoise --> docapn
+        oreconn --> docapn
+        dnet --> docapn
     end
 
     subgraph Chat UX
@@ -465,6 +476,7 @@ finalized.
 | cbors | Not Started | `@endo/cbors` reader/writer for length-prefixed CBOR byte strings; peer of `@endo/syrups` and `@endo/netstring` |
 | ocapn-noise-cryptographic-review | Not Started | External review coordination |
 | daemon-agent-network-identity | Not Started | Per-agent keypairs for network identity |
+| daemon-ocapn-external-connectivity | Proposed | Daemon adopts `@endo/ocapn` for the daemon-to-daemon peer edge; retires the bespoke `EndoNetwork`/`EndoGreeter`/`RemoteControl` CapTP peer stack. Worker, CLI, and web-gateway edges stay CapTP. Satisfies the daemon-integration half of the M2 exit criterion |
 | ~~ocapn-noise-network~~ | **Complete** | Noise IK netlayer for OCapN landed via PR #137 (merged 2026-05-08), consolidating the stacked PRs #111 (CBOR codec) + #112 (Noise IK netlayer) + #113 (transport tests) |
 
 **Exit criterion:** Two Endo daemons can connect securely over
@@ -821,6 +833,7 @@ Recalibrated on 2026-03-02 using observed velocity from 15 active work days
 | cbors | S-M | 3 days | 2 | New `@endo/cbors` package; design merged with syrups in PR #86 |
 | ocapn-noise-cryptographic-review | S | 1 day | 2 | External review coordination |
 | daemon-agent-network-identity | S-M | 3 days | 2 | Network registration, locator construction |
+| daemon-ocapn-external-connectivity | L-XL | 2-3 weeks | 2 | Daemon embeds an `@endo/ocapn` client for the daemon-to-daemon peer edge, replacing the `EndoNetwork`/`EndoGreeter`/`RemoteControl` CapTP-over-network-module stack with OCapN-Noise sessions; worker, CLI, and web-gateway edges stay CapTP. Three-phase delivery (embed dark, route traffic, retire bespoke stack) |
 | ~~ocapn-noise-network~~ | L | — | 2 | ✅ Complete (PR #137 consolidates stacked PRs #111/#112/#113; merged 2026-05-08) |
 | familiar-unified-weblet-server | M | 3 days | 3 | Web-server restructuring; design revised in PR #100 |
 | familiar-chat-weblet-hosting | M | 4-5 days | 3 | Iframe hosting, guest profiles (1.2x bump) |
@@ -883,12 +896,12 @@ date of this pass.
 | M0: AI Agent Experience | 0 | **Complete** | — |
 | M½: Project Hygiene | 1 (`break-dev-dependency-cycles`: Cut 1 PR #235, Cut 5 PR #247 open) | 3-5 days | 2-3 weeks |
 | M1: Remote Access & Tools | 10 (`endo-gateway`, `daemon-docker-selfhost`, `daemon-agent-tools`, `daemon-mount`, `filesystem-watchers`, `daemon-locator-terminology`, `daemon-rename-to-manager`, `daemon-xs-worker-snapshot`, `endoclaw-timer`, `endoclaw-network-fetch`) | 8-10 weeks | 10-12 weeks |
-| M2: Networking | 6 (`ocapn-network-transport-separation`, `ocapn-tcp-for-test-extraction`, `ocapn-tcp-syrups-framing`, `cbors`, `ocapn-noise-cryptographic-review`, `daemon-agent-network-identity`) | 4-5 weeks | 5-7 weeks |
+| M2: Networking | 7 (`ocapn-network-transport-separation`, `ocapn-tcp-for-test-extraction`, `ocapn-tcp-syrups-framing`, `cbors`, `ocapn-noise-cryptographic-review`, `daemon-agent-network-identity`, `daemon-ocapn-external-connectivity`) | 6-8 weeks | 8-10 weeks |
 | M3: Weblets & Integrations | 11 (`familiar-unified-weblet-server`, `familiar-chat-weblet-hosting`, `cli-store-verb-text-modes`, `cli-edit-verb`, `daemon-weblet-application`, `exo-zip-package`, `endoclaw-oauth`, `endoclaw-proactive-messages`, `endoclaw-notifications`, `endoclaw-webhooks`, `endoclaw-voice`) | 6-8 weeks | 8-11 weeks |
 | M4: UX & Tooling | 12 (`chat-pending-commands`, `chat-slot-slash-commands`, `daemon-commands-as-messages`, `inventory-cancel-and-liveness`, `inventory-grouping-by-type`, `inventory-drag-and-drop`, `formula-inspector`, `workers-panel`, `daemon-retention-paths`, `chat-edit-message-ui`, `lal-transcript-memory-management`, `namehub-interface-unification`) | 8-11 weeks | 10-13 weeks |
 | M5: Confinement & Ecosystem | 6 (`endo-posix-sandbox`, `daemon-capability-persona`, `daemon-capability-bank`, `endoclaw-browser`, `endoclaw-channel-bridges`, `endoclaw-skill-registry`) | 14-20 weeks | 16-22 weeks |
 | M6: Rust Daemon (`endor`) | 2 (`endor-tui`, `endor-bus-tui`) | 12-17 weeks | 14-19 weeks |
-| **Total remaining** | **48** | **~52-71 weeks** | **~63-86 weeks** |
+| **Total remaining** | **49** | **~54-74 weeks** | **~65-89 weeks** |
 
 The 2026-05-20 reconciliation corrects a counting gap in the prior
 snapshot's narrative: M1, M3, and M4 had absorbed new rows since the
@@ -902,6 +915,11 @@ PR #117); the total is 48 (not 41). M3's effort estimate widens from
 5-7 weeks to 6-8 weeks reflecting the three additional Proposed rows.
 No status flips this pass; the per-design statuses match the 2026-05-19
 sweep's reconciliation.
+The 2026-05-21 addition of `daemon-ocapn-external-connectivity` (M2,
+L-XL, Proposed) raises M2 to 7 items and the total remaining to 49;
+M2's effort widens from 4-5 weeks to 6-8 weeks, since the daemon's
+adoption of `@endo/ocapn` for the peer edge is the integration work
+that actually satisfies the M2 exit criterion.
 
 ### Timeline
 
@@ -920,7 +938,7 @@ gantt
     Remote Access & Tools         :m1, after mhalf, 10w
 
     section Milestone 2
-    Networking                    :m2, after m1, 5w
+    Networking                    :m2, after m1, 7w
 
     section Milestone 3
     Weblets & Integrations        :m3, after m2, 8w
@@ -951,11 +969,11 @@ dates project from that anchor at the upper-bound effort.
 | M0: AI Agent Experience | 18 days (actual) | **Complete** | March 5, 2026 |
 | M½: Project Hygiene | 3-5 days remaining | 3-5 days | Late May 2026 |
 | M1: Remote Access & Tools | 8-10 weeks | 8-10 weeks | Late July to early August 2026 |
-| M2: Networking | 4-5 weeks | 12-15 weeks | Late August to mid September 2026 |
-| M3: Weblets & Integrations | 6-8 weeks | 18-23 weeks | Late October to early November 2026 |
-| M4: UX & Tooling | 8-11 weeks | 26-34 weeks | Mid December 2026 to mid January 2027 |
-| M5: Confinement & Ecosystem | 14-20 weeks | 40-54 weeks | Mid March to early May 2027 |
-| M6: Rust Daemon (`endor`) | 12-17 weeks | 52-71 weeks | Q3 to Q4 2027 |
+| M2: Networking | 6-8 weeks | 14-18 weeks | Late August to early October 2026 |
+| M3: Weblets & Integrations | 6-8 weeks | 20-26 weeks | Mid November to early December 2026 |
+| M4: UX & Tooling | 8-11 weeks | 28-37 weeks | Late December 2026 to early February 2027 |
+| M5: Confinement & Ecosystem | 14-20 weeks | 42-57 weeks | Late March to late May 2027 |
+| M6: Rust Daemon (`endor`) | 12-17 weeks | 54-74 weeks | Q3 to Q4 2027 |
 
 *Milestones 3 and 4 are less order-dependent and can be interleaved.
 Milestones 0, ½, 1, and 2 form the critical path. Weblets prioritized
