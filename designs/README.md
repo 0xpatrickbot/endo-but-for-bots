@@ -916,7 +916,7 @@ PR #117); the total is 48 (not 41). M3's effort estimate widens from
 No status flips this pass; the per-design statuses match the 2026-05-19
 sweep's reconciliation.
 The 2026-05-21 addition of `daemon-ocapn-external-connectivity` (M2,
-L-XL, Proposed) raises M2 to 7 items and the total remaining to 49;
+L-XL, In Progress) raises M2 to 7 items and the total remaining to 49;
 M2's effort widens from 4-5 weeks to 6-8 weeks, since the daemon's
 adoption of `@endo/ocapn` for the peer edge is the integration work
 that actually satisfies the M2 exit criterion.
