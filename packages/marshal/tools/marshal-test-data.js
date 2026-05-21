@@ -115,7 +115,8 @@ export const roundTripPairs = harden([
   [-Infinity, { '@qclass': '-Infinity' }],
   [4n, { '@qclass': 'bigint', digits: '4' }],
   // Does not fit into a number
-  [9_007_199_254_740_993n, { '@qclass': 'bigint', digits: '9007199254740993' }],
+  // eslint-disable-next-line unicorn/numeric-separators-style -- literal must visually match the digits string
+  [9007199254740993n, { '@qclass': 'bigint', digits: '9007199254740993' }],
 
   // Well known symbols
   [Symbol.asyncIterator, { '@qclass': 'symbol', name: '@@asyncIterator' }],
