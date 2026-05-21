@@ -1,6 +1,6 @@
 # Endo Design Documents
 
-*Last updated: 2026-05-20 (full grooming pass: milestone-totals reconciled to current table contents, calibration round 2026-05-20 added, Summary by Milestone and Gantt re-projected, Progress-as-of refreshed; landed on top of the 2026-05-19 status-only sweep that reconciled Status fields with shipped state on `llm`, M½ project-hygiene milestone extracted from M1, endopi raft added, PR #302 consolidation absorbed, and patterns-diagnostic-feedback added)*
+*Last updated: 2026-05-21 (chat-voice-command-parser integrated into M4 plan: dependency-graph nodes and edges, milestone-4 row, per-design estimate, and milestone totals bumped; landed on top of the 2026-05-20 full grooming pass that reconciled milestone-totals to current table contents, added the calibration round, re-projected Summary by Milestone and Gantt, and refreshed Progress-as-of, which itself landed on top of the 2026-05-19 status-only sweep that reconciled Status fields with shipped state on `llm`, extracted the M½ project-hygiene milestone from M1, added the endopi raft, absorbed the PR #302 consolidation, and added patterns-diagnostic-feedback)*
 
 *Recently added or revised:
 [patterns-diagnostic-feedback](patterns-diagnostic-feedback.md) (added
@@ -281,10 +281,16 @@ flowchart TD
         cvedit[chat-view-edit-commands<br/><i>COMPLETE</i>]
         cemui[chat-edit-message-ui]
         cliedit[cli-edit-verb]
+        ccbar[chat-command-bar<br/><i>COMPLETE</i>]
+        cslot[chat-slot-slash-commands]
+        cvoice[chat-voice-command-parser]
         dcmd --> cpend
         dmount --> cvedit
         dmount --> cliedit
         dmstream[daemon-message-streaming<br/><i>IN PROGRESS</i>] --> cemui
+        ccbar --> cvoice
+        cpend --> cvoice
+        cslot --> cvoice
         cscheme[chat-color-schemes<br/><i>COMPLETE</i>]
         cspace[chat-per-space-color-scheme<br/><i>COMPLETE</i>]
         chc[chat-high-contrast-mode<br/><i>COMPLETE</i>]
@@ -492,6 +498,7 @@ webhook events.
 | retention-path-notation | Reference | Notation + bulk-collection sketch captured for reference; not a forward-looking proposal |
 | ~~chat-view-edit-commands~~ | **Complete** | `/view` (alias `/cat`) and `/edit` blob commands shipped in `packages/chat/command-registry.js` with the Monaco-backed viewer/editor at `packages/chat/blob-viewer.js`; landed via direct-to-`llm` commit `ae2b074ac` plus typography / language-mode refinements |
 | chat-edit-message-ui | Not Started | `/edit` slash command, `e` focus shortcut, hover pencil for editing previously sent messages; revision-history panel |
+| chat-voice-command-parser | Not Started | Asynchronous parse-monad state machine that turns Web Speech transcripts into the same command-bar effects the keyboard pipeline drives; per-mode wake-word tables sourced from `command-registry.js`; phase 1 (flat-text voice input) shipped in PR #101 |
 | lal-transcript-memory-management | Not Started | Durable transcript nodes outliving dismissed messages |
 | patterns-diagnostic-feedback | Proposed | Opt-in `@endo/patterns/explain-mismatch.js` submodule; non-throwing `explainMismatch({ specimen, pattern, format? })` (mirrors `matches`'s boolean shape) returns a rendered diagnostic string or `undefined`; compact line-per-mismatch default (sized for AI-agent token economy) or opt-in Rust-compiler-style expanded form; zero cost to the production matcher path (submodule appears nowhere on its import graph) |
 | namehub-interface-unification | Proposed | Interface refactor so `EndoMount` and `NameHub` share a `ReadableNameHubInterface`; deferred companion to `filesystem-watchers` |
@@ -814,6 +821,7 @@ Recalibrated on 2026-03-02 using observed velocity from 15 active work days
 | retention-path-notation | — | — | 4 | Reference; notation + bulk-collection sketch captured for future reference |
 | ~~chat-view-edit-commands~~ | M | — | 4 | ✅ Complete (direct-to-`llm` commit `ae2b074ac` "Blob view and edit" + refinements; `/view` (alias `/cat`) and `/edit` shipped) |
 | chat-edit-message-ui | S-M | 3 days | 4 | `/edit` command, `e` focus shortcut, hover pencil; design merged (PR #88); daemon impl in PR #125 forwarded under bot |
+| chat-voice-command-parser | M | 3-5 days | 4 | Four-phase plan: pure `ParseFn` per mode with tests; effect-dispatcher with rollback for retracted interim transcripts; modeline wake-word line; migrate `voice-input.js` off the flat-text path. Phase 1 (flat-text voice input) shipped in PR #101 |
 | lal-transcript-memory-management | S | 1 day | 4 | Durable message-to-node mapping, broken chain detection |
 | patterns-diagnostic-feedback | S-M | 2-3 days | 4 | New submodule `@endo/patterns/explain-mismatch.js`: internal tracing recursion (non-throwing, reuses `matchHelpers` in place) + dual-format renderer (compact default, expanded opt-in) folded into a single `explainMismatch({ specimen, pattern, format? })` returning a rendered string (~600 lines incl. tests). Single-PR deliverable. Production `@endo/patterns` matcher path unchanged. |
 | namehub-interface-unification | S | 1-2 days | 4 | Introduce `ReadableNameHubInterface`; refactor `MountInterface` and inventory-component dispatch; defers mount-entry locator question |
@@ -853,10 +861,10 @@ date of this pass.
 | M1: Remote Access & Tools | 10 (`endo-gateway`, `daemon-docker-selfhost`, `daemon-agent-tools`, `daemon-mount`, `filesystem-watchers`, `daemon-locator-terminology`, `daemon-rename-to-manager`, `daemon-xs-worker-snapshot`, `endoclaw-timer`, `endoclaw-network-fetch`) | 8-10 weeks | 10-12 weeks |
 | M2: Networking | 6 (`ocapn-network-transport-separation`, `ocapn-tcp-for-test-extraction`, `ocapn-tcp-syrups-framing`, `cbors`, `ocapn-noise-cryptographic-review`, `daemon-agent-network-identity`) | 4-5 weeks | 5-7 weeks |
 | M3: Weblets & Integrations | 11 (`familiar-unified-weblet-server`, `familiar-chat-weblet-hosting`, `cli-store-verb-text-modes`, `cli-edit-verb`, `daemon-weblet-application`, `exo-zip-package`, `endoclaw-oauth`, `endoclaw-proactive-messages`, `endoclaw-notifications`, `endoclaw-webhooks`, `endoclaw-voice`) | 6-8 weeks | 8-11 weeks |
-| M4: UX & Tooling | 12 (`chat-pending-commands`, `chat-slot-slash-commands`, `daemon-commands-as-messages`, `inventory-cancel-and-liveness`, `inventory-grouping-by-type`, `inventory-drag-and-drop`, `formula-inspector`, `workers-panel`, `daemon-retention-paths`, `chat-edit-message-ui`, `lal-transcript-memory-management`, `namehub-interface-unification`) | 8-11 weeks | 10-13 weeks |
+| M4: UX & Tooling | 13 (`chat-pending-commands`, `chat-slot-slash-commands`, `daemon-commands-as-messages`, `inventory-cancel-and-liveness`, `inventory-grouping-by-type`, `inventory-drag-and-drop`, `formula-inspector`, `workers-panel`, `daemon-retention-paths`, `chat-edit-message-ui`, `chat-voice-command-parser`, `lal-transcript-memory-management`, `namehub-interface-unification`) | 9-12 weeks | 11-14 weeks |
 | M5: Confinement & Ecosystem | 6 (`endo-posix-sandbox`, `daemon-capability-persona`, `daemon-capability-bank`, `endoclaw-browser`, `endoclaw-channel-bridges`, `endoclaw-skill-registry`) | 14-20 weeks | 16-22 weeks |
 | M6: Rust Daemon (`endor`) | 2 (`endor-tui`, `endor-bus-tui`) | 12-17 weeks | 14-19 weeks |
-| **Total remaining** | **48** | **~52-71 weeks** | **~63-86 weeks** |
+| **Total remaining** | **49** | **~53-72 weeks** | **~64-87 weeks** |
 
 The 2026-05-20 reconciliation corrects a counting gap in the prior
 snapshot's narrative: M1, M3, and M4 had absorbed new rows since the
@@ -870,6 +878,12 @@ PR #117); the total is 48 (not 41). M3's effort estimate widens from
 5-7 weeks to 6-8 weeks reflecting the three additional Proposed rows.
 No status flips this pass; the per-design statuses match the 2026-05-19
 sweep's reconciliation.
+
+The 2026-05-21 addition of `chat-voice-command-parser` (M, 3-5 days)
+bumps M4 from 12 to 13 items and 8-11 to 9-12 weeks; total remaining
+goes from 48 to 49 and ~52-71 to ~53-72 weeks. Phase 1 (flat-text voice
+input) ships in PR #101; the parse-state-machine work (phases 2-4)
+remains.
 
 ### Timeline
 
