@@ -46,7 +46,7 @@ assert.deepStrictEqual(
     number: { minimumDigits: 5, groupLength: 3 },
     binary: { minimumDigits: 0, groupLength: 4 },
     octal: { minimumDigits: 0, groupLength: 4 },
-    hexadecimal: { minimumDigits: 0, groupLength: 2 },
+    hexadecimal: { minimumDigits: 0, groupLength: 4 },
   },
   `${RULE_ID} option object must match the changeset-declared shape`,
 );
@@ -73,7 +73,8 @@ tester.run(
       { code: 'const n = 9999;', options: [ruleOptions] },
       // Already in canonical form.
       { code: 'const n = 1_000_000;', options: [ruleOptions] },
-      { code: 'const n = 0xAB_CD;', options: [ruleOptions] },
+      { code: 'const n = 0xABCD;', options: [ruleOptions] },
+      { code: 'const n = 0xAB_CDEF;', options: [ruleOptions] },
       { code: 'const n = 0b1111_0000;', options: [ruleOptions] },
       { code: 'const n = 0o1234_5670;', options: [ruleOptions] },
     ],
@@ -104,18 +105,18 @@ tester.run(
         errors: [{ messageId: 'numeric-separators-style' }],
         output: 'const n = 1_234_567_890_123n;',
       },
-      // Hex: groupLength 2, minimumDigits 0 (case preserved).
+      // Hex: groupLength 4, minimumDigits 0 (case preserved).
       {
         code: 'const n = 0xabcdef;',
         options: [ruleOptions],
         errors: [{ messageId: 'numeric-separators-style' }],
-        output: 'const n = 0xab_cd_ef;',
+        output: 'const n = 0xab_cdef;',
       },
       {
         code: 'const n = 0xABCDEF;',
         options: [ruleOptions],
         errors: [{ messageId: 'numeric-separators-style' }],
-        output: 'const n = 0xAB_CD_EF;',
+        output: 'const n = 0xAB_CDEF;',
       },
       // Binary: groupLength 4, minimumDigits 0.
       {

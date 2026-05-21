@@ -99,7 +99,7 @@ const cellHash = (x, y) => {
   let n = (x * 374_761_393 + y * 668_265_263) | 0;
   n = (n ^ (n >>> 13)) * 1_274_126_177;
   n = (n ^ (n >>> 16)) >>> 0;
-  return n / 0x1_00_00_00_00;
+  return n / 0x1_0000_0000;
 };
 
 /**
@@ -309,7 +309,7 @@ export const AnimatedLogo = ({ cols, fps = 14 }) => {
     const id = setInterval(() => {
       // Mask to 16 bits so the counter never grows unboundedly. We
       // only need it to change; the actual value is unused.
-      setFrame(f => (f + 1) & 0xff_ff);
+      setFrame(f => (f + 1) & 0xffff);
     }, intervalMs);
     return () => clearInterval(id);
   }, [fps]);

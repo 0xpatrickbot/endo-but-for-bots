@@ -55,7 +55,7 @@ module.exports = {
         number: { minimumDigits: 5, groupLength: 3 },
         binary: { minimumDigits: 0, groupLength: 4 },
         octal: { minimumDigits: 0, groupLength: 4 },
-        hexadecimal: { minimumDigits: 0, groupLength: 2 },
+        hexadecimal: { minimumDigits: 0, groupLength: 4 },
       },
     ],
     '@typescript-eslint/naming-convention': [

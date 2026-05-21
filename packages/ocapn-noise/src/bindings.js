@@ -116,7 +116,7 @@ export const encodeSupportedEncodingsInto = (bytes, supportedEncodings) => {
       continue;
     }
     // eslint-disable-next-line no-bitwise
-    const encodingBit = 0xff_ff & (1 << (encoding - firstEncoding - 1));
+    const encodingBit = 0xffff & (1 << (encoding - firstEncoding - 1));
     if (!encodingBit) {
       throw new Error(
         `Cannot simultaneously support encodings that are more than 16 versions apart, got ${supportedEncodings.join(', ')}`,

@@ -119,9 +119,9 @@ const asNumber = new Float64Array(1);
 const asBits = new BigUint64Array(asNumber.buffer);
 const getNaN = (hexEncoding = '0008000000000000') => {
   let bits = BigInt(`0x${hexEncoding}`);
-  bits |= 0x7f_f0_00_00_00_00_00_00n;
-  if (!(bits & 0x00_01_11_11_11_11_11_11n)) {
-    bits |= 0x00_08_00_00_00_00_00_00n;
+  bits |= 0x7ff0_0000_0000_0000n;
+  if (!(bits & 0x0001_1111_1111_1111n)) {
+    bits |= 0x0008_0000_0000_0000n;
   }
   asBits[0] = bits;
   return asNumber[0];

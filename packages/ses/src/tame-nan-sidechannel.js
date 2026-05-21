@@ -46,7 +46,7 @@ const dataViewGetBuffer = uncurryThis(
  *
  * See https://github.com/endojs/endo/pull/3214#discussion_r3155852021
  */
-const canonicalNaN64Encoding = 0x7f_f8_00_00_00_00_00_00n;
+const canonicalNaN64Encoding = 0x7ff8_0000_0000_0000n;
 
 /**
  * As of this writing (April 29, 2026) all implementations agree that a
@@ -63,7 +63,7 @@ const canonicalNaN64Encoding = 0x7f_f8_00_00_00_00_00_00n;
  *
  * See https://github.com/endojs/endo/pull/3214#discussion_r3155852021
  */
-const canonicalNaN32Encoding = 0x7f_c0_00_00;
+const canonicalNaN32Encoding = 0x7fc0_0000;
 
 /**
  * As of this writing (April 29, 2026) all implementations that implement
@@ -81,7 +81,7 @@ const canonicalNaN32Encoding = 0x7f_c0_00_00;
  *
  * See https://github.com/endojs/endo/pull/3214#discussion_r3155852021
  */
-const canonicalNaN16Encoding = 0x7e_00;
+const canonicalNaN16Encoding = 0x7e00;
 
 /**
  * Perform `RequireInternalSlot(obj, [[DataView]])` as needed in
