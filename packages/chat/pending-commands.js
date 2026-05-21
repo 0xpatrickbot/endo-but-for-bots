@@ -14,8 +14,16 @@ import harden from '@endo/harden';
  */
 
 /**
+ * @typedef {object} CommandResultShape
+ * @property {boolean} success
+ * @property {unknown} [value]
+ * @property {string} [message]
+ * @property {Error} [error]
+ */
+
+/**
  * @typedef {object} PendingCommandsAPI
- * @property {(commandName: string, params: Record<string, unknown>, promise: Promise<unknown>) => void} track
+ * @property {(commandName: string, params: Record<string, unknown>, promise: Promise<CommandResultShape>) => void} track
  * @property {() => number} count
  */
 
@@ -79,12 +87,76 @@ export const createPendingCommands = $container => {
   };
 
   /**
+   * Transition a card to the success state and fade it out.
+   * @param {string} id
+   * @param {PendingCommandEntry} entry
+   * @param {HTMLElement} $card
+   */
+  const transitionToSuccess = (id, entry, $card) => {
+    entry.status = 'success';
+    $card.classList.remove('pending');
+    $card.classList.add('success');
+    const $status = $card.querySelector('.pending-command-status');
+    if ($status) $status.textContent = '✓';
+    // Fade out after a brief display.
+    setTimeout(() => {
+      $card.classList.add('fade-out');
+      setTimeout(() => {
+        $card.remove();
+        entries.delete(id);
+        if (entries.size === 0) {
+          $container.classList.remove('has-pending');
+        }
+      }, 300);
+    }, 1500);
+  };
+
+  /**
+   * Transition a card to the error state. The card remains visible
+   * until the user clicks it.
+   * @param {string} id
+   * @param {PendingCommandEntry} entry
+   * @param {HTMLElement} $card
+   * @param {string} message
+   */
+  const transitionToError = (id, entry, $card, message) => {
+    entry.status = 'error';
+    entry.errorMessage = message;
+    $card.classList.remove('pending');
+    $card.classList.add('error');
+    const $status = $card.querySelector('.pending-command-status');
+    if ($status) {
+      $status.textContent = message;
+    }
+    // Error cards stay until clicked.
+    $card.addEventListener(
+      'click',
+      () => {
+        $card.classList.add('fade-out');
+        setTimeout(() => {
+          $card.remove();
+          entries.delete(id);
+          if (entries.size === 0) {
+            $container.classList.remove('has-pending');
+          }
+        }, 300);
+      },
+      { once: true },
+    );
+  };
+
+  /**
    * Track a command execution. Shows a pending card immediately and
-   * transitions it on resolution/rejection.
+   * transitions it on completion. The executor returns a
+   * `{ success, error?, message? }` shape and catches its own errors,
+   * so the promise normally resolves; success vs. error keys off the
+   * resolved `success` field rather than promise rejection. A rejection
+   * handler remains as a defense-in-depth for unexpected throws that
+   * escape the executor's catch.
    *
    * @param {string} commandName
    * @param {Record<string, unknown>} params
-   * @param {Promise<unknown>} promise
+   * @param {Promise<CommandResultShape>} promise
    */
   const track = (commandName, params, promise) => {
     nextId += 1;
@@ -105,47 +177,26 @@ export const createPendingCommands = $container => {
     $container.classList.add('has-pending');
 
     promise.then(
-      () => {
-        entry.status = 'success';
-        $card.classList.remove('pending');
-        $card.classList.add('success');
-        const $status = $card.querySelector('.pending-command-status');
-        if ($status) $status.textContent = '✓';
-        // Fade out after a brief display.
-        setTimeout(() => {
-          $card.classList.add('fade-out');
-          setTimeout(() => {
-            $card.remove();
-            entries.delete(id);
-            if (entries.size === 0) {
-              $container.classList.remove('has-pending');
-            }
-          }, 300);
-        }, 1500);
+      result => {
+        if (result && result.success) {
+          transitionToSuccess(id, entry, $card);
+        } else {
+          const message =
+            (result && result.error && result.error.message) ||
+            (result && result.message) ||
+            'Command failed';
+          transitionToError(id, entry, $card, message);
+        }
       },
       error => {
-        entry.status = 'error';
-        entry.errorMessage = /** @type {Error} */ (error).message;
-        $card.classList.remove('pending');
-        $card.classList.add('error');
-        const $status = $card.querySelector('.pending-command-status');
-        if ($status) {
-          $status.textContent = /** @type {Error} */ (error).message;
-        }
-        // Error cards stay until clicked.
-        $card.addEventListener(
-          'click',
-          () => {
-            $card.classList.add('fade-out');
-            setTimeout(() => {
-              $card.remove();
-              entries.delete(id);
-              if (entries.size === 0) {
-                $container.classList.remove('has-pending');
-              }
-            }, 300);
-          },
-          { once: true },
+        // Defense-in-depth: the executor normally catches its own
+        // errors and returns { success: false, ... }, but a thrown
+        // rejection that escapes still surfaces here.
+        transitionToError(
+          id,
+          entry,
+          $card,
+          /** @type {Error} */ (error).message,
         );
       },
     );
