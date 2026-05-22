@@ -25,6 +25,9 @@ const libp2pUrl = pathToFileURL(
 const wsRelayUrl = pathToFileURL(
   path.join(repoRoot, 'packages/daemon/src/networks/ws-relay.js'),
 ).href;
+const ocapnUrl = pathToFileURL(
+  path.join(repoRoot, 'packages/daemon/src/networks/ocapn.js'),
+).href;
 
 // Bootstrap specifiers for AI agent setup scripts
 const lalSetupUrl = pathToFileURL(
@@ -264,6 +267,7 @@ export const makeEndoPlugin = () => {
           'import.meta.env.TCP_NETSTRING_PATH': JSON.stringify(tcpNetstringUrl),
           'import.meta.env.LIBP2P_PATH': JSON.stringify(libp2pUrl),
           'import.meta.env.WS_RELAY_PATH': JSON.stringify(wsRelayUrl),
+          'import.meta.env.OCAPN_PATH': JSON.stringify(ocapnUrl),
           'import.meta.env.ENDO_FS_IN_MEMORY_PATH':
             JSON.stringify(endoFsInMemoryUrl),
           'import.meta.env.ENDO_FS_READONLY_PATH':
