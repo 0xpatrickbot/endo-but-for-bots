@@ -137,18 +137,20 @@ const makeModuleMapHook = (
     if (archiveOnly && urlish.test(moduleSpecifier)) {
       // When creating an archive of an application that imports a platform
       // module like node:fs, we implicitly expect these to be provided by the
-      // host's importHook on the target platform.
-      return {
-        source: {
-          imports: [],
-          exports: [],
+      // host's importHook on the target platform. Freeze the synthesized
+      // descriptor so the cross-boundary return cannot be tampered with by a
+      // downstream caller.
+      return freeze({
+        source: freeze({
+          imports: freeze([]),
+          exports: freeze([]),
           execute() {
             throw new Error(
               'Cannot import an application loaded strictly for analysis',
             );
           },
-        },
-      };
+        }),
+      });
     }
 
     const moduleDescriptor = moduleDescriptors[moduleSpecifier];

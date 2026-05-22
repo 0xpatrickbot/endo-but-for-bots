@@ -21,6 +21,7 @@
  * } from './types.js'
  * @import {
  *   ModuleDescriptor,
+ *   SourceModuleDescriptor,
  *   StrictModuleDescriptor,
  *   ThirdPartyStaticModuleInterface,
  *   VirtualModuleSource,
@@ -510,19 +511,23 @@ async function attenuateVirtualModuleSource({
   // An async attenuator maker could be introduced here to return a synchronous attenuator.
   // For async attenuators see PR https://github.com/endojs/endo/pull/1535
 
-  return {
-    imports: moduleSource.imports,
-    // It seems ok to declare the exports but then let the attenuator trim the values.
-    // Seems ok for attenuation to leave them undefined - accessing them is malicious behavior.
-    exports: moduleSource.exports,
-    execute: (moduleExports, compartment, resolvedImports) => {
-      const ns = {};
-      moduleSource.execute(ns, compartment, resolvedImports);
-      const attenuated = attenuate(ns);
-      moduleExports.default = attenuated;
-      assign(moduleExports, attenuated);
-    },
-  };
+  // Freeze the returned virtual module source so the attenuator boundary does
+  // not hand callers a mutable wrapper they could tamper with after the fact.
+  return freeze(
+    /** @type {VirtualModuleSource} */ ({
+      imports: moduleSource.imports,
+      // It seems ok to declare the exports but then let the attenuator trim the values.
+      // Seems ok for attenuation to leave them undefined - accessing them is malicious behavior.
+      exports: moduleSource.exports,
+      execute: (moduleExports, compartment, resolvedImports) => {
+        const ns = {};
+        moduleSource.execute(ns, compartment, resolvedImports);
+        const attenuated = attenuate(ns);
+        moduleExports.default = attenuated;
+        assign(moduleExports, attenuated);
+      },
+    }),
+  );
 }
 
 /**
@@ -550,26 +555,30 @@ async function attenuateModule({
       'exports' in moduleSource &&
       'execute' in moduleSource
     ) {
-      return {
-        source: await attenuateVirtualModuleSource({
-          attenuators,
-          attenuationDefinition,
-          moduleSource,
+      return freeze(
+        /** @type {SourceModuleDescriptor} */ ({
+          source: await attenuateVirtualModuleSource({
+            attenuators,
+            attenuationDefinition,
+            moduleSource,
+          }),
         }),
-      };
+      );
     }
   } else if (
     'imports' in moduleDescriptor &&
     'exports' in moduleDescriptor &&
     'execute' in moduleDescriptor
   ) {
-    return {
-      source: await attenuateVirtualModuleSource({
-        attenuators,
-        attenuationDefinition,
-        moduleSource: moduleDescriptor,
+    return freeze(
+      /** @type {SourceModuleDescriptor} */ ({
+        source: await attenuateVirtualModuleSource({
+          attenuators,
+          attenuationDefinition,
+          moduleSource: moduleDescriptor,
+        }),
       }),
-    };
+    );
   }
   throw new Error('Can only attenuate virtual module source descriptors');
 }
