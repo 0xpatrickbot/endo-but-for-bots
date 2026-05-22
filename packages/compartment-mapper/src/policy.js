@@ -580,7 +580,11 @@ async function attenuateModule({
       }),
     );
   }
-  throw new Error('Can only attenuate virtual module source descriptors');
+  throw new Error(
+    `attenuateModule received a non-attenuatable module descriptor: ${q(
+      moduleDescriptor,
+    )}`,
+  );
 }
 
 /**
