@@ -72,7 +72,10 @@ const { quote: q } = assert;
 
 // cf. section 3.1 of RFC 3986 URI Scheme Generic Syntax
 // https://www.rfc-editor.org/rfc/rfc3986#section-3.1
-const urlish = /^[a-z][a-z0-9+\-.]*:/;
+// Scheme names are case-insensitive per the cited section, so the regex
+// accepts both cases on the prefix. Bundlers that produce specifiers like
+// `HTTP:` or `File:` are unusual but valid per the spec.
+const urlish = /^[a-zA-Z][a-zA-Z0-9+\-.]*:/;
 
 /**
  * For a full, absolute module specifier like "dependency",
