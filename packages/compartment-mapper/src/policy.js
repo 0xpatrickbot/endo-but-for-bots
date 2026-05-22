@@ -532,14 +532,16 @@ async function attenuateVirtualModuleSource({
 
 /**
  * Attenuates a module descriptor whose source is a virtual module source.
- * Other shapes pass through unchanged at the call site; this function throws
- * when given a non-virtual descriptor.
+ * Other shapes (including NamespaceModuleDescriptor, which is part of
+ * StrictModuleDescriptor but has no source to attenuate) pass through
+ * unchanged at the call site; this function throws when given a descriptor
+ * the attenuator cannot wrap.
  *
  * @param {object} options
  * @param {DeferredAttenuatorsProvider} options.attenuators
  * @param {AttenuationDefinition} options.attenuationDefinition
- * @param {VirtualModuleSource | StrictModuleDescriptor} options.moduleDescriptor
- * @returns {Promise<StrictModuleDescriptor>}
+ * @param {VirtualModuleSource | SourceModuleDescriptor} options.moduleDescriptor
+ * @returns {Promise<SourceModuleDescriptor>}
  */
 async function attenuateModule({
   attenuators,
@@ -617,10 +619,12 @@ export const attenuateModuleHook = async (
       )}`,
     );
   }
-  // Only virtual sources / strict descriptors are attenuatable.
-  // attenuateModule throws if the descriptor is not one of these shapes.
+  // Only virtual module sources and source-bearing descriptors are
+  // attenuatable. NamespaceModuleDescriptor (the other half of
+  // StrictModuleDescriptor) has no source to wrap. attenuateModule throws
+  // if the descriptor is not one of the wrappable shapes.
   const attenuatable =
-    /** @type {VirtualModuleSource | StrictModuleDescriptor} */ (
+    /** @type {VirtualModuleSource | SourceModuleDescriptor} */ (
       moduleDescriptor
     );
   return attenuateModule({
