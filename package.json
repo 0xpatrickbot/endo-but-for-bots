@@ -49,14 +49,14 @@
     "clean": "yarn workspaces foreach --all run postpack",
     "docs": "rm -rf api-docs packages/ses/dist && typedoc && ./scripts/posttypedoc.sh",
     "update": "echo 'DEPRECATED: use \"yarn upgrade-interactive\" or \"yarn dedupe\"'",
-    "format": "prettier --write .github packages",
+    "format": "prettier --write '*.md' .github docs designs packages",
     "lint": "yarn lint:prettier && yarn lint:eslint",
     "lint:eslint": "eslint .",
-    "lint:workspaces": "prettier --check .github packages && yarn workspaces foreach --all run lint",
+    "lint:workspaces": "prettier --check '*.md' .github docs designs packages && yarn workspaces foreach --all run lint",
     "lint:workspaces:eslint": "yarn workspaces foreach --all run lint:eslint",
     "lint:fix": "yarn lint:eslint -- --fix",
     "lint:workspaces:fix": "yarn workspaces foreach --all run lint-fix",
-    "lint:prettier": "prettier --check .github packages",
+    "lint:prettier": "prettier --check '*.md' .github docs designs packages",
     "release:npm": "lerna publish from-package",
     "test": "yarn workspaces foreach --all --exclude @endo/skel run test",
     "test:c8": "yarn workspaces foreach --all run test:c8",
@@ -73,7 +73,15 @@
   },
   "prettier": {
     "arrowParens": "avoid",
-    "singleQuote": true
+    "singleQuote": true,
+    "overrides": [
+      {
+        "files": ["*.md", "*.markdown"],
+        "options": {
+          "proseWrap": "preserve"
+        }
+      }
+    ]
   },
   "typeCoverage": {
     "atLeast": 0
