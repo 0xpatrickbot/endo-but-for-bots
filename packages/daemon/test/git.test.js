@@ -297,9 +297,19 @@ test('NativeGitBackend.tree streams archiveTar from the immutable tree', async t
   const repoRoot = await provisionGitWorktree(t);
   await fs.promises.writeFile(path.join(repoRoot, 'archive.txt'), 'old\n');
   await execFileAsync('git', ['add', 'archive.txt'], { cwd: repoRoot });
-  await execFileAsync('git', ['commit', '-m', 'add archive file'], {
-    cwd: repoRoot,
-  });
+  await execFileAsync(
+    'git',
+    [
+      '-c',
+      'user.email=t@t',
+      '-c',
+      'user.name=T',
+      'commit',
+      '-m',
+      'add archive file',
+    ],
+    { cwd: repoRoot },
+  );
   await fs.promises.writeFile(path.join(repoRoot, 'archive.txt'), 'new\n');
 
   const backend = makeNativeGitBackend({ repoRoot, makeReaderRef });
