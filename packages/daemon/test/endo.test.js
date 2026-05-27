@@ -4017,7 +4017,11 @@ test('provideGit tree exposes immutable commit contents', async t => {
     'export default 1;\n',
     'utf-8',
   );
-  await git(repoPath, ['add', 'src/main.js']);
+  // Symlink exercises the tar `typeFlag === '2'` branch in
+  // `checkinTarTree`; `git archive` emits symlinks as type-`l`
+  // entries whose linkname is the target path.
+  await fs.promises.symlink('main.js', path.join(repoPath, 'src', 'alias.js'));
+  await git(repoPath, ['add', 'src/main.js', 'src/alias.js']);
   await git(repoPath, [
     '-c',
     'user.email=t@t',
@@ -4038,7 +4042,7 @@ test('provideGit tree exposes immutable commit contents', async t => {
   const names = await E(tree).list();
   t.deepEqual(names, ['README.md', 'src']);
   const src = await E(tree).lookup('src');
-  t.deepEqual(await E(src).list(), ['main.js']);
+  t.deepEqual(await E(src).list(), ['alias.js', 'main.js']);
 
   const main = await E(tree).lookup(['src', 'main.js']);
   t.is(await E(main).text(), 'export default 1;\n');
@@ -4053,10 +4057,26 @@ test('provideGit tree exposes immutable commit contents', async t => {
   const storedTree = await E(host).lookup('git-tree-snapshot');
   const storedMain = await E(storedTree).lookup(['src', 'main.js']);
   t.is(await E(storedMain).text(), 'export default 1;\n');
+  // The symlink is checked in as a blob whose contents are the link
+  // target text, anchored to the immutable commit tree.
+  const storedAlias = await E(storedTree).lookup(['src', 'alias.js']);
+  t.is(await E(storedAlias).text(), 'main.js');
 });
 
 test('storeTree rejects malformed archiveTar streams', async t => {
   const { host } = await prepareHost(t);
+
+  // Tar entry whose `size` field has been corrupted to non-octal text;
+  // exercises the `tarOctal` regex-reject branch.
+  const invalidOctalEntry = makeTarEntry({ name: 'a.txt', body: 'x' });
+  invalidOctalEntry.write('99999999999\0', 124, 12, 'ascii');
+
+  // Header that claims more content than the archive contains;
+  // exercises the `Truncated tar content` branch.
+  const truncatedContentEntry = makeTarEntry({ name: 'a.txt', body: 'x' });
+  // Override size to 1024 (octal 2000) without supplying the bytes.
+  truncatedContentEntry.write('00000002000\0', 124, 12, 'ascii');
+  const truncatedContent = truncatedContentEntry.slice(0, 512);
 
   const cases = [
     {
@@ -4065,12 +4085,35 @@ test('storeTree rejects malformed archiveTar streams', async t => {
       message: /Invalid tar entry path segment/,
     },
     {
+      name: 'absolute',
+      bytes: makeTarEntry({ name: '/etc/passwd', body: 'bad' }),
+      message: /Invalid tar entry path/,
+    },
+    {
       name: 'duplicate',
       bytes: Buffer.concat([
         makeTarEntry({ name: 'same.txt', body: 'one' }),
         makeTarEntry({ name: 'same.txt', body: 'two' }),
       ]),
       message: /Duplicate tar entry path/,
+    },
+    {
+      name: 'blob-dir-conflict',
+      bytes: Buffer.concat([
+        makeTarEntry({ name: 'collide', body: 'leaf' }),
+        makeTarEntry({ name: 'collide/inside.txt', body: 'nested' }),
+      ]),
+      message: /Tar entry path conflicts with blob/,
+    },
+    {
+      name: 'invalid-octal',
+      bytes: invalidOctalEntry,
+      message: /Invalid tar octal field/,
+    },
+    {
+      name: 'truncated-content',
+      bytes: truncatedContent,
+      message: /Truncated tar content/,
     },
     {
       name: 'truncated',
