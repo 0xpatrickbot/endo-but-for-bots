@@ -13,10 +13,8 @@ import { URL, fileURLToPath } from 'node:url';
 
 import { q } from '@endo/errors';
 import { makeExo } from '@endo/exo';
-import {
-  ReadableBlobInterface,
-  ReadableTreeInterface,
-} from '@endo/platform/fs/lite';
+import { ReadableBlobInterface } from '@endo/platform/fs/lite';
+import { GitTreeInterface } from '@endo/exo-git';
 
 // `TextDecoder` is portable across XS, browsers, and SES realms;
 // prefer it over `Buffer.from(...).toString('utf8')` per the project
@@ -1628,7 +1626,13 @@ export const makeNativeGitBackend = ({
       return self;
     };
 
-    self = makeExo('GitTree', ReadableTreeInterface, {
+    self = makeExo('GitTree', GitTreeInterface, {
+      archiveTar() {
+        return makeReaderRef(
+          streamGitBuffer(['archive', '--format=tar', treeOid]),
+        );
+      },
+
       async has(...pathArgs) {
         const segments = normalizeTreePath(pathArgs);
         if (segments.length === 0) {
