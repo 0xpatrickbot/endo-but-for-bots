@@ -102,6 +102,7 @@ LLM-agent stack).*
 | [daemon-content-store-gc](daemon-content-store-gc.md) | 2026-03-20 | 2026-05-08 | **Complete** |
 | [daemon-git-capability](daemon-git-capability.md) | 2026-05-18 | 2026-05-27 | Proposed |
 | [daemon-git-remotes](daemon-git-remotes.md) | 2026-05-18 | 2026-05-21 | Proposed |
+| [daemon-git-backbone](daemon-git-backbone.md) | 2026-05-27 | 2026-05-28 | Proposed |
 | [daemon-message-streaming](daemon-message-streaming.md) | 2026-03-26 | 2026-05-19 | In Progress (PR #287) |
 | [daemon-mount](daemon-mount.md) | 2026-03-20 | 2026-05-27 | In Progress |
 | [daemon-mount-capabilities](daemon-mount-capabilities.md) | 2026-05-18 | 2026-05-27 | **Complete** |
@@ -321,6 +322,8 @@ flowchart TD
         dmcap[daemon-mount-capabilities]
         dgit[daemon-git-capability]
         dgitremote[daemon-git-remotes]
+        dgitback[daemon-git-backbone]
+        dcas[daemon-cas-management<br/><i>IN PROGRESS</i>]
         dfsw[filesystem-watchers]
         dcsgc[daemon-content-store-gc]
         dpers[daemon-capability-persona]
@@ -338,6 +341,8 @@ flowchart TD
         dgitremote --> dtools
         enetfetch --> dgitremote
         dmount --> dcsgc
+        dcas --> dgitback
+        dcsgc --> dgitback
         dsand --> dbank
         dfs --> dbank
         dpers --> dbank
@@ -430,6 +435,7 @@ capabilities available to agents.
 | daemon-mount-capabilities | Proposed | Complete `EndoMount`: snapshot bridge, mount-scoped descriptors, `makeFile` sibling, entry overloads on `has`/`stat`/`lookup`, trusted backing provenance |
 | daemon-git-capability | Proposed | Revised git design over `EndoMount` / `EndoMountEntry`; `tree(ref)` and `readOnly()` both live on the `Git` cap |
 | daemon-git-remotes | Proposed | MVP remote-git companion: fetch / pull / push composed from local `Git`, bounded HTTPS transport, endpoint policy, and credential caps |
+| daemon-git-backbone | Proposed | Back the existing Rust CAS (`rust/endo/src/cas.rs`) with git, all four axes: objects → git object DB (sha256-keyed), `TreeManifest` → git trees, bulk transport off CapTP onto pack/smart-protocol, retention → `refs/formulas/<id>` + `git gc`. In-process `gix` (recommended) in the `endor` supervisor; sha256 stays the content key behind a sha256→oid index. Migrations out of scope. Four axes; each probe-able separately |
 | filesystem-watchers | Not Started | `EndoMount.followNameChanges` parity with `EndoDirectory`; Node `fs.watch` adapter on `FilePowers` |
 | daemon-locator-terminology | Not Started | Clean locator API; unblocked |
 | daemon-rename-to-manager | Not Started | Rename `daemon.js`/`Daemon`/`MignonicPowers` to `manager.js`/`Manager`/`WorkerPowers` to align JS with Rust `endor` nomenclature |
@@ -800,6 +806,7 @@ Recalibrated on 2026-03-02 using observed velocity from 15 active work days
 | ~~platform-fs~~ | S-M | — | 1 | ✅ Complete; `@endo/platform` package landed on `llm` (commit `e0dda06fb`); PR #122 carried review-cycle fixups |
 | daemon-capability-filesystem | L | — | 1 | Reference sketch; narrower mount slice ships via daemon-mount |
 | ~~daemon-content-store-gc~~ | S | — | 1 | ✅ Complete (PR #99, ~2 days actual vs 1 day estimate) |
+| daemon-git-backbone | XL | TBD | 1 | Back the existing Rust CAS with git across four axes (objects, trees, transport, GC-via-refs); maintainer-call dominant (gix-vs-git2, sha256-key-vs-object-format). Size XL pending per-axis probe; each axis lands as its own probe-then-build cycle on the Rust substrate |
 | daemon-mount | M-L | 1.5 weeks | 1 | Mount exo, symlink confinement; Phase 4 in PR #135 forwarded under bot |
 | ~~filesystem-watchers~~ (design) | S | — | 1 | ✅ Design merged (PR #115); implementation TBD |
 | daemon-locator-terminology | S | 1 day | 1 | locator.js + host.js changes |
