@@ -223,23 +223,101 @@ const tarPathSegments = archivePath => {
 };
 
 /**
- * @param {import('@endo/far').ERef<AsyncIterator<string>>} readerRef
+ * Wrap a byte reader as a block-aligned tar source so the archive is
+ * consumed incrementally. The whole archive is never buffered: at most
+ * one 512-byte header plus a partial reader chunk are held at a time,
+ * and each entry's content is streamed straight into the content store.
+ *
+ * @param {AsyncIterable<Uint8Array>} byteReader
  */
-const readAllBase64 = async readerRef => {
-  /** @type {Uint8Array[]} */
-  const chunks = [];
-  let size = 0;
-  for await (const chunk of makeRefReader(readerRef)) {
-    chunks.push(chunk);
-    size += chunk.byteLength;
-  }
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return bytes;
+const makeTarReader = byteReader => {
+  const iterator = byteReader[Symbol.asyncIterator]();
+  /** @type {Uint8Array} */
+  let buffer = new Uint8Array(0);
+  let pos = 0;
+  let done = false;
+
+  // Pull one more reader chunk into the buffer, compacting away the
+  // already-consumed prefix so the held window stays bounded.
+  const pull = async () => {
+    const result = await iterator.next();
+    if (result.done) {
+      done = true;
+      return false;
+    }
+    const chunk = result.value;
+    const remaining = buffer.subarray(pos);
+    const next = new Uint8Array(remaining.byteLength + chunk.byteLength);
+    next.set(remaining, 0);
+    next.set(chunk, remaining.byteLength);
+    buffer = next;
+    pos = 0;
+    return true;
+  };
+
+  // Ensure at least `n` bytes are available after `pos`, or EOF.
+  /** @param {number} n */
+  const ensure = async n => {
+    while (buffer.byteLength - pos < n) {
+      // eslint-disable-next-line no-await-in-loop
+      if (!(await pull())) {
+        return;
+      }
+    }
+  };
+
+  return harden({
+    /**
+     * @returns {Promise<Uint8Array | undefined>} the next 512-byte block,
+     *   or undefined at a clean end of archive.
+     */
+    readBlock: async () => {
+      await ensure(TAR_BLOCK_SIZE);
+      const available = buffer.byteLength - pos;
+      if (available === 0 && done) {
+        return undefined;
+      }
+      if (available < TAR_BLOCK_SIZE) {
+        throw new Error('Truncated tar header');
+      }
+      const block = buffer.slice(pos, pos + TAR_BLOCK_SIZE);
+      pos += TAR_BLOCK_SIZE;
+      return block;
+    },
+
+    /**
+     * Stream `size` content bytes, then consume the trailing padding to
+     * the next 512-byte boundary. Yields slices as they arrive so the
+     * consumer (the content store) never sees the whole entry buffered.
+     *
+     * @param {number} size
+     * @param {string} archivePath
+     */
+    streamContent: async function* streamContent(size, archivePath) {
+      let pending = size;
+      while (pending > 0) {
+        if (buffer.byteLength - pos === 0) {
+          // eslint-disable-next-line no-await-in-loop
+          if (!(await pull())) {
+            throw new Error(`Truncated tar content for ${q(archivePath)}`);
+          }
+        }
+        const take = Math.min(pending, buffer.byteLength - pos);
+        yield buffer.slice(pos, pos + take);
+        pos += take;
+        pending -= take;
+      }
+      const padding =
+        (TAR_BLOCK_SIZE - (size % TAR_BLOCK_SIZE)) % TAR_BLOCK_SIZE;
+      if (padding > 0) {
+        await ensure(padding);
+        if (buffer.byteLength - pos < padding) {
+          throw new Error(`Truncated tar content for ${q(archivePath)}`);
+        }
+        pos += padding;
+      }
+    },
+  });
 };
 
 /**
@@ -250,8 +328,8 @@ const readAllBase64 = async readerRef => {
  * @param {import('@endo/far').ERef<AsyncIterator<string>>} readerRef
  * @param {import('@endo/platform/fs/lite/types').SnapshotStore} contentStore
  */
-const checkinTarTree = async (readerRef, contentStore) => {
-  const archive = await readAllBase64(readerRef);
+export const checkinTarTree = async (readerRef, contentStore) => {
+  const reader = makeTarReader(makeRefReader(readerRef));
 
   /** @type {TarTreeNode} */
   const root = { type: 'tree', entries: new Map() };
@@ -289,19 +367,18 @@ const checkinTarTree = async (readerRef, contentStore) => {
   };
 
   /**
+   * Attach a blob node (by its stored sha256) at `segments`.
+   *
    * @param {string[]} segments
-   * @param {Uint8Array} bytes
+   * @param {string} sha256
    */
-  const putBlob = async (segments, bytes) => {
+  const attachBlob = (segments, sha256) => {
     const name = segments[segments.length - 1];
     const parent = ensureDirectory(segments.slice(0, -1));
     if (parent.entries.has(name)) {
       throw new Error(`Duplicate tar entry path ${q(segments.join('/'))}`);
     }
-    parent.entries.set(name, {
-      type: 'blob',
-      sha256: await storeBytes(bytes),
-    });
+    parent.entries.set(name, { type: 'blob', sha256 });
   };
 
   // pax overrides parsed from a preceding extended header. `global`
@@ -312,10 +389,11 @@ const checkinTarTree = async (readerRef, contentStore) => {
   /** @type {{ path?: string, size?: number } | undefined} */
   let nextPax;
 
-  for (let offset = 0; offset < archive.byteLength; ) {
-    const header = archive.slice(offset, offset + TAR_BLOCK_SIZE);
-    if (header.byteLength < TAR_BLOCK_SIZE) {
-      throw new Error('Truncated tar header');
+  for (;;) {
+    // eslint-disable-next-line no-await-in-loop
+    const header = await reader.readBlock();
+    if (header === undefined) {
+      break;
     }
     if (isZeroTarBlock(header)) {
       break;
@@ -326,25 +404,29 @@ const checkinTarTree = async (readerRef, contentStore) => {
     const linkName = tarString(header.slice(157, 257));
     const prefix = tarString(header.slice(345, 500));
 
-    const contentStart = offset + TAR_BLOCK_SIZE;
-
     // A pax extended header carries `key=value` overrides for the next
     // entry (typeflag `x`) or all following entries (typeflag `g`); it
-    // is not itself a filesystem entry. Its own block uses the ustar
-    // size field; capture the overrides and continue.
+    // is not itself a filesystem entry. Pax records are small, so the
+    // header content is collected in full before parsing.
     if (typeFlag === 'x' || typeFlag === 'g') {
-      const paxEnd = contentStart + rawSize;
-      if (paxEnd > archive.byteLength) {
-        throw new Error('Truncated pax extended header');
+      /** @type {Uint8Array[]} */
+      const paxChunks = [];
+      // eslint-disable-next-line no-await-in-loop
+      for await (const chunk of reader.streamContent(rawSize, '@PaxHeader')) {
+        paxChunks.push(chunk);
       }
-      const overrides = parsePaxRecords(archive.slice(contentStart, paxEnd));
+      const paxBytes = new Uint8Array(rawSize);
+      let paxOffset = 0;
+      for (const chunk of paxChunks) {
+        paxBytes.set(chunk, paxOffset);
+        paxOffset += chunk.byteLength;
+      }
+      const overrides = parsePaxRecords(paxBytes);
       if (typeFlag === 'g') {
         globalPax = { ...globalPax, ...overrides };
       } else {
         nextPax = overrides;
       }
-      offset =
-        contentStart + Math.ceil(rawSize / TAR_BLOCK_SIZE) * TAR_BLOCK_SIZE;
       // eslint-disable-next-line no-continue
       continue;
     }
@@ -357,10 +439,6 @@ const checkinTarTree = async (readerRef, contentStore) => {
     const ustarPath = prefix ? `${prefix}/${name}` : name;
     const archivePath = pax.path !== undefined ? pax.path : ustarPath;
     const size = pax.size !== undefined ? pax.size : rawSize;
-    const contentEnd = contentStart + size;
-    if (contentEnd > archive.byteLength) {
-      throw new Error(`Truncated tar content for ${q(archivePath)}`);
-    }
     const segments = tarPathSegments(archivePath);
     const normalizedPath = segments.join('/');
     if (seenPaths.has(normalizedPath)) {
@@ -371,16 +449,28 @@ const checkinTarTree = async (readerRef, contentStore) => {
     if (typeFlag === '5') {
       ensureDirectory(segments);
     } else if (typeFlag === '0' || typeFlag === '\0') {
-      await putBlob(segments, archive.slice(contentStart, contentEnd));
+      // Stream the entry's content straight into the content store; the
+      // reader yields it chunk-by-chunk and consumes the block padding,
+      // so the whole archive is never materialized.
+      const sha256 = await contentStore.store(
+        reader.streamContent(size, archivePath),
+      );
+      attachBlob(segments, sha256);
     } else if (typeFlag === '2') {
-      await putBlob(segments, bytesFromText(linkName));
+      // Symlink: the target is the header linkname and the content size
+      // is zero, but drain any content/padding to stay block-aligned.
+      const symlinkContent = reader.streamContent(size, archivePath);
+      let symlinkChunk = await symlinkContent.next();
+      while (!symlinkChunk.done) {
+        // eslint-disable-next-line no-await-in-loop
+        symlinkChunk = await symlinkContent.next();
+      }
+      attachBlob(segments, await storeBytes(bytesFromText(linkName)));
     } else {
       throw new Error(
         `Unsupported tar entry type ${q(typeFlag)} for ${q(archivePath)}`,
       );
     }
-
-    offset = contentStart + Math.ceil(size / TAR_BLOCK_SIZE) * TAR_BLOCK_SIZE;
   }
 
   /**
