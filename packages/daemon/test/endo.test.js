@@ -4063,6 +4063,86 @@ test('provideGit tree exposes immutable commit contents', async t => {
   t.is(await E(storedAlias).text(), 'main.js');
 });
 
+test('storeTree falls back for export-ignore trees the archive would drop', async t => {
+  const { host, config } = await prepareHost(t);
+
+  const repoPath = path.join(config.statePath, '..', 'git-export-ignore-repo');
+  await createGitFixture(repoPath);
+  // `git archive --format=tar` honors a committed `.gitattributes`
+  // `export-ignore`, OMITTING `secret.txt` from the tar. The committed
+  // tree still contains it, so the immutable snapshot must include it.
+  await fs.promises.writeFile(
+    path.join(repoPath, 'secret.txt'),
+    'keep me\n',
+    'utf-8',
+  );
+  await fs.promises.writeFile(
+    path.join(repoPath, '.gitattributes'),
+    'secret.txt export-ignore\n',
+    'utf-8',
+  );
+  await git(repoPath, ['add', 'secret.txt', '.gitattributes']);
+  await git(repoPath, [
+    '-c',
+    'user.email=t@t',
+    '-c',
+    'user.name=T',
+    'commit',
+    '-m',
+    'add export-ignored file',
+  ]);
+
+  const mount = await E(host).provideMount(repoPath, 'export-ignore-worktree');
+  const gitCap = await E(host).provideGit(mount, 'export-ignore-cap');
+  const tree = await E(gitCap).tree('HEAD');
+
+  // The tree reports itself NOT archive-lossless, so checkinTree routes
+  // to the per-entry walk instead of the lossy fast path.
+  t.is(await E(tree).archiveLossless(), false);
+
+  await E(host).storeTree(tree, 'export-ignore-snapshot');
+  const storedTree = await E(host).lookup('export-ignore-snapshot');
+  // Fail-closed: the unfixed fast path takes `git archive`, which drops
+  // `secret.txt`, so this lookup would reject. The fallback preserves it.
+  const storedSecret = await E(storedTree).lookup('secret.txt');
+  t.is(await E(storedSecret).text(), 'keep me\n');
+});
+
+test('git tree reports a gitlink as not archive-lossless', async t => {
+  const { host, config } = await prepareHost(t);
+
+  const repoPath = path.join(config.statePath, '..', 'git-gitlink-repo');
+  await createGitFixture(repoPath);
+  // Stage a gitlink (submodule commit, mode 160000) directly via the
+  // index. `git archive` would flatten it to an empty directory; the
+  // tree must report itself NOT archive-lossless so checkinTree takes
+  // the per-entry walk, which fails loudly on the submodule commit
+  // rather than silently dropping the reference.
+  await git(repoPath, [
+    'update-index',
+    '--add',
+    '--cacheinfo',
+    `160000,${'0'.repeat(39)}1,vendor/sub`,
+  ]);
+  await git(repoPath, [
+    '-c',
+    'user.email=t@t',
+    '-c',
+    'user.name=T',
+    'commit',
+    '-m',
+    'add gitlink',
+  ]);
+
+  const mount = await E(host).provideMount(repoPath, 'gitlink-worktree');
+  const gitCap = await E(host).provideGit(mount, 'gitlink-cap');
+  const tree = await E(gitCap).tree('HEAD');
+
+  // Fail-closed: the unfixed flow lacks this signal and would archive
+  // the tree, snapshotting the gitlink as an empty directory.
+  t.is(await E(tree).archiveLossless(), false);
+});
+
 test('storeTree rejects malformed archiveTar streams', async t => {
   const { host } = await prepareHost(t);
 

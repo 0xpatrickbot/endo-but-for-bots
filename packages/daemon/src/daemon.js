@@ -108,6 +108,7 @@ const TAR_BLOCK_SIZE = 512;
  * @typedef {object} ArchiveTreeMethods
  * @property {() => Promise<string[]>} __getMethodNames__
  * @property {() => Promise<import('@endo/far').ERef<AsyncIterator<string>>>} archiveTar
+ * @property {() => Promise<boolean>} archiveLossless
  */
 
 /**
@@ -3987,7 +3988,18 @@ const makeDaemonCore = async (
           await E(archiveTree)
             .__getMethodNames__()
             .catch(() => /** @type {string[]} */ ([]));
-        const treeSha256 = methods.includes('archiveTar')
+        // `git archive` is not a lossless tree source: it honors a
+        // committed `.gitattributes` `export-ignore` (omitting matching
+        // tracked files) and flattens gitlinks / submodule commits to
+        // empty directories. Take the fast archive path only when the
+        // tree reports itself archive-lossless; otherwise fall back to
+        // the per-entry `ls-tree`/`cat-file` walk, which mirrors the
+        // committed tree exactly and fails loudly on gitlinks.
+        const useArchive =
+          methods.includes('archiveTar') &&
+          (!methods.includes('archiveLossless') ||
+            (await E(archiveTree).archiveLossless()));
+        const treeSha256 = useArchive
           ? await checkinTarTree(
               await E(archiveTree).archiveTar(),
               contentStore,

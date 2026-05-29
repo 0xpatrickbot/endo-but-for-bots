@@ -115,6 +115,7 @@ export const GitInterface = M.interface('Git', {
 
 export const GitTreeInterface = M.interface('EndoGitTree', {
   archiveTar: M.call().returns(M.remotable()),
+  archiveLossless: M.call().returns(M.promise()),
   has: M.call().rest(M.arrayOf(M.string())).returns(M.promise()),
   list: M.call().rest(M.arrayOf(M.string())).returns(M.promise()),
   lookup: M.call(M.or(M.string(), M.arrayOf(M.string()))).returns(M.promise()),

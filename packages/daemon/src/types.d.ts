@@ -1114,6 +1114,7 @@ export interface ReadableTreeView {
 
 export interface EndoGitTree {
   archiveTar(): FarRef<Reader<string>>;
+  archiveLossless(): Promise<boolean>;
   has(...pathSegments: string[]): Promise<boolean>;
   list(...pathSegments: string[]): Promise<string[]>;
   lookup(path: string | string[]): Promise<EndoGitTree | EndoReadable>;
