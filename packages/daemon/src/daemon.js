@@ -142,6 +142,61 @@ const tarOctal = field => {
 /**
  * @param {string} archivePath
  */
+/**
+ * Parse a pax extended header record block. Pax records are a sequence
+ * of `"<length> <key>=<value>\n"` entries where `<length>` is the
+ * decimal byte length of the whole record including the length field,
+ * the space, and the trailing newline. `git archive --format=tar`
+ * emits a pax header (typeflag `x`) before any entry whose path or size
+ * cannot fit the ustar header fields (e.g. a single filename over 100
+ * bytes). We honor `path` and `size` overrides; other keys are ignored.
+ *
+ * @param {Uint8Array} bytes
+ * @returns {{ path?: string, size?: number }}
+ */
+const parsePaxRecords = bytes => {
+  const text = bytesToText(bytes);
+  /** @type {{ path?: string, size?: number }} */
+  const overrides = {};
+  let cursor = 0;
+  while (cursor < text.length) {
+    const space = text.indexOf(' ', cursor);
+    if (space < 0) {
+      throw new Error('Malformed pax extended header record');
+    }
+    const length = Number.parseInt(text.slice(cursor, space), 10);
+    if (
+      !Number.isInteger(length) ||
+      length <= 0 ||
+      cursor + length > text.length ||
+      text[cursor + length - 1] !== '\n'
+    ) {
+      throw new Error('Malformed pax extended header record');
+    }
+    const record = text.slice(space + 1, cursor + length - 1);
+    const equals = record.indexOf('=');
+    if (equals < 0) {
+      throw new Error('Malformed pax extended header record');
+    }
+    const key = record.slice(0, equals);
+    const value = record.slice(equals + 1);
+    if (key === 'path') {
+      overrides.path = value;
+    } else if (key === 'size') {
+      const parsed = Number.parseInt(value, 10);
+      if (!Number.isInteger(parsed) || parsed < 0 || `${parsed}` !== value) {
+        throw new Error('Malformed pax extended header record');
+      }
+      overrides.size = parsed;
+    }
+    cursor += length;
+  }
+  return overrides;
+};
+
+/**
+ * @param {string} archivePath
+ */
 const tarPathSegments = archivePath => {
   if (
     archivePath === '' ||
@@ -249,6 +304,14 @@ const checkinTarTree = async (readerRef, contentStore) => {
     });
   };
 
+  // pax overrides parsed from a preceding extended header. `global`
+  // (typeflag `g`) persists across entries; `next` (typeflag `x`)
+  // applies only to the immediately following entry.
+  /** @type {{ path?: string, size?: number }} */
+  let globalPax = {};
+  /** @type {{ path?: string, size?: number } | undefined} */
+  let nextPax;
+
   for (let offset = 0; offset < archive.byteLength; ) {
     const header = archive.slice(offset, offset + TAR_BLOCK_SIZE);
     if (header.byteLength < TAR_BLOCK_SIZE) {
@@ -258,23 +321,52 @@ const checkinTarTree = async (readerRef, contentStore) => {
       break;
     }
     const name = tarString(header.slice(0, 100));
-    const size = tarOctal(header.slice(124, 136));
+    const rawSize = tarOctal(header.slice(124, 136));
     const typeFlag = tarString(header.slice(156, 157)) || '0';
     const linkName = tarString(header.slice(157, 257));
     const prefix = tarString(header.slice(345, 500));
-    const archivePath = prefix ? `${prefix}/${name}` : name;
+
+    const contentStart = offset + TAR_BLOCK_SIZE;
+
+    // A pax extended header carries `key=value` overrides for the next
+    // entry (typeflag `x`) or all following entries (typeflag `g`); it
+    // is not itself a filesystem entry. Its own block uses the ustar
+    // size field; capture the overrides and continue.
+    if (typeFlag === 'x' || typeFlag === 'g') {
+      const paxEnd = contentStart + rawSize;
+      if (paxEnd > archive.byteLength) {
+        throw new Error('Truncated pax extended header');
+      }
+      const overrides = parsePaxRecords(archive.slice(contentStart, paxEnd));
+      if (typeFlag === 'g') {
+        globalPax = { ...globalPax, ...overrides };
+      } else {
+        nextPax = overrides;
+      }
+      offset =
+        contentStart + Math.ceil(rawSize / TAR_BLOCK_SIZE) * TAR_BLOCK_SIZE;
+      // eslint-disable-next-line no-continue
+      continue;
+    }
+
+    // `git archive` sets the ustar size field of an entry preceded by a
+    // pax header to the real byte length, so `rawSize` already governs
+    // the content block span. A `size` override is honored defensively.
+    const pax = { ...globalPax, ...(nextPax || {}) };
+    nextPax = undefined;
+    const ustarPath = prefix ? `${prefix}/${name}` : name;
+    const archivePath = pax.path !== undefined ? pax.path : ustarPath;
+    const size = pax.size !== undefined ? pax.size : rawSize;
+    const contentEnd = contentStart + size;
+    if (contentEnd > archive.byteLength) {
+      throw new Error(`Truncated tar content for ${q(archivePath)}`);
+    }
     const segments = tarPathSegments(archivePath);
     const normalizedPath = segments.join('/');
     if (seenPaths.has(normalizedPath)) {
       throw new Error(`Duplicate tar entry path ${q(normalizedPath)}`);
     }
     seenPaths.add(normalizedPath);
-
-    const contentStart = offset + TAR_BLOCK_SIZE;
-    const contentEnd = contentStart + size;
-    if (contentEnd > archive.byteLength) {
-      throw new Error(`Truncated tar content for ${q(archivePath)}`);
-    }
 
     if (typeFlag === '5') {
       ensureDirectory(segments);

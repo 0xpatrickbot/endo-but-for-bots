@@ -3999,6 +3999,30 @@ const makeTarEntry = ({ name, typeFlag = '0', body = '', linkName = '' }) => {
 };
 
 /**
+ * Build a pax extended header block (typeflag `x` or `g`) from a record
+ * map, mirroring what `git archive --format=tar` emits before an entry
+ * whose path or size will not fit the ustar header fields.
+ *
+ * @param {Record<string, string>} records
+ * @param {string} [typeFlag]
+ */
+const makePaxHeader = (records, typeFlag = 'x') => {
+  let body = '';
+  for (const [key, value] of Object.entries(records)) {
+    const tail = ` ${key}=${value}\n`;
+    // `<length>` is the decimal byte length of the whole record,
+    // including the length digits, the space, and the newline; solve
+    // for the self-referential length.
+    let length = tail.length + 1;
+    while (`${length}`.length + tail.length !== length) {
+      length = `${length}`.length + tail.length;
+    }
+    body += `${length}${tail}`;
+  }
+  return makeTarEntry({ name: '@PaxHeader', typeFlag, body });
+};
+
+/**
  * @param {Uint8Array} archiveBytes
  */
 const makeArchiveTree = archiveBytes =>
@@ -4061,6 +4085,33 @@ test('provideGit tree exposes immutable commit contents', async t => {
   // target text, anchored to the immutable commit tree.
   const storedAlias = await E(storedTree).lookup(['src', 'alias.js']);
   t.is(await E(storedAlias).text(), 'main.js');
+});
+
+test('storeTree honors pax extended headers for long paths', async t => {
+  const { host } = await prepareHost(t);
+
+  // A single filename over 100 bytes cannot fit the ustar name/prefix
+  // fields, so `git archive --format=tar` emits a pax extended header
+  // (typeflag `x`) carrying `path=<long>` before the file entry. The
+  // ustar header that follows holds a truncated stand-in name; the pax
+  // `path` override is authoritative.
+  const longName = `${'deep-path-segment-'.repeat(7)}file.txt`;
+  t.true(longName.length > 100);
+  const body = 'pax payload\n';
+  const archive = Buffer.concat([
+    makePaxHeader({ path: longName }),
+    // ustar name is the truncated path; parser ignores it in favor of
+    // the pax override. Its size field still governs the content block.
+    makeTarEntry({ name: longName.slice(0, 100), body }),
+  ]);
+
+  const archiveTree = makeArchiveTree(archive);
+  await E(host).storeTree(archiveTree, 'pax-snapshot');
+  const storedTree = await E(host).lookup('pax-snapshot');
+  // Fail-closed: the unfixed parser rejects the typeflag-`x` header as
+  // an "Unsupported tar entry type", so storeTree never reaches here.
+  const storedFile = await E(storedTree).lookup(longName);
+  t.is(await E(storedFile).text(), body);
 });
 
 test('storeTree falls back for export-ignore trees the archive would drop', async t => {
