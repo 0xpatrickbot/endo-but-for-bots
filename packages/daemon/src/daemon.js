@@ -140,9 +140,6 @@ const tarOctal = field => {
 };
 
 /**
- * @param {string} archivePath
- */
-/**
  * Parse a pax extended header record block. Pax records are a sequence
  * of `"<length> <key>=<value>\n"` entries where `<length>` is the
  * decimal byte length of the whole record including the length field,
