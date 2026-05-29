@@ -10,12 +10,14 @@ import { checkinTarTree } from '../src/daemon.js';
 const TAR_BLOCK_SIZE = 512;
 
 /**
- * Build a minimal ustar file entry (header + content + block padding).
+ * Build a minimal ustar entry (header + content + block padding).
  *
  * @param {string} name
  * @param {Uint8Array} content
+ * @param {string} [typeFlag] single-character ustar type flag (default '0',
+ *   a regular file). 'x'/'g' produce pax extended-header blocks.
  */
-const tarEntry = (name, content) => {
+const tarEntry = (name, content, typeFlag = '0') => {
   const header = new Uint8Array(TAR_BLOCK_SIZE);
   const enc = new TextEncoder();
   header.set(enc.encode(name).subarray(0, 100), 0);
@@ -27,7 +29,7 @@ const tarEntry = (name, content) => {
     124,
   );
   header.set(enc.encode('00000000000\0'), 136);
-  header.set(enc.encode('0'), 156); // regular file
+  header.set(enc.encode(typeFlag), 156);
   header.set(enc.encode('ustar\0'), 257);
   const pad =
     (TAR_BLOCK_SIZE - (content.byteLength % TAR_BLOCK_SIZE)) % TAR_BLOCK_SIZE;
@@ -35,6 +37,72 @@ const tarEntry = (name, content) => {
   out.set(header, 0);
   out.set(content, TAR_BLOCK_SIZE);
   return out;
+};
+
+const utf8 = new TextEncoder();
+
+/**
+ * Build a pax extended-header block (`typeFlag` 'x' for next-entry scope,
+ * 'g' for global scope) from a record map, mirroring `git archive
+ * --format=tar`. Each pax record is `"<length> <key>=<value>\n"` where
+ * `<length>` is the self-referential decimal byte length of the whole
+ * record.
+ *
+ * @param {Record<string, string>} records
+ * @param {string} [typeFlag]
+ */
+const paxHeader = (records, typeFlag = 'x') => {
+  let body = '';
+  for (const [key, value] of Object.entries(records)) {
+    const tail = ` ${key}=${value}\n`;
+    let length = tail.length + 1;
+    while (`${length}`.length + tail.length !== length) {
+      length = `${length}`.length + tail.length;
+    }
+    body += `${length}${tail}`;
+  }
+  return tarEntry('@PaxHeader', utf8.encode(body), typeFlag);
+};
+
+// A content store that captures each stored blob's bytes keyed by its
+// returned sha so tests can read back what landed.
+const makeCapturingStore = () => {
+  /** @type {Map<string, Uint8Array>} */
+  const byHash = new Map();
+  let counter = 0;
+  return {
+    byHash,
+    store: async iterable => {
+      /** @type {Uint8Array[]} */
+      const parts = [];
+      for await (const chunk of iterable) {
+        parts.push(chunk);
+      }
+      const total = parts.reduce((n, p) => n + p.byteLength, 0);
+      const bytes = new Uint8Array(total);
+      let offset = 0;
+      for (const p of parts) {
+        bytes.set(p, offset);
+        offset += p.byteLength;
+      }
+      counter += 1;
+      const hash = `sha-${counter}`;
+      byHash.set(hash, bytes);
+      return hash;
+    },
+  };
+};
+
+const text = bytes => new TextDecoder().decode(bytes);
+
+// Resolve a `[name, kind, hash]` tree-JSON entry list from the root hash
+// `checkinTarTree` returns, then read a single top-level file's content.
+const readTopLevelFile = (store, rootHash, name) => {
+  const entries = JSON.parse(text(store.byHash.get(rootHash)));
+  const match = entries.find(([entryName]) => entryName === name);
+  return match && match[1] === 'blob'
+    ? text(store.byHash.get(match[2]))
+    : match;
 };
 
 const concatBytes = parts => {
@@ -116,5 +184,50 @@ test('checkinTarTree streams entries without buffering the whole archive', async
   t.true(
     bBlob.chunks > 1,
     `expected b.txt to stream in multiple chunks, got ${bBlob.chunks}`,
+  );
+});
+
+test('checkinTarTree honors a pax size override for the content span', async t => {
+  // The ustar size field claims the full content block (4 bytes), but a
+  // preceding pax `size` record narrows the real payload to 3 bytes. The
+  // parser must trust the pax override; reading 4 would fold the 1 byte
+  // of NUL padding into the stored blob.
+  const padded = new Uint8Array(4);
+  padded.set(utf8.encode('abc'), 0); // 'abc' + one NUL padding byte
+  const archive = concatBytes([
+    paxHeader({ size: '3' }),
+    tarEntry('sized.txt', padded),
+    new Uint8Array(TAR_BLOCK_SIZE * 2),
+  ]);
+
+  const store = makeCapturingStore();
+  const rootHash = await checkinTarTree(makeReaderRef([archive]), store);
+
+  // Fail-closed: without honoring the pax `size`, the stored blob would
+  // be the full 4-byte block (`'abc\0'`), not the 3-byte payload.
+  t.is(readTopLevelFile(store, rootHash, 'sized.txt'), 'abc');
+});
+
+test('checkinTarTree applies a global pax header across following entries', async t => {
+  // A global pax header (typeflag 'g') persists across every subsequent
+  // entry until overridden. Here a single `g` header supplies the path
+  // for the file entry whose own ustar name is a truncated stand-in.
+  const longName = `${'global-pax-segment-'.repeat(6)}tail.txt`;
+  t.true(longName.length > 100);
+  const archive = concatBytes([
+    paxHeader({ path: longName }, 'g'),
+    tarEntry(longName.slice(0, 100), utf8.encode('payload'), '0'),
+    new Uint8Array(TAR_BLOCK_SIZE * 2),
+  ]);
+
+  const store = makeCapturingStore();
+  const rootHash = await checkinTarTree(makeReaderRef([archive]), store);
+
+  const entries = JSON.parse(text(store.byHash.get(rootHash)));
+  // Fail-closed: without the global-pax branch the file would land under
+  // the truncated ustar name, never the full long path.
+  t.deepEqual(
+    entries.map(([name]) => name),
+    [longName],
   );
 });
