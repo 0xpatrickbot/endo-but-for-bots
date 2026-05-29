@@ -1,10 +1,10 @@
 # Endo Locator Reference
 
-| | |
-|---|---|
-| **Created** | 2026-03-18 |
-| **Author** | Kris Kowal (prompted) |
-| **Status** | Current |
+|             |                       |
+| ----------- | --------------------- |
+| **Created** | 2026-03-18            |
+| **Author**  | Kris Kowal (prompted) |
+| **Status**  | Current               |
 
 ## Overview
 
@@ -23,11 +23,11 @@ optional connection hints.
 endo://{nodeNumber}/?id={formulaNumber}&type={formulaType}
 ```
 
-| Component | Description |
-|-----------|-------------|
-| `nodeNumber` | 64-char hex Ed25519 public key of the peer that hosts the formula |
-| `formulaNumber` | 64-char hex formula number (SHA-256 content address or random capability address) |
-| `formulaType` | Formula type string (e.g., `host`, `guest`, `handle`, `worker`, `directory`, `remote`) |
+| Component       | Description                                                                            |
+| --------------- | -------------------------------------------------------------------------------------- |
+| `nodeNumber`    | 64-char hex Ed25519 public key of the peer that hosts the formula                      |
+| `formulaNumber` | 64-char hex formula number (SHA-256 content address or random capability address)      |
+| `formulaType`   | Formula type string (e.g., `host`, `guest`, `handle`, `worker`, `directory`, `remote`) |
 
 ### Locator with Connection Hints
 
@@ -47,11 +47,11 @@ endo://{nodeNumber}/?id={invitationNumber}&type=invitation&from={hostHandleNumbe
 
 Invitation locators extend the standard format with:
 
-| Parameter | Description |
-|-----------|-------------|
-| `type` | Always `invitation` |
-| `from` | The host's handle formula number (used by the accepting peer to identify the inviting host) |
-| `at` | Connection hints for reaching the inviting peer |
+| Parameter | Description                                                                                 |
+| --------- | ------------------------------------------------------------------------------------------- |
+| `type`    | Always `invitation`                                                                         |
+| `from`    | The host's handle formula number (used by the accepting peer to identify the inviting host) |
+| `at`      | Connection hints for reaching the inviting peer                                             |
 
 The `from` parameter is specific to invitation locators. Standard locators
 and invitation locators are parsed separately: `parseLocator` validates
@@ -107,6 +107,7 @@ locator: endo://{agentKey}/?id={number}&type={type}&at={addr}
 ### Round-trip Invariant
 
 For local formulas:
+
 ```
 internalId → externalizeId → internalizeLocator → internalId  ✓
 ```
@@ -117,34 +118,34 @@ For remote formulas, the node number is preserved through both operations.
 
 ### Name Resolution
 
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `identify(...path)` | `name → identifier` | Resolve a pet name path to an internal formula identifier |
-| `locate(...path)` | `name → locator` | Resolve a pet name path to a locator (calls through `externalizeId`) |
-| `lookup(...path)` | `name → value` | Resolve a pet name path to the formula's value |
+| Method              | Signature           | Description                                                          |
+| ------------------- | ------------------- | -------------------------------------------------------------------- |
+| `identify(...path)` | `name → identifier` | Resolve a pet name path to an internal formula identifier            |
+| `locate(...path)`   | `name → locator`    | Resolve a pet name path to a locator (calls through `externalizeId`) |
+| `lookup(...path)`   | `name → value`      | Resolve a pet name path to the formula's value                       |
 
 ### Reverse Resolution
 
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `reverseIdentify(id)` | `identifier → name[]` | Find all pet names for a formula identifier |
-| `reverseLocate(locator)` | `locator → name[]` | Find all pet names for a locator (calls through `internalizeLocator`) |
-| `reverseLookup(presence)` | `value → name[]` | Find all pet names for a live value |
+| Method                    | Signature             | Description                                                           |
+| ------------------------- | --------------------- | --------------------------------------------------------------------- |
+| `reverseIdentify(id)`     | `identifier → name[]` | Find all pet names for a formula identifier                           |
+| `reverseLocate(locator)`  | `locator → name[]`    | Find all pet names for a locator (calls through `internalizeLocator`) |
+| `reverseLookup(presence)` | `value → name[]`      | Find all pet names for a live value                                   |
 
 ### Enumeration
 
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `list(...path)` | `name → name[]` | List pet names in a directory |
-| `listIdentifiers(...path)` | `name → identifier[]` | List unique identifiers in a directory |
-| `listLocators(...path)` | `name → Record<name, locator>` | Map pet names to locators in a directory |
+| Method                     | Signature                      | Description                              |
+| -------------------------- | ------------------------------ | ---------------------------------------- |
+| `list(...path)`            | `name → name[]`                | List pet names in a directory            |
+| `listIdentifiers(...path)` | `name → identifier[]`          | List unique identifiers in a directory   |
+| `listLocators(...path)`    | `name → Record<name, locator>` | Map pet names to locators in a directory |
 
 ### Writing
 
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `write(path, id)` | `(name, identifier) → void` | Bind a pet name to a formula identifier (internal) |
-| `writeLocator(path, locatorOrId)` | `(name, locator\|id) → void` | Bind a pet name; accepts locator or identifier |
+| Method                            | Signature                    | Description                                        |
+| --------------------------------- | ---------------------------- | -------------------------------------------------- |
+| `write(path, id)`                 | `(name, identifier) → void`  | Bind a pet name to a formula identifier (internal) |
+| `writeLocator(path, locatorOrId)` | `(name, locator\|id) → void` | Bind a pet name; accepts locator or identifier     |
 
 `writeLocator` is the canonical write method exposed through exos. It
 accepts either a locator string (starting with `endo://`) or a raw formula
@@ -155,9 +156,9 @@ destructuring — not re-implemented at each layer.
 
 ### Subscription
 
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `followNameChanges(...path)` | `name → AsyncIterator<NameChange>` | Subscribe to pet name changes |
+| Method                              | Signature                                    | Description                             |
+| ----------------------------------- | -------------------------------------------- | --------------------------------------- |
+| `followNameChanges(...path)`        | `name → AsyncIterator<NameChange>`           | Subscribe to pet name changes           |
 | `followLocatorNameChanges(locator)` | `locator → AsyncIterator<LocatorNameChange>` | Subscribe to name changes for a locator |
 
 ## LOCAL_NODE Sentinel
@@ -201,13 +202,13 @@ peer are fetched from the network layer and appended as `at` parameters.
 
 ## Files
 
-| File | Key Exports |
-|------|------------|
-| `locator.js` | `parseLocator`, `formatLocator`, `formatLocatorForSharing`, `externalizeId`, `internalizeLocator`, `idFromLocator`, `addressesFromLocator`, `LOCAL_NODE` |
-| `formula-identifier.js` | `parseId`, `formatId`, `isValidNumber` |
-| `formula-type.js` | `isValidFormulaType`, `assertValidFormulaType` |
-| `directory.js` | `makeDirectoryMaker` (provides `locate`, `writeLocator`, etc.) |
-| `host.js` | `makeHostMaker` (carries up directory methods) |
-| `guest.js` | `makeGuestMaker` (carries up directory methods) |
-| `mail.js` | `makeMailboxMaker` (externalizes message identifiers to locators) |
-| `daemon.js` | `makeInvitation` (constructs invitation locators) |
+| File                    | Key Exports                                                                                                                                              |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `locator.js`            | `parseLocator`, `formatLocator`, `formatLocatorForSharing`, `externalizeId`, `internalizeLocator`, `idFromLocator`, `addressesFromLocator`, `LOCAL_NODE` |
+| `formula-identifier.js` | `parseId`, `formatId`, `isValidNumber`                                                                                                                   |
+| `formula-type.js`       | `isValidFormulaType`, `assertValidFormulaType`                                                                                                           |
+| `directory.js`          | `makeDirectoryMaker` (provides `locate`, `writeLocator`, etc.)                                                                                           |
+| `host.js`               | `makeHostMaker` (carries up directory methods)                                                                                                           |
+| `guest.js`              | `makeGuestMaker` (carries up directory methods)                                                                                                          |
+| `mail.js`               | `makeMailboxMaker` (externalizes message identifiers to locators)                                                                                        |
+| `daemon.js`             | `makeInvitation` (constructs invitation locators)                                                                                                        |

@@ -1,11 +1,11 @@
 # Formula Inspector
 
-| | |
-|---|---|
-| **Created** | 2026-02-14 |
-| **Updated** | 2026-02-24 |
-| **Author** | Kris Kowal (prompted) |
-| **Status** | Not Started |
+|             |                       |
+| ----------- | --------------------- |
+| **Created** | 2026-02-14            |
+| **Updated** | 2026-02-24            |
+| **Author**  | Kris Kowal (prompted) |
+| **Status**  | Not Started           |
 
 ## What is the Problem Being Solved?
 
@@ -43,7 +43,7 @@ for identified formulas.
 ### Key Interfaces
 
 The `InspectorHub` interface already exists in
-`packages/daemon/src/interfaces.js` and may or *may not* be useful for this.
+`packages/daemon/src/interfaces.js` and may or _may not_ be useful for this.
 
 ```js
 export const InspectorHubInterface = M.interface('EndoInspectorHub', {

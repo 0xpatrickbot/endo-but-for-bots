@@ -1,12 +1,12 @@
 # Endo Gateway
 
-| | |
-|---|---|
-| **Created** | 2026-05-10 |
-| **Updated** | 2026-05-10 (review pass: no TLS, Noise netlayer, `/ocapn` WS, Host→CAS, separate config trees, defer key rotation, defer daemon-hosting variant) |
-| **Author** | Kris Kowal (prompted) |
-| **Status** | Proposed |
-| **Source** | Issue [#173](https://github.com/endojs/endo-but-for-bots/issues/173) (extracted from PR [#134](https://github.com/endojs/endo-but-for-bots/pull/134) `feat(docker,daemon): docker self-hosting` review at 2026-05-10T06:14:41Z) |
+|             |                                                                                                                                                                                                                                 |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Created** | 2026-05-10                                                                                                                                                                                                                      |
+| **Updated** | 2026-05-10 (review pass: no TLS, Noise netlayer, `/ocapn` WS, Host→CAS, separate config trees, defer key rotation, defer daemon-hosting variant)                                                                                |
+| **Author**  | Kris Kowal (prompted)                                                                                                                                                                                                           |
+| **Status**  | Proposed                                                                                                                                                                                                                        |
+| **Source**  | Issue [#173](https://github.com/endojs/endo-but-for-bots/issues/173) (extracted from PR [#134](https://github.com/endojs/endo-but-for-bots/pull/134) `feat(docker,daemon): docker self-hosting` review at 2026-05-10T06:14:41Z) |
 
 ## What is the Problem Being Solved?
 
@@ -209,11 +209,13 @@ The User Daemon connects, fetches the Gateway's `Registrar`
 bootstrap exo, and calls:
 
 ```js
-const registration = await E(registrar).register(harden({
-  publicKey,            // 32-byte Ed25519 public key
-  proofOfPossession,    // signature over a Gateway-issued nonce
-  daemon,               // Far('UserDaemon', { ... handlers ... })
-}));
+const registration = await E(registrar).register(
+  harden({
+    publicKey, // 32-byte Ed25519 public key
+    proofOfPossession, // signature over a Gateway-issued nonce
+    daemon, // Far('UserDaemon', { ... handlers ... })
+  }),
+);
 ```
 
 `proofOfPossession` is a signature, with the registrant's Ed25519
@@ -393,11 +395,13 @@ When a User Daemon publishes a weblet, it registers, on its
 relay-side exo:
 
 ```js
-await E(registration).publishWeblet(harden({
-  accessToken,          // virtual hostname (first 32 hex of weblet ID)
-  contentAddress,       // SHA-256 hex of the static content archive
-  hasWebSocket,         // whether the weblet handles a WS upgrade
-}));
+await E(registration).publishWeblet(
+  harden({
+    accessToken, // virtual hostname (first 32 hex of weblet ID)
+    contentAddress, // SHA-256 hex of the static content archive
+    hasWebSocket, // whether the weblet handles a WS upgrade
+  }),
+);
 ```
 
 Two pieces of information matter:
@@ -411,7 +415,7 @@ Two pieces of information matter:
    [`daemon-checkin-checkout`](daemon-checkin-checkout.md), or an
    `exo-zip` archive per
    [`exo-zip-package`](exo-zip-package.md)), which the Gateway is
-   *permitted* to serve directly out of its content-addressed
+   _permitted_ to serve directly out of its content-addressed
    cache.
    This permission is what makes static-asset delivery cheap: the
    Gateway can answer GETs for known immutable URLs from its own
@@ -545,8 +549,7 @@ Each User Daemon, on startup, reads its configured Gateway address
 register.
 
 The Gateway must tolerate User Daemons being absent or in flux.
-A request for a Host whose User Daemon is down returns 404 (not
-503) so that the response is cacheable and gives no signal about
+A request for a Host whose User Daemon is down returns 404 (not 503) so that the response is cacheable and gives no signal about
 which users exist on the host.
 A User Daemon that finds the Gateway absent retries with backoff
 (1s, 2s, 4s, capped at 60s) and registers as soon as the Gateway
@@ -904,7 +907,7 @@ re-litigate them.
    A User Daemon's per-agent keypair is its routing key.
    The protocol allows a Daemon to register additional public keys
    (`addPublicKey` on the registration handle) and to retire old
-   ones, so the *operational* rotation path exists: a Daemon can
+   ones, so the _operational_ rotation path exists: a Daemon can
    start advertising a new key, tell its peers, and eventually
    deregister the old one.
    What we do **not** yet have is a rotation that preserves the
@@ -967,25 +970,25 @@ re-litigate them.
 
 ## Affected Designs
 
-| Design | Relationship |
-|--------|-------------|
-| [daemon-web-gateway](daemon-web-gateway.md) | The per-user gateway becomes the User Daemon's local registration client; HTTP-virtual-hosting moves to the Endo Gateway. |
-| [familiar-gateway-migration](familiar-gateway-migration.md) | Familiar continues to spawn a User Daemon; if a Gateway exists on the host, the User Daemon registers with it instead of binding its own port. |
-| [familiar-unified-weblet-server](familiar-unified-weblet-server.md) | The Gateway is the unified server, lifted to host scope; addresses the multi-user multiplex and per-session-confidentiality concerns flagged in that design's 2026-04-17 revision. |
-| [familiar-localhttp-protocol](familiar-localhttp-protocol.md) | Unchanged on the Familiar side; the renderer still proxies `localhttp://` to a local HTTP origin, but the origin may now be the Gateway rather than the User Daemon. |
-| [gateway-bearer-token-auth](gateway-bearer-token-auth.md) | The bearer-token / rate-limit / CIDR-allowlist work now applies to the Gateway's external surface. |
-| [daemon-256-bit-identifiers](daemon-256-bit-identifiers.md) | Per-agent Ed25519 public keys are the registration table's keys. |
-| [ocapn-network-transport-separation](ocapn-network-transport-separation.md) | Provides the Noise-based network for the Gateway's external OCapN endpoint. |
-| [daemon-docker-selfhost](daemon-docker-selfhost.md) | Docker-self-host design needs to be revised on top of this; PR [#134](https://github.com/endojs/endo-but-for-bots/pull/134) is paused pending. |
-| [daemon-checkin-checkout](daemon-checkin-checkout.md) | Possible future host-scoped write path for Gateway CAS pre-population (Open Question 3). |
-| [daemon-agent-network-identity](daemon-agent-network-identity.md) | Public-key rotation story; Pass-Invariant-Eq follow-up (Open Question 1). |
-| [exo-zip-package](exo-zip-package.md) | Format option for the weblet content archive that the Gateway caches. |
-| [daemon-cas-management](daemon-cas-management.md) | Reused for the Gateway's content-addressed cache of weblet assets, served directly from the HTTP path. |
-| [daemon-message-streaming](daemon-message-streaming.md) | Streaming chunked HTTP request / response bodies through the relay. |
-| [daemon-endo-rust-sqlite](daemon-endo-rust-sqlite.md) | The Gateway holds its weblet-formula table in the same sqlite shape as the per-user daemon. |
-| [familiar-bundled-agents](familiar-bundled-agents.md) | The `@apps` special formula on the user side; the Gateway picks a different special formula for its own boot. |
-| [weblet-next](weblet-next.md) | Same `@apps` background. |
-| [`packages/where`](../packages/where/index.js) | Needs Gateway-side path functions to mux per-mode config trees. |
+| Design                                                                      | Relationship                                                                                                                                                                       |
+| --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [daemon-web-gateway](daemon-web-gateway.md)                                 | The per-user gateway becomes the User Daemon's local registration client; HTTP-virtual-hosting moves to the Endo Gateway.                                                          |
+| [familiar-gateway-migration](familiar-gateway-migration.md)                 | Familiar continues to spawn a User Daemon; if a Gateway exists on the host, the User Daemon registers with it instead of binding its own port.                                     |
+| [familiar-unified-weblet-server](familiar-unified-weblet-server.md)         | The Gateway is the unified server, lifted to host scope; addresses the multi-user multiplex and per-session-confidentiality concerns flagged in that design's 2026-04-17 revision. |
+| [familiar-localhttp-protocol](familiar-localhttp-protocol.md)               | Unchanged on the Familiar side; the renderer still proxies `localhttp://` to a local HTTP origin, but the origin may now be the Gateway rather than the User Daemon.               |
+| [gateway-bearer-token-auth](gateway-bearer-token-auth.md)                   | The bearer-token / rate-limit / CIDR-allowlist work now applies to the Gateway's external surface.                                                                                 |
+| [daemon-256-bit-identifiers](daemon-256-bit-identifiers.md)                 | Per-agent Ed25519 public keys are the registration table's keys.                                                                                                                   |
+| [ocapn-network-transport-separation](ocapn-network-transport-separation.md) | Provides the Noise-based network for the Gateway's external OCapN endpoint.                                                                                                        |
+| [daemon-docker-selfhost](daemon-docker-selfhost.md)                         | Docker-self-host design needs to be revised on top of this; PR [#134](https://github.com/endojs/endo-but-for-bots/pull/134) is paused pending.                                     |
+| [daemon-checkin-checkout](daemon-checkin-checkout.md)                       | Possible future host-scoped write path for Gateway CAS pre-population (Open Question 3).                                                                                           |
+| [daemon-agent-network-identity](daemon-agent-network-identity.md)           | Public-key rotation story; Pass-Invariant-Eq follow-up (Open Question 1).                                                                                                          |
+| [exo-zip-package](exo-zip-package.md)                                       | Format option for the weblet content archive that the Gateway caches.                                                                                                              |
+| [daemon-cas-management](daemon-cas-management.md)                           | Reused for the Gateway's content-addressed cache of weblet assets, served directly from the HTTP path.                                                                             |
+| [daemon-message-streaming](daemon-message-streaming.md)                     | Streaming chunked HTTP request / response bodies through the relay.                                                                                                                |
+| [daemon-endo-rust-sqlite](daemon-endo-rust-sqlite.md)                       | The Gateway holds its weblet-formula table in the same sqlite shape as the per-user daemon.                                                                                        |
+| [familiar-bundled-agents](familiar-bundled-agents.md)                       | The `@apps` special formula on the user side; the Gateway picks a different special formula for its own boot.                                                                      |
+| [weblet-next](weblet-next.md)                                               | Same `@apps` background.                                                                                                                                                           |
+| [`packages/where`](../packages/where/index.js)                              | Needs Gateway-side path functions to mux per-mode config trees.                                                                                                                    |
 
 ## Prompt
 

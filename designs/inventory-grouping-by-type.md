@@ -1,11 +1,11 @@
 # Inventory Grouping by Type
 
-| | |
-|---|---|
-| **Created** | 2026-02-14 |
-| **Updated** | 2026-02-24 |
-| **Author** | Kris Kowal (prompted) |
-| **Status** | Not Started |
+|             |                       |
+| ----------- | --------------------- |
+| **Created** | 2026-02-14            |
+| **Updated** | 2026-02-24            |
+| **Author**  | Kris Kowal (prompted) |
+| **Status**  | Not Started           |
 
 ## What is the Problem Being Solved?
 
@@ -22,12 +22,12 @@ currently expose it through the agent's naming API.
 
 Group inventory items into collapsible sections:
 
-| Group | Formula Types | Icon | Description |
-|-------|--------------|------|-------------|
-| **Handles** | `handle` | Person silhouette | Agent identities (hosts, guests) |
-| **Hubs** | `directory`, `host`, `guest`, `pet-store` | Folder | Naming containers that expose `lookup` / `list` |
-| **Workers** | `worker` | Gear | Execution sandboxes |
-| **Everything Else** | All remaining types | Circle | Blobs, eval results, promises, lookups, etc. |
+| Group               | Formula Types                             | Icon              | Description                                     |
+| ------------------- | ----------------------------------------- | ----------------- | ----------------------------------------------- |
+| **Handles**         | `handle`                                  | Person silhouette | Agent identities (hosts, guests)                |
+| **Hubs**            | `directory`, `host`, `guest`, `pet-store` | Folder            | Naming containers that expose `lookup` / `list` |
+| **Workers**         | `worker`                                  | Gear              | Execution sandboxes                             |
+| **Everything Else** | All remaining types                       | Circle            | Blobs, eval results, promises, lookups, etc.    |
 
 Each item should display a small type badge showing the formula type (e.g.,
 `eval`, `readable-blob`, `worker`).

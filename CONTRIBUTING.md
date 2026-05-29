@@ -54,7 +54,7 @@ index.test.js files.
 ## Updating Workspace Dependencies
 
 If you've added, removed, or changed a dependency between workspaces, you'll
-want to regenerate the composite TypeScript build configs.  Run `yarn
+want to regenerate the composite TypeScript build configs. Run `yarn
 build:types:gen` to regenerate the composite TypeScript build. See [TypeScript
 declarations](#typescript-declarations) for more details.
 
@@ -119,7 +119,7 @@ sequenceDiagram
 TypeScript `.d.ts` declarations are generated as part of the publishing process, with each package's declarations created individually.
 
 However, when you need to link Endo against another project, you'll need to build the
-declarations for all of the relevant dependencies.  To simplify this process,
+declarations for all of the relevant dependencies. To simplify this process,
 you can use the **composite TypeScript build**:
 
 ```sh
@@ -141,7 +141,6 @@ CI checks that these files are in sync with the generator output.
 If the composite build complains about `TS5055` "would overwrite input file"
 errors, you have stale `.d.ts` outputs from a previous per-package build.
 Run `yarn build:types --clean` once to reset, then build normally.
-
 
 ## Rebuilding `ses`
 
@@ -255,7 +254,7 @@ You typically **do not** need a changeset for:
   the conditions that raise it are unchanged
 
 The helpful [changeset-bot](https://github.com/apps/changeset-bot) will comment
-on your PR if no changeset is present, but this won't block merging.  
+on your PR if no changeset is present, but this won't block merging.
 
 > [!TIP]
 >

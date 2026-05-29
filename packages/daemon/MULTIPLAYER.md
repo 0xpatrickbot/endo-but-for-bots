@@ -396,7 +396,7 @@ The remote daemon may be unreachable. Check that:
 ## Chat Commands Reference
 
 | Command           | Description                                                |
-|-------------------|------------------------------------------------------------|
+| ----------------- | ---------------------------------------------------------- |
 | `/network`        | Enable TCP networking (module path + listen address)       |
 | `/network-libp2p` | Enable libp2p networking (no open ports needed)            |
 | `/invite`         | Create an invitation for a peer (prints `endo://` locator) |

@@ -70,27 +70,27 @@ wait for the first ack.
 
 ## 9P operations
 
-| Op | Status |
-|---|---|
-| Tversion | supported |
-| Tattach | supported |
-| Twalk (single + pipelined chain, `..` walks) | supported |
-| Tlopen | supported |
-| Tread | supported |
-| Treaddir | supported |
-| Tgetattr | supported |
-| Tsetattr | supported |
-| Tstatfs | supported |
-| Tlcreate | supported |
-| Twrite | supported |
-| Tmkdir | supported |
-| Tunlinkat | supported |
-| Trenameat | supported |
-| Tclunk | supported |
-| Tflush | supported |
-| Tlerror emission | supported |
-| Tauth | `Rlerror(ENOSYS)` |
-| Txattrwalk | `Rlerror(ENOSYS)` |
+| Op                                           | Status            |
+| -------------------------------------------- | ----------------- |
+| Tversion                                     | supported         |
+| Tattach                                      | supported         |
+| Twalk (single + pipelined chain, `..` walks) | supported         |
+| Tlopen                                       | supported         |
+| Tread                                        | supported         |
+| Treaddir                                     | supported         |
+| Tgetattr                                     | supported         |
+| Tsetattr                                     | supported         |
+| Tstatfs                                      | supported         |
+| Tlcreate                                     | supported         |
+| Twrite                                       | supported         |
+| Tmkdir                                       | supported         |
+| Tunlinkat                                    | supported         |
+| Trenameat                                    | supported         |
+| Tclunk                                       | supported         |
+| Tflush                                       | supported         |
+| Tlerror emission                             | supported         |
+| Tauth                                        | `Rlerror(ENOSYS)` |
+| Txattrwalk                                   | `Rlerror(ENOSYS)` |
 
 ## Tests
 

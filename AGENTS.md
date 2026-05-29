@@ -33,6 +33,7 @@ Each package that exports types uses a pair of files:
 Why: `.d.ts` files are not checked by `tsc` (we use `skipLibCheck: true`). Type definitions in `.d.ts` files silently pass even if they contain errors. Definitions in `.ts` files are checked.
 
 The entrypoint (`index.js`) re-exports from `types-index.js`:
+
 ```js
 // eslint-disable-next-line import/export
 export * from './types-index.js';
@@ -40,13 +41,13 @@ export * from './types-index.js';
 
 ### Where type definitions go
 
-| What | Where | Why |
-|------|-------|-----|
-| Interface types, data types | `src/types.ts` | Canonical type definitions |
-| Inferred/computed types | `src/type-from-pattern.ts` (or similar `.ts`) | Complex type logic, checked by tsc |
-| Value + namespace merges | Same `.ts` file as the namespace | TS requires both in one module for merging |
-| `declare function` overrides | `.ts` file alongside related types | Gets type-checked |
-| Re-exports only | `types-index.d.ts` | Pure index, no definitions |
+| What                         | Where                                         | Why                                        |
+| ---------------------------- | --------------------------------------------- | ------------------------------------------ |
+| Interface types, data types  | `src/types.ts`                                | Canonical type definitions                 |
+| Inferred/computed types      | `src/type-from-pattern.ts` (or similar `.ts`) | Complex type logic, checked by tsc         |
+| Value + namespace merges     | Same `.ts` file as the namespace              | TS requires both in one module for merging |
+| `declare function` overrides | `.ts` file alongside related types            | Gets type-checked                          |
+| Re-exports only              | `types-index.d.ts`                            | Pure index, no definitions                 |
 
 ### `emitDeclarationOnly`
 
@@ -55,6 +56,7 @@ The repo-wide `tsconfig-build-options.json` sets `emitDeclarationOnly: true`. `t
 ### Imports in `.js` files
 
 Use `/** @import */` JSDoc comments to import types without runtime module loading:
+
 ```js
 /** @import { Pattern, MatcherNamespace } from './types.js' */
 ```
@@ -63,11 +65,11 @@ Use `/** @import */` JSDoc comments to import types without runtime module loadi
 
 Exo methods receive a `this` context (via `ThisType<>`) that differs between single-facet and multi-facet exos:
 
-| API | `this.self` | `this.facets` | `this.state` |
-|-----|-------------|---------------|--------------|
-| `makeExo` | ✅ the exo instance | ❌ | ❌ (always `{}`) |
-| `defineExoClass` | ✅ the exo instance | ❌ | ✅ from `init()` |
-| `defineExoClassKit` | ❌ | ✅ all facets in cohort | ✅ from `init()` |
+| API                 | `this.self`         | `this.facets`           | `this.state`     |
+| ------------------- | ------------------- | ----------------------- | ---------------- |
+| `makeExo`           | ✅ the exo instance | ❌                      | ❌ (always `{}`) |
+| `defineExoClass`    | ✅ the exo instance | ❌                      | ✅ from `init()` |
+| `defineExoClassKit` | ❌                  | ✅ all facets in cohort | ✅ from `init()` |
 
 **Why no `self` on kits?** A kit has multiple facets (e.g. `public`, `admin`), each a separate remotable object. There is no single "self". Use `this.facets.facetName` to access any facet in the cohort.
 

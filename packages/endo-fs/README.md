@@ -17,11 +17,12 @@ reads locally and skip the `fetch` round-trip on cache hits.
 callers reach them across CapTP — one round-trip per call. The
 intended usage is to pipeline the getter alongside the call that
 produced the cap (lookup + `getQid` in one batch, snapshot + getInfo
-+ fetch in one batch), so the incremental round-trip is zero;
-`cached-fs.js` and `readonly.js` are the realisations. See
-`DESIGN.md` §4.10. CAS hits skip the bytes payload; with
-`withCachedReads`'s watch-based hash cache they also skip the
-discovery RTT on repeat reads of unchanged files.
+
+- fetch in one batch), so the incremental round-trip is zero;
+  `cached-fs.js` and `readonly.js` are the realisations. See
+  `DESIGN.md` §4.10. CAS hits skip the bytes payload; with
+  `withCachedReads`'s watch-based hash cache they also skip the
+  discovery RTT on repeat reads of unchanged files.
 
 Key pieces:
 
@@ -105,9 +106,9 @@ yarn workspace @endo/endo-fs mkmem scratch
 
 ## Relation to existing Endo work
 
-| Subject | Where today | What this package adds |
-|---|---|---|
-| Live FS access | `@endo/daemon` `Mount` | Typed `Directory` / `File` subtypes; stable `qid` identity (inode-style `pathId` + `version`); explicit `open()` ↔ `OpenFile` / `Cursor` split. |
-| Immutable snapshot | `@endo/daemon` `ReadableTree` | `Node.snapshot() → BlobRef` for content-addressed sub-trees. |
-| Byte streaming over CapTP | `@endo/exo-stream` | Consumed; not replaced. |
-| 9P-over-UDS bridge | `@endo/9p-server` | This package is the bridge's *backing store*. |
+| Subject                   | Where today                   | What this package adds                                                                                                                          |
+| ------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Live FS access            | `@endo/daemon` `Mount`        | Typed `Directory` / `File` subtypes; stable `qid` identity (inode-style `pathId` + `version`); explicit `open()` ↔ `OpenFile` / `Cursor` split. |
+| Immutable snapshot        | `@endo/daemon` `ReadableTree` | `Node.snapshot() → BlobRef` for content-addressed sub-trees.                                                                                    |
+| Byte streaming over CapTP | `@endo/exo-stream`            | Consumed; not replaced.                                                                                                                         |
+| 9P-over-UDS bridge        | `@endo/9p-server`             | This package is the bridge's _backing store_.                                                                                                   |

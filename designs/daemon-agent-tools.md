@@ -1,11 +1,11 @@
 # Daemon Agent Tools (Claw-like Capabilities)
 
-| | |
-|---|---|
-| **Created** | 2026-03-02 |
-| **Updated** | 2026-05-18 |
-| **Author** | Kris Kowal (prompted) |
-| **Status** | Not Started |
+|             |                       |
+| ----------- | --------------------- |
+| **Created** | 2026-03-02            |
+| **Updated** | 2026-05-18            |
+| **Author**  | Kris Kowal (prompted) |
+| **Status**  | Not Started           |
 
 ## What is the Problem Being Solved?
 
@@ -43,12 +43,12 @@ interface that Lal and Fae register when granted these capabilities.
 
 An agent with coding capabilities needs four tool groups:
 
-| Group | Capability | Tools |
-|-------|-----------|-------|
-| Filesystem | `Dir` | `readFile`, `writeFile`, `listDir`, `glob`, `stat` |
-| Shell | `Shell` | `exec`, `execInteractive` |
-| Git | `Git` | `status`, `diff`, `log`, `add`, `commit`, `checkout`, `branch` |
-| Search | `Dir` | `grep`, `glob` (reuses filesystem) |
+| Group      | Capability | Tools                                                          |
+| ---------- | ---------- | -------------------------------------------------------------- |
+| Filesystem | `Dir`      | `readFile`, `writeFile`, `listDir`, `glob`, `stat`             |
+| Shell      | `Shell`    | `exec`, `execInteractive`                                      |
+| Git        | `Git`      | `status`, `diff`, `log`, `add`, `commit`, `checkout`, `branch` |
+| Search     | `Dir`      | `grep`, `glob` (reuses filesystem)                             |
 
 ### Filesystem tools
 
@@ -101,13 +101,23 @@ directory:
 const shell = makeShell({
   cwd: '/home/user/project',
   allowedCommands: harden([
-    'node', 'npm', 'npx', 'yarn',
-    'python', 'python3', 'pip',
-    'make', 'cargo', 'go',
-    'grep', 'find', 'sed', 'awk',
-    'curl',  // may be restricted to specific hosts
+    'node',
+    'npm',
+    'npx',
+    'yarn',
+    'python',
+    'python3',
+    'pip',
+    'make',
+    'cargo',
+    'go',
+    'grep',
+    'find',
+    'sed',
+    'awk',
+    'curl', // may be restricted to specific hosts
   ]),
-  env: filteredEnv,  // no secrets
+  env: filteredEnv, // no secrets
   timeout: 60_000,
   maxOutputBytes: 1_048_576,
 });
@@ -117,7 +127,10 @@ The shell interface:
 
 ```ts
 interface Shell {
-  exec(command: string, args: string[]): Promise<{
+  exec(
+    command: string,
+    args: string[],
+  ): Promise<{
     stdout: string;
     stderr: string;
     exitCode: number;
@@ -132,12 +145,15 @@ prevent injection.
 
 ```js
 const ShellI = M.interface('Shell', {
-  exec: M.call(M.string(), M.arrayOf(M.string()))
-    .returns(M.promise(M.splitRecord({
-      stdout: M.string(),
-      stderr: M.string(),
-      exitCode: M.number(),
-    }))),
+  exec: M.call(M.string(), M.arrayOf(M.string())).returns(
+    M.promise(
+      M.splitRecord({
+        stdout: M.string(),
+        stderr: M.string(),
+        exitCode: M.number(),
+      }),
+    ),
+  ),
   help: M.call().returns(M.string()),
 });
 ```
@@ -161,6 +177,7 @@ interface Git {
 
 The `Git` exo executes git commands in the repository directory. It does
 NOT expose:
+
 - `git push` / `git pull` (network access is a separate capability)
 - `git config` (prevents setting hooks or aliases)
 - `git hook` (prevents persistence attacks)
@@ -175,7 +192,9 @@ const GitI = M.interface('Git', {
   add: M.call(M.arrayOf(M.string())).returns(M.promise(M.undefined())),
   commit: M.call(M.string()).returns(M.promise(M.string())),
   checkout: M.call(M.string()).returns(M.promise(M.undefined())),
-  branch: M.call().optional(M.arrayOf(M.string())).returns(M.promise(M.string())),
+  branch: M.call()
+    .optional(M.arrayOf(M.string()))
+    .returns(M.promise(M.string())),
   help: M.call().returns(M.string()),
 });
 ```
@@ -216,7 +235,7 @@ When an agent (Lal or Fae) starts, it checks its namespace for known
 capability names and dynamically registers tools:
 
 ```js
-const setup = async (powers) => {
+const setup = async powers => {
   const tools = makeToolRegistry();
 
   // Always available: messaging tools
@@ -264,7 +283,11 @@ await E(powers).form('@host', 'Configure agent workspace', [
   { name: 'host', label: 'API host', example: 'https://api.anthropic.com' },
   { name: 'model', label: 'Model name', example: 'claude-sonnet-4-6-20250514' },
   { name: 'authToken', label: 'API auth token' },
-  { name: 'projectPath', label: 'Project directory', example: '/home/user/project' },
+  {
+    name: 'projectPath',
+    label: 'Project directory',
+    example: '/home/user/project',
+  },
   { name: 'capabilities', label: 'Capabilities', example: 'fs,shell,git' },
 ]);
 ```
@@ -274,12 +297,12 @@ capabilities and grants them to the new worker agent.
 
 ## Dependencies
 
-| Design | Relationship |
-|--------|-------------|
-| [daemon-capability-filesystem](daemon-capability-filesystem.md) | Provides `Dir` and `File` capabilities |
-| [daemon-capability-bank](daemon-capability-bank.md) | Framework for capability categories |
-| [lal-fae-form-provisioning](lal-fae-form-provisioning.md) | Manager/worker architecture for agent setup |
-| [daemon-os-sandbox-plugin](daemon-os-sandbox-plugin.md) | OS-level process confinement for `Shell` |
+| Design                                                          | Relationship                                |
+| --------------------------------------------------------------- | ------------------------------------------- |
+| [daemon-capability-filesystem](daemon-capability-filesystem.md) | Provides `Dir` and `File` capabilities      |
+| [daemon-capability-bank](daemon-capability-bank.md)             | Framework for capability categories         |
+| [lal-fae-form-provisioning](lal-fae-form-provisioning.md)       | Manager/worker architecture for agent setup |
+| [daemon-os-sandbox-plugin](daemon-os-sandbox-plugin.md)         | OS-level process confinement for `Shell`    |
 
 ## Phased implementation
 
