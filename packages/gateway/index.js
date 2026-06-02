@@ -26,6 +26,7 @@ import {
   bindAddressFromEnv,
 } from './src/config.js';
 import { makeAppsNameHub } from './src/vhost.js';
+import { makeFormulaBackedAppsNameHub } from './src/apps-formula.js';
 import { makeGatewayBootstrap } from './src/bootstrap.js';
 import { makeGatewayAdmin } from './src/admin.js';
 import { makeOcapnWebSocketHandler } from './src/ocapn-ws.js';
@@ -41,6 +42,11 @@ export {
 } from './src/config.js';
 
 export { normalizeVirtualHostName, makeAppsNameHub } from './src/vhost.js';
+
+export {
+  validateWebletFormula,
+  makeFormulaBackedAppsNameHub,
+} from './src/apps-formula.js';
 
 export {
   NONCE_DOMAIN_SEPARATION_PREFIX,
@@ -100,6 +106,7 @@ export {
 
 /** @import { GatewayConfig, FeatureToggles, BindAddress } from './src/config.js' */
 /** @import { AppsNameHub } from './src/vhost.js' */
+/** @import { AppsFormulaStore, FormulaBackedAppsNameHub, WebletFormula, WebletBindingRecord } from './src/apps-formula.js' */
 /** @import { GatewayBootstrap } from './src/bootstrap.js' */
 /** @import { GatewayAdmin, ResourceLedger } from './src/admin.js' */
 /** @import { OcapnWebSocketHandler } from './src/ocapn-ws.js' */
@@ -148,6 +155,16 @@ harden(GatewayInterface);
  *   the corresponding repo capability). Until the daemon-side
  *   wiring lands, tests inject a stub resolver and embedders that
  *   want git off entirely set `enableFeatures.gitHttp = false`.
+ * @property {AppsFormulaStore} [appsFormulaStore] Optional Feature 2
+ *   formula-backed `@apps` NameHub store. When supplied, the
+ *   gateway's `getApps()` returns a formula-backed hub that
+ *   persists bindings through the store and hydrates from it at
+ *   construction (per `src/apps-formula.js`); when omitted, the
+ *   gateway falls back to the in-memory hub from `src/vhost.js`,
+ *   preserving the phase-1 behavior. Per
+ *   `designs/gateway-package.md` § Feature 2, the daemon's
+ *   formula-graph wraps this interface; the gateway treats it as
+ *   an opaque persistence power.
  */
 
 /**
@@ -229,7 +246,19 @@ export const makeGateway = ({ powers = {}, config: configIn = {} } = {}) => {
   let lifecycle = 'unstarted';
   /** @type {BindAddress} */
   const resolvedBind = parseBindAddress(mergedConfig.bindAddress);
-  const apps = makeAppsNameHub();
+  // Feature 2 hub selection. When the embedder supplies a
+  // formula-store power, the gateway uses the formula-backed hub
+  // and persists bindings through it; otherwise it falls back to
+  // the in-memory phase-1 hub. The two surfaces are
+  // exchange-compatible at the AppsNameHub interface; only the
+  // formula-backed variant exposes `whenReady`. Per
+  // `designs/gateway-package.md` § Feature 2 the daemon's
+  // formula-graph wraps the store; the gateway treats the store as
+  // opaque persistence.
+  const apps =
+    powers.appsFormulaStore !== undefined
+      ? makeFormulaBackedAppsNameHub({ formulaStore: powers.appsFormulaStore })
+      : makeAppsNameHub();
 
   const renderBindAddress = () =>
     `${resolvedBind.kind === 'ipv6' ? `[${resolvedBind.host}]` : resolvedBind.host}:${resolvedBind.port}`;
@@ -345,6 +374,16 @@ export const makeGateway = ({ powers = {}, config: configIn = {} } = {}) => {
           throw makeError(X`Gateway has been stopped and cannot restart`);
         }
         lifecycle = 'starting';
+        // Feature 2: when the embedder supplied a formula-backed
+        // apps hub, await its hydration before declaring the
+        // gateway started. The hub's exo methods would await on
+        // their own anyway, but surfacing a hydration failure at
+        // `start()` is the fail-closed posture from
+        // `designs/gateway-package.md` § Feature 2: a broken store
+        // is a startup error, not a silent degrade to in-memory.
+        if (powers.appsFormulaStore !== undefined) {
+          await /** @type {FormulaBackedAppsNameHub} */ (apps).whenReady();
+        }
         // The phase-1 skeleton has no network surface; later
         // phases attach the HTTP listener, the WebSocket server,
         // the UDS bootstrap listener, and the OCapN relay here.
