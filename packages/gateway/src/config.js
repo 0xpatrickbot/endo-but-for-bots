@@ -205,6 +205,11 @@ const validateFeatureDependencies = features => {
       X`adminDaemon depends on udsBootstrap for its access channel; both must be enabled`,
     );
   }
+  if (features.ocapnWebSocket && !features.udsBootstrap) {
+    throw makeError(
+      X`ocapnWebSocket depends on udsBootstrap for the registration table the handler routes through; both must be enabled`,
+    );
+  }
   if (features.chatHosting && !features.virtualHosting) {
     throw makeError(
       X`chatHosting depends on virtualHosting for the Chat weblet's bind; both must be enabled`,

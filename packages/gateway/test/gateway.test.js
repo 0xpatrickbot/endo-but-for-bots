@@ -181,6 +181,10 @@ test('Gateway getBootstrap throws when udsBootstrap is off', async t => {
         udsBootstrap: false,
         adminDaemon: false,
         captpRelay: false,
+        // ocapnWebSocket depends on udsBootstrap (per the Phase 4
+        // dependency check); turn it off too so the validator
+        // accepts the udsBootstrap=false configuration.
+        ocapnWebSocket: false,
       },
     },
   });
