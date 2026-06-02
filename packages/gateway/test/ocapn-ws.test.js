@@ -477,6 +477,7 @@ test('makeGateway exposes the OCapN handler via getOcapnHandler', async t => {
     powers: harden({
       crypto: makeNodeCryptoPowers(),
       clock: makeFakeClock(),
+      resolveRepo: async () => undefined,
     }),
   });
   const ocapn = await E(gateway).getOcapnHandler();
@@ -497,6 +498,7 @@ test('getOcapnHandler throws when the feature toggle is off', async t => {
     powers: harden({
       crypto: makeNodeCryptoPowers(),
       clock: makeFakeClock(),
+      resolveRepo: async () => undefined,
     }),
     config: harden({
       enableFeatures: harden({
@@ -522,6 +524,7 @@ test('mergeGatewayConfig rejects ocapnWebSocket without udsBootstrap', t => {
         powers: harden({
           crypto: makeNodeCryptoPowers(),
           clock: makeFakeClock(),
+          resolveRepo: async () => undefined,
         }),
         config: harden({
           enableFeatures: harden({

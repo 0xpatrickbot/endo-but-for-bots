@@ -59,6 +59,10 @@ const standGateway = (opts = {}) =>
       crypto: makeNodeCryptoPowers(),
       clock: makeFakeClock(),
       resourceLedger: opts.resourceLedger,
+      // gitHttp is on by default and requires the resolveRepo
+      // adapter; admin tests don't exercise the Git path so they
+      // supply a 401-everything stub.
+      resolveRepo: async () => undefined,
     }),
     config: opts.config,
   });

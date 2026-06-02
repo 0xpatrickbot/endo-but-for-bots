@@ -29,6 +29,7 @@ import { makeAppsNameHub } from './src/vhost.js';
 import { makeGatewayBootstrap } from './src/bootstrap.js';
 import { makeGatewayAdmin } from './src/admin.js';
 import { makeOcapnWebSocketHandler } from './src/ocapn-ws.js';
+import { makeGitHttpHandler } from './src/git-http.js';
 
 export {
   DEFAULT_BIND_ADDRESS,
@@ -67,6 +68,17 @@ export {
 } from './src/ocapn-ws.js';
 
 export {
+  GIT_HTTP_PATH_PREFIX,
+  GIT_SERVICES,
+  isGitHttpPath,
+  parseAuthorizationHeader,
+  parseGitHttpPath,
+  parseServiceQuery,
+  readerFromBuffer,
+  makeGitHttpHandler,
+} from './src/git-http.js';
+
+export {
   DEFAULT_RELAY_POLICY,
   RELAY_POLICIES,
   checkRelayPolicy,
@@ -91,6 +103,7 @@ export {
 /** @import { GatewayBootstrap } from './src/bootstrap.js' */
 /** @import { GatewayAdmin, ResourceLedger } from './src/admin.js' */
 /** @import { OcapnWebSocketHandler } from './src/ocapn-ws.js' */
+/** @import { GitHttpHandler, ResolveRepo } from './src/git-http.js' */
 /** @import { CryptoPowers, ClockPowers } from './src/proof-of-possession.js' */
 
 const GatewayInterface = M.interface('Gateway', {
@@ -102,6 +115,7 @@ const GatewayInterface = M.interface('Gateway', {
   getBootstrap: M.call().returns(M.promise()),
   getAdmin: M.call().returns(M.promise()),
   getOcapnHandler: M.call().returns(M.promise()),
+  getGitHttpHandler: M.call().returns(M.promise()),
 });
 harden(GatewayInterface);
 
@@ -124,6 +138,16 @@ harden(GatewayInterface);
  *   `getResourceBalances` returns an empty list. Feature 1's
  *   ledger implementation lands with the Chat-hosting phase;
  *   until then, embedders that want admin reads supply a stub.
+ * @property {ResolveRepo} [resolveRepo] Required when `gitHttp` is
+ *   enabled. The bearer-token-plus-repo-id resolver the Git
+ *   smart-HTTP handler calls per request; see
+ *   `src/git-http.js` § ResolveRepo. The embedder wires this in
+ *   from the daemon's formula table (so the resolver looks up the
+ *   token's formula identifier, checks whether it grants access to
+ *   the repo formula identified by the URL `<repo-id>`, and returns
+ *   the corresponding repo capability). Until the daemon-side
+ *   wiring lands, tests inject a stub resolver and embedders that
+ *   want git off entirely set `enableFeatures.gitHttp = false`.
  */
 
 /**
@@ -167,6 +191,18 @@ harden(GatewayInterface);
  *   without it there is no daemon to forward to). The HTTP
  *   listener that performs the WS upgrade is the embedder's, not
  *   the gateway's; see `src/ocapn-ws.js` for the contract.
+ * @property {() => Promise<GitHttpHandler>} getGitHttpHandler
+ *   Returns the `GitHttpHandler` exo (Feature 3) that an embedder
+ *   feeds `/git/<repo-id>/...` HTTP requests to. The exo's
+ *   `handleRequest({ method, path, query, headers, body })` parses
+ *   the Authorization header, validates the URL path, resolves the
+ *   (bearer-token, repo-id) pair via the embedder-supplied
+ *   `resolveRepo` adapter, and forwards the smart-HTTP RPC to the
+ *   resolved repo capability's `infoRefs` / `gitUploadPack` /
+ *   `gitReceivePack` methods. Throws when the `gitHttp` feature
+ *   toggle is off; the HTTP listener that routes `/git/` requests
+ *   to the handler is the embedder's, not the gateway's; see
+ *   `src/git-http.js` for the contract.
  */
 
 /**
@@ -210,6 +246,8 @@ export const makeGateway = ({ powers = {}, config: configIn = {} } = {}) => {
   let adminFacet;
   /** @type {OcapnWebSocketHandler | undefined} */
   let ocapnHandler;
+  /** @type {GitHttpHandler | undefined} */
+  let gitHttpHandler;
   if (mergedConfig.enableFeatures.udsBootstrap) {
     if (powers.crypto === undefined) {
       throw makeError(
@@ -273,6 +311,26 @@ export const makeGateway = ({ powers = {}, config: configIn = {} } = {}) => {
           bootstrapHandle.lookupRegistrationByPublicKey,
       });
     }
+  }
+
+  // The Git smart-HTTP handler (Feature 3) is independent of every
+  // other gateway feature (the design's Configuration Model
+  // explicitly names it as independent). It only needs the
+  // embedder-supplied `resolveRepo` adapter that maps the bearer
+  // token plus URL repo-id to a repo capability. When `gitHttp` is
+  // on but no adapter is supplied, the gateway throws at
+  // construction time (the design's invariant: a toggle-on but
+  // no-adapter configuration would silently 401 every request,
+  // which is worse than a startup error).
+  if (mergedConfig.enableFeatures.gitHttp) {
+    if (powers.resolveRepo === undefined) {
+      throw makeError(
+        X`gitHttp requires powers.resolveRepo; supply a ResolveRepo adapter or disable the feature toggle`,
+      );
+    }
+    gitHttpHandler = makeGitHttpHandler({
+      resolveRepo: powers.resolveRepo,
+    });
   }
 
   const exo = makeExo(
@@ -372,6 +430,22 @@ export const makeGateway = ({ powers = {}, config: configIn = {} } = {}) => {
           throw makeError(X`OCapN WebSocket handler is not wired`);
         }
         return ocapnHandler;
+      },
+      async getGitHttpHandler() {
+        // Symmetric with getOcapnHandler. The git surface is the
+        // only Feature 3 surface; the embedder routes `/git/...`
+        // requests here. We do not gate on udsBootstrap because the
+        // git handler does not read from the registration table;
+        // it consults the embedder's `resolveRepo` adapter directly.
+        if (!mergedConfig.enableFeatures.gitHttp) {
+          throw makeError(
+            X`Git smart-HTTP handler is disabled (set enableFeatures.gitHttp=true)`,
+          );
+        }
+        if (gitHttpHandler === undefined) {
+          throw makeError(X`Git smart-HTTP handler is not wired`);
+        }
+        return gitHttpHandler;
       },
     }),
   );
