@@ -44,6 +44,16 @@ export const defaultFeatureToggles = harden({
   gitHttp: true,
   /** Feature 4: UDS bootstrap for local CapTP relay registration. */
   udsBootstrap: true,
+  /**
+   * Feature 5: Familiar-bundled fallback. When on, the gateway
+   * invokes its `familiarPublish` power post-bind to surface the
+   * (possibly OS-assigned) bind address to the Familiar Electron
+   * shell's `localhttp://` protocol handler. Off by default
+   * because the system-service and standalone deployments do not
+   * publish to a Familiar-side file; the per-user Familiar variant
+   * opts in explicitly.
+   */
+  familiarBundled: false,
   /** Feature 6: public CapTP relay (opt-in). */
   captpRelay: false,
   /** Feature 7: admin daemon (UDS-only). */
@@ -166,6 +176,7 @@ harden(parseBindAddress);
  * @property {boolean} virtualHosting Feature 2.
  * @property {boolean} gitHttp Feature 3.
  * @property {boolean} udsBootstrap Feature 4.
+ * @property {boolean} familiarBundled Feature 5.
  * @property {boolean} captpRelay Feature 6.
  * @property {boolean} adminDaemon Feature 7.
  * @property {boolean} ocapnWebSocket Feature 8.

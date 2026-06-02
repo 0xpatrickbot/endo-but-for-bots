@@ -710,6 +710,7 @@ test('makeGateway getGitHttpHandler throws when gitHttp is off', async t => {
           virtualHosting: true,
           gitHttp: false,
           udsBootstrap: true,
+          familiarBundled: false,
           captpRelay: false,
           adminDaemon: true,
           ocapnWebSocket: true,
