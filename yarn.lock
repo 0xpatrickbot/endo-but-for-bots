@@ -1462,6 +1462,19 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@endo/agent-tools@workspace:packages/agent-tools":
+  version: 0.0.0-use.local
+  resolution: "@endo/agent-tools@workspace:packages/agent-tools"
+  dependencies:
+    "@endo/daemon": "workspace:^"
+    "@endo/far": "workspace:^"
+    "@endo/init": "workspace:^"
+    ava: "catalog:dev"
+    c8: "catalog:dev"
+    eslint: "catalog:dev"
+  languageName: unknown
+  linkType: soft
+
 "@endo/base64@workspace:^, @endo/base64@workspace:packages/base64":
   version: 0.0.0-use.local
   resolution: "@endo/base64@workspace:packages/base64"
