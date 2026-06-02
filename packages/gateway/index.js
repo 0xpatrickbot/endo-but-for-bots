@@ -67,6 +67,18 @@ export {
 } from './src/ocapn-ws.js';
 
 export {
+  DEFAULT_RELAY_POLICY,
+  RELAY_POLICIES,
+  checkRelayPolicy,
+  isInboundSessionAllowed,
+  makeRelayPolicyEntry,
+  addCallerPublicKey,
+  removeCallerPublicKey,
+  listCallerAllowlist,
+  setRelayPolicy,
+} from './src/relay-policy.js';
+
+export {
   resolveBootstrapSocketPath,
   BOOTSTRAP_SOCKET_BASENAME,
   BOOTSTRAP_PIPE_WINDOWS,
@@ -239,6 +251,10 @@ export const makeGateway = ({ powers = {}, config: configIn = {} } = {}) => {
         backplane: {
           listRegistrations: bootstrapHandle.listRegistrations,
           deregisterByPublicKey: bootstrapHandle.deregisterByPublicKey,
+          setRelayPolicyByPublicKey: bootstrapHandle.setRelayPolicyByPublicKey,
+          addRelayCallerByPublicKey: bootstrapHandle.addRelayCallerByPublicKey,
+          removeRelayCallerByPublicKey:
+            bootstrapHandle.removeRelayCallerByPublicKey,
           pendingNonces: bootstrapHandle.pendingNonces,
         },
         apps,
