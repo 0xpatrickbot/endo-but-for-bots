@@ -29,6 +29,7 @@ import { makeAppsNameHub } from './src/vhost.js';
 import { makeFormulaBackedAppsNameHub } from './src/apps-formula.js';
 import { makeGatewayBootstrap } from './src/bootstrap.js';
 import { makeGatewayAdmin } from './src/admin.js';
+import { makeResourceLedger } from './src/resource-ledger.js';
 import { makeOcapnWebSocketHandler } from './src/ocapn-ws.js';
 import { makeGitHttpHandler } from './src/git-http.js';
 
@@ -64,6 +65,8 @@ export {
 } from './src/bootstrap.js';
 
 export { makeGatewayAdmin } from './src/admin.js';
+
+export { RESOURCE_CLASSES, makeResourceLedger } from './src/resource-ledger.js';
 
 export {
   OCAPN_WEBSOCKET_PATH,
@@ -108,7 +111,8 @@ export {
 /** @import { AppsNameHub } from './src/vhost.js' */
 /** @import { AppsFormulaStore, FormulaBackedAppsNameHub, WebletFormula, WebletBindingRecord } from './src/apps-formula.js' */
 /** @import { GatewayBootstrap } from './src/bootstrap.js' */
-/** @import { GatewayAdmin, ResourceLedger } from './src/admin.js' */
+/** @import { GatewayAdmin, ResourceLedger as AdminResourceLedger } from './src/admin.js' */
+/** @import { ResourceLedger, VerifyPaymentProof } from './src/resource-ledger.js' */
 /** @import { OcapnWebSocketHandler } from './src/ocapn-ws.js' */
 /** @import { GitHttpHandler, ResolveRepo } from './src/git-http.js' */
 /** @import { CryptoPowers, ClockPowers } from './src/proof-of-possession.js' */
@@ -121,6 +125,7 @@ const GatewayInterface = M.interface('Gateway', {
   getConfig: M.call().returns(M.promise()),
   getBootstrap: M.call().returns(M.promise()),
   getAdmin: M.call().returns(M.promise()),
+  getLedger: M.call().returns(M.promise()),
   getOcapnHandler: M.call().returns(M.promise()),
   getGitHttpHandler: M.call().returns(M.promise()),
 });
@@ -138,13 +143,29 @@ harden(GatewayInterface);
  *   `randomBytes`, `sha256`, and `verifyEd25519`.
  * @property {ClockPowers} [clock] Required when `udsBootstrap` is
  *   enabled. The nonce registry consumes `now()` for TTL.
- * @property {ResourceLedger} [resourceLedger] Optional Feature 1
- *   resource ledger. When `adminDaemon` is on and a ledger is
- *   supplied, `GatewayAdmin.getResourceBalances` reads through
- *   this. When omitted, the admin facet still works but
- *   `getResourceBalances` returns an empty list. Feature 1's
- *   ledger implementation lands with the Chat-hosting phase;
- *   until then, embedders that want admin reads supply a stub.
+ * @property {AdminResourceLedger} [resourceLedger] Optional
+ *   Feature 1 resource-ledger handle. When supplied, the gateway
+ *   wires the handle into the admin facet so
+ *   `GatewayAdmin.getResourceBalances` reads through it. Phase 8
+ *   ships a concrete `ResourceLedger` exo at
+ *   `src/resource-ledger.js`; embedders that want the package's
+ *   own ledger pass `verifyPaymentProof` instead and the gateway
+ *   constructs the ledger internally (and exposes it via
+ *   `getLedger()`). Passing `resourceLedger` directly is the
+ *   path for embedders that maintain accounting outside the
+ *   gateway (e.g., a daemon-owned ledger) and want only the
+ *   admin read-through. The two options are mutually exclusive.
+ * @property {VerifyPaymentProof} [verifyPaymentProof] Optional
+ *   Feature 1 payment-proof verifier. When supplied, the gateway
+ *   constructs a `ResourceLedger` (per `src/resource-ledger.js`)
+ *   bound to this verifier and exposes it via `getLedger()`. The
+ *   internal ledger is also passed to the admin facet's
+ *   `getResourceBalances` read-through, so `resourceLedger` and
+ *   `verifyPaymentProof` are mutually exclusive: supply one or
+ *   the other, never both. The proof itself is opaque to the
+ *   gateway (per design Feature 1: the payment processor is
+ *   out of scope for the package; the proof is validated by the
+ *   operator-supplied verifier).
  * @property {ResolveRepo} [resolveRepo] Required when `gitHttp` is
  *   enabled. The bearer-token-plus-repo-id resolver the Git
  *   smart-HTTP handler calls per request; see
@@ -195,6 +216,14 @@ harden(GatewayInterface);
  *   the gateway's public HTTP / WS surface; it is reachable only
  *   in-process (this method) and through the UDS bootstrap's
  *   `getAdmin`.
+ * @property {() => Promise<ResourceLedger>} getLedger Returns the
+ *   `ResourceLedger` exo (Feature 1, Phase 8). Throws when the
+ *   gateway was not constructed with `verifyPaymentProof` (i.e.,
+ *   the package's concrete ledger is not wired). Embedders that
+ *   supply an external `resourceLedger` (the admin read-through
+ *   shape) do not get a `getLedger` accessor; the external ledger
+ *   is the holder's own handle. The two configurations are
+ *   mutually exclusive at construction time.
  * @property {() => Promise<OcapnWebSocketHandler>} getOcapnHandler
  *   Returns the `OcapnWebSocketHandler` exo (Feature 8) that an
  *   embedder feeds upgraded `/ocapn-cbor-np` WebSocket connections
@@ -277,6 +306,42 @@ export const makeGateway = ({ powers = {}, config: configIn = {} } = {}) => {
   let ocapnHandler;
   /** @type {GitHttpHandler | undefined} */
   let gitHttpHandler;
+
+  // Feature 1 (Phase 8) ledger selection. The two options are
+  // mutually exclusive: pass `resourceLedger` for an externally-
+  // owned ledger (admin read-through only, no `getLedger()`), or
+  // pass `verifyPaymentProof` for the package's own concrete
+  // ledger (admin read-through wired to it, `getLedger()`
+  // surfaces it). Both at once is a wiring error; the design's
+  // framing is "Gateway OWNS the surface", meaning a given
+  // gateway has at most one canonical ledger handle.
+  if (
+    powers.resourceLedger !== undefined &&
+    powers.verifyPaymentProof !== undefined
+  ) {
+    throw makeError(
+      X`makeGateway: powers.resourceLedger and powers.verifyPaymentProof are mutually exclusive`,
+    );
+  }
+  /** @type {ResourceLedger | undefined} */
+  let ledger;
+  if (powers.verifyPaymentProof !== undefined) {
+    ledger = makeResourceLedger({
+      verifyPaymentProof: powers.verifyPaymentProof,
+    });
+  }
+  // The admin facet (Phase 3) reads through whichever ledger the
+  // embedder wired in, or the package's own when constructed via
+  // `verifyPaymentProof`. The admin's `getResourceBalances`
+  // surface narrows the admin-facing read to `listBalances`; both
+  // the external and the internal ledger satisfy that shape.
+  const adminLedger = /** @type {AdminResourceLedger | undefined} */ (
+    powers.resourceLedger !== undefined
+      ? powers.resourceLedger
+      : ledger !== undefined
+        ? /** @type {unknown} */ (ledger)
+        : undefined
+  );
   if (mergedConfig.enableFeatures.udsBootstrap) {
     if (powers.crypto === undefined) {
       throw makeError(
@@ -325,7 +390,7 @@ export const makeGateway = ({ powers = {}, config: configIn = {} } = {}) => {
           pendingNonces: bootstrapHandle.pendingNonces,
         },
         apps,
-        resourceLedger: powers.resourceLedger,
+        resourceLedger: adminLedger,
       });
     }
     // The OCapN-WS handler (Feature 8) reads from the same
@@ -447,6 +512,27 @@ export const makeGateway = ({ powers = {}, config: configIn = {} } = {}) => {
           throw makeError(X`Gateway admin facet is not wired`);
         }
         return adminFacet;
+      },
+      async getLedger() {
+        // Feature 1 (Phase 8): the concrete ledger is wired in
+        // iff the embedder supplied `verifyPaymentProof`. An
+        // embedder that supplied an external `resourceLedger`
+        // (admin read-through only) does not get a `getLedger()`
+        // accessor; the external ledger is the holder's own
+        // handle and is not the gateway's to surface. We surface
+        // the configuration gap rather than silently returning
+        // undefined.
+        if (ledger === undefined) {
+          if (powers.resourceLedger !== undefined) {
+            throw makeError(
+              X`Gateway ledger is external (supplied via powers.resourceLedger); the gateway does not own a handle to surface`,
+            );
+          }
+          throw makeError(
+            X`Gateway ledger is not wired (supply powers.verifyPaymentProof to construct the package's ResourceLedger)`,
+          );
+        }
+        return ledger;
       },
       async getOcapnHandler() {
         // Symmetric with getAdmin: the handler is reachable only
