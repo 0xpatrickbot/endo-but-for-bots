@@ -1,5 +1,5 @@
 // @ts-check
-/* global Buffer */
+/* global globalThis */
 
 // Establish a perimeter:
 // eslint-disable-next-line import/order
@@ -10,22 +10,24 @@ import os from 'os';
 import path from 'path';
 import fs from 'fs';
 import url from 'url';
-import { E, Far } from '@endo/far';
+import { E } from '@endo/eventual-send';
+import { Far } from '@endo/pass-style';
 import { makeExo } from '@endo/exo';
+import { bytesReaderFromIterator } from '@endo/exo-stream/bytes-reader-from-iterator.js';
+import { iterateBytesReader } from '@endo/exo-stream/iterate-bytes-reader.js';
 import {
   DirectoryInterface as PlatformDirectoryInterface,
   FileInterface as PlatformFileInterface,
-  ReadableBlobInterface,
   ReadableTreeInterface,
   checkinTree,
-  makeReaderRef,
 } from '@endo/platform/fs/lite';
-import { M } from '@endo/patterns';
 
 import { makeFilePowers } from '../src/daemon-node-powers.js';
 import { makeXsFilePowers } from '../src/bus-daemon-rust-xs-powers.js';
 import { makeMount } from '../src/mount.js';
 import { makeMemoryStore } from './_mount-test-helpers.js';
+
+/** @import { EndoMountFile, ReadableBlobView, ReadableTreeView } from '../src/types.js' */
 
 /**
  * Conformance test asserting that `EndoMount` is a daemon-local
@@ -91,6 +93,7 @@ void interfaceMethodNames;
 
 /** Method names the platform `Directory` contract requires. */
 const PLATFORM_DIRECTORY_METHODS = [
+  'help',
   'has',
   'list',
   'lookup',
@@ -105,6 +108,7 @@ const PLATFORM_DIRECTORY_METHODS = [
 
 /** Method names the platform `File` contract requires. */
 const PLATFORM_FILE_METHODS = [
+  'help',
   'streamBase64',
   'text',
   'json',
@@ -116,10 +120,22 @@ const PLATFORM_FILE_METHODS = [
 ];
 
 /** Method names the platform `ReadableTree` contract requires. */
-const PLATFORM_READABLE_TREE_METHODS = ['has', 'list', 'lookup'];
+const PLATFORM_READABLE_TREE_METHODS = ['has', 'list', 'lookup', 'help'];
 
-/** Method names the platform `ReadableBlob` contract requires. */
-const PLATFORM_READABLE_BLOB_METHODS = ['streamBase64', 'text', 'json'];
+/**
+ * Method names the rich `ReadableBlob` view exposes: the whole-value surface
+ * plus the `BlobRef` range-I/O surface (`getInfo` / `fetch`). The mount-file
+ * `readOnly()` view is a write-disabled face over a live file, so it carries
+ * the range methods too. See designs/fs-interface-consolidation.md § C4.
+ */
+const PLATFORM_READABLE_BLOB_METHODS = [
+  'streamBase64',
+  'text',
+  'json',
+  'help',
+  'getInfo',
+  'fetch',
+];
 
 /**
  * Construct an `EndoMount` with an in-memory snapshot pipeline.
@@ -150,7 +166,7 @@ const makeConfiguredMount = t => {
 test('EndoMount exposes every method on PlatformDirectoryInterface', async t => {
   const { mount } = makeConfiguredMount(t);
   // eslint-disable-next-line no-underscore-dangle
-  const methods = await E(mount).__getMethodNames__();
+  const methods = await E(/** @type {any} */ (mount)).__getMethodNames__();
   for (const name of PLATFORM_DIRECTORY_METHODS) {
     t.true(
       methods.includes(name),
@@ -159,7 +175,18 @@ test('EndoMount exposes every method on PlatformDirectoryInterface', async t => 
   }
 });
 
-/** Mount-specific extensions beyond the platform Directory contract. */
+/**
+ * Extensions beyond the minimal platform `Directory` contract.
+ * `entry` / `stat` / `readText` / `maybeReadText` / `writeText` / `makeFile`
+ * are mount-specific shortcuts. `subView` is the catalog confined-sub-root
+ * method (shared with the extended `Directory`, not strictly mount-specific);
+ * it is listed here only because the minimal `lite` `Directory` vocabulary does
+ * not yet carry it — see designs/fs-interface-consolidation.md (C2/C5) for
+ * whether the vocabulary should grow to include it. `maybeLookup` is the
+ * `ReadableNameHub` lookup-or-undefined primitive (C1), not part of the lite
+ * `Directory` vocabulary. (`help` is now part of the platform contract, so it
+ * is not an extension.)
+ */
 const ENDOMOUNT_EXTENSIONS = [
   'entry',
   'stat',
@@ -167,11 +194,18 @@ const ENDOMOUNT_EXTENSIONS = [
   'maybeReadText',
   'writeText',
   'makeFile',
-  'help',
+  'subView',
+  'maybeLookup',
+  // Declared as part of the name-hub contract but throws ENOSYS until a
+  // filesystem watcher is wired (filesystem-watchers.md) — see § C1.
+  'followNameChanges',
 ];
 
-/** Mount-specific extensions beyond the platform File contract. */
-const ENDOMOUNTFILE_EXTENSIONS = ['stat', 'help'];
+/**
+ * Mount-specific extensions beyond the platform File contract. `getInfo` /
+ * `fetch` are the rich `BlobRef` range-I/O surface over the live file (§ C4).
+ */
+const ENDOMOUNTFILE_EXTENSIONS = ['stat', 'getInfo', 'fetch'];
 
 test('EndoMount diverges from PlatformDirectoryInterface by named extensions only', async t => {
   // The divergence is deliberate and named: callers who hold a plain
@@ -182,10 +216,15 @@ test('EndoMount diverges from PlatformDirectoryInterface by named extensions onl
   // change that grows the divergence is forced to update both this
   // list and the design document.
   const { mount } = makeConfiguredMount(t);
-  // eslint-disable-next-line no-underscore-dangle
-  const methods = (await E(mount).__getMethodNames__()).filter(
-    name => !name.startsWith('__'),
-  );
+  /* eslint-disable no-underscore-dangle */
+  const methods = (
+    await E(
+      /** @type {{ __getMethodNames__: () => Promise<string[]> }} */ (
+        /** @type {unknown} */ (mount)
+      ),
+    ).__getMethodNames__()
+  ).filter(name => !name.startsWith('__'));
+  /* eslint-enable no-underscore-dangle */
   const platform = new Set(PLATFORM_DIRECTORY_METHODS);
   const actualExtensions = methods.filter(name => !platform.has(name)).sort();
   t.deepEqual(
@@ -196,16 +235,16 @@ test('EndoMount diverges from PlatformDirectoryInterface by named extensions onl
 });
 
 test('EndoMountFile diverges from PlatformFileInterface by named extensions only', async t => {
-  // Same shape as the EndoMount divergence: `stat` and `help` are
-  // mount-specific.  A `File` consumer that demotes to the platform
-  // contract loses those names.
+  // Same shape as the EndoMount divergence: `stat` is mount-specific.
+  // A `File` consumer that demotes to the platform contract loses it.
+  // (`help` is now part of the platform File contract, not an extension.)
   const { mount, rootPath } = makeConfiguredMount(t);
   fs.writeFileSync(path.join(rootPath, 'a.txt'), 'x');
-  const file = await E(mount).lookup('a.txt');
-  // eslint-disable-next-line no-underscore-dangle
-  const methods = (await E(file).__getMethodNames__()).filter(
-    name => !name.startsWith('__'),
-  );
+  const file = /** @type {EndoMountFile} */ (await E(mount).lookup('a.txt'));
+  const methods = // eslint-disable-next-line no-underscore-dangle
+    (await E(/** @type {any} */ (file)).__getMethodNames__()).filter(
+      name => !name.startsWith('__'),
+    );
   const platform = new Set(PLATFORM_FILE_METHODS);
   const actualExtensions = methods.filter(name => !platform.has(name)).sort();
   t.deepEqual(
@@ -220,7 +259,7 @@ test('EndoMount.makeDirectory returns a sub-mount (Directory.makeDirectory shape
   const sub = await E(mount).makeDirectory(['sub']);
   // The return value must be a Directory-shaped capability — a mount.
   // eslint-disable-next-line no-underscore-dangle
-  const subMethods = await E(sub).__getMethodNames__();
+  const subMethods = await E(/** @type {any} */ (sub)).__getMethodNames__();
   for (const name of PLATFORM_DIRECTORY_METHODS) {
     t.true(
       subMethods.includes(name),
@@ -252,43 +291,12 @@ test('EndoMount.entry accepts slash-joined string selectors', async t => {
 
 test('EndoMount.write accepts a ReadableBlob and materializes bytes', async t => {
   const { mount, rootPath } = makeConfiguredMount(t);
-  // A minimal blob-shaped remotable that satisfies ReadableBlob.
-  const blob = makeExo('TestBlob', ReadableBlobInterface, {
-    streamBase64() {
-      const chunks = [Buffer.from('hello blob', 'utf-8').toString('base64')];
-      let idx = 0;
-      return makeExo(
-        'AsyncIterator',
-        M.interface('AsyncIterator', {
-          next: M.call().returns(M.promise()),
-          return: M.call().optional(M.any()).returns(M.promise()),
-          throw: M.call().optional(M.any()).returns(M.promise()),
-        }),
-        {
-          async next() {
-            if (idx < chunks.length) {
-              const value = chunks[idx];
-              idx += 1;
-              return harden({ value, done: false });
-            }
-            return harden({ value: undefined, done: true });
-          },
-          async return() {
-            return harden({ value: undefined, done: true });
-          },
-          async throw() {
-            return harden({ value: undefined, done: true });
-          },
-        },
-      );
-    },
-    async text() {
-      return 'hello blob';
-    },
-    async json() {
-      return null;
-    },
-  });
+  // A PassableBytesReader (the new-protocol blob shape).  mount.write
+  // detects the blob via __getMethodNames__.includes('streamBase64')
+  // and consumes via iterateBytesReader.
+  const blob = bytesReaderFromIterator([
+    new TextEncoder().encode('hello blob'),
+  ]);
   await E(mount).write(['blob-target.txt'], blob);
   const actual = fs.readFileSync(
     path.join(rootPath, 'blob-target.txt'),
@@ -299,44 +307,11 @@ test('EndoMount.write accepts a ReadableBlob and materializes bytes', async t =>
 
 test('EndoMount.write accepts a ReadableTree and materializes recursively', async t => {
   const { mount, rootPath } = makeConfiguredMount(t);
-  // A blob factory reused for each leaf.
+  // A blob factory reused for each leaf.  Each leaf is a
+  // PassableBytesReader; mount.write consumes via iterateBytesReader.
   const makeBlobValue = content => {
     const bytes = new TextEncoder().encode(content);
-    return makeExo('LeafBlob', ReadableBlobInterface, {
-      streamBase64() {
-        const chunk = Buffer.from(bytes).toString('base64');
-        let yielded = false;
-        return makeExo(
-          'AsyncIterator',
-          M.interface('AsyncIterator', {
-            next: M.call().returns(M.promise()),
-            return: M.call().optional(M.any()).returns(M.promise()),
-            throw: M.call().optional(M.any()).returns(M.promise()),
-          }),
-          {
-            async next() {
-              if (!yielded) {
-                yielded = true;
-                return harden({ value: chunk, done: false });
-              }
-              return harden({ value: undefined, done: true });
-            },
-            async return() {
-              return harden({ value: undefined, done: true });
-            },
-            async throw() {
-              return harden({ value: undefined, done: true });
-            },
-          },
-        );
-      },
-      async text() {
-        return content;
-      },
-      async json() {
-        return null;
-      },
-    });
+    return bytesReaderFromIterator([bytes]);
   };
   // A ReadableTree with a nested structure.
   const tree = makeExo('TestTree', ReadableTreeInterface, {
@@ -371,10 +346,12 @@ test('EndoMount.write accepts a ReadableTree and materializes recursively', asyn
             }
             throw new Error(`unknown ${innerSegments}`);
           },
+          help: () => 'NestedTree',
         });
       }
       throw new Error(`unknown ${segments}`);
     },
+    help: () => 'TestTree',
   });
   await E(mount).write(['nested'], tree);
   t.is(
@@ -389,17 +366,7 @@ test('EndoMount.write accepts a ReadableTree and materializes recursively', asyn
 
 test('EndoMount.write rejects traversal-like ReadableTree child names', async t => {
   const { mount } = makeConfiguredMount(t);
-  const blob = makeExo('LeafBlob', ReadableBlobInterface, {
-    streamBase64() {
-      return makeReaderRef([new TextEncoder().encode('leaf')]);
-    },
-    async text() {
-      return 'leaf';
-    },
-    async json() {
-      return null;
-    },
-  });
+  const blob = bytesReaderFromIterator([new TextEncoder().encode('leaf')]);
 
   for (const name of ['.', '..', 'a/b', 'a\\b', 'a\0b']) {
     const tree = makeExo('InvalidTree', ReadableTreeInterface, {
@@ -412,6 +379,7 @@ test('EndoMount.write rejects traversal-like ReadableTree child names', async t 
       async lookup() {
         return blob;
       },
+      help: () => 'InvalidTree',
     });
 
     // eslint-disable-next-line no-await-in-loop
@@ -445,7 +413,7 @@ test('EndoMount.readOnly() returns a structural ReadableTree view', async t => {
   await E(mount).writeText(['file.txt'], 'data');
   const view = await E(mount).readOnly();
   // eslint-disable-next-line no-underscore-dangle
-  const methods = await E(view).__getMethodNames__();
+  const methods = await E(/** @type {any} */ (view)).__getMethodNames__();
   t.deepEqual(
     methods.filter(name => !name.startsWith('__')).sort(),
     [...PLATFORM_READABLE_TREE_METHODS].sort(),
@@ -461,16 +429,20 @@ test('EndoMount.readOnly().lookup recursively returns structural views', async t
   await E(mount).makeDirectory(['sub']);
   await E(mount).writeText(['sub', 'leaf.txt'], 'leaf-data');
   const view = await E(mount).readOnly();
-  const subView = await E(view).lookup('sub');
+  const subView = /** @type {ReadableTreeView} */ (await E(view).lookup('sub'));
   // eslint-disable-next-line no-underscore-dangle
-  const subMethods = await E(subView).__getMethodNames__();
+  const subMethods = await E(/** @type {any} */ (subView)).__getMethodNames__();
   t.deepEqual(
     subMethods.filter(name => !name.startsWith('__')).sort(),
     [...PLATFORM_READABLE_TREE_METHODS].sort(),
   );
-  const leafView = await E(view).lookup(['sub', 'leaf.txt']);
+  const leafView = /** @type {ReadableBlobView} */ (
+    await E(view).lookup(['sub', 'leaf.txt'])
+  );
   // eslint-disable-next-line no-underscore-dangle
-  const leafMethods = await E(leafView).__getMethodNames__();
+  const leafMethods = await E(
+    /** @type {any} */ (leafView),
+  ).__getMethodNames__();
   t.deepEqual(
     leafMethods.filter(name => !name.startsWith('__')).sort(),
     [...PLATFORM_READABLE_BLOB_METHODS].sort(),
@@ -481,9 +453,9 @@ test('EndoMount.readOnly().lookup recursively returns structural views', async t
 test('EndoMountFile exposes every method on PlatformFileInterface', async t => {
   const { mount } = makeConfiguredMount(t);
   await E(mount).writeText(['file.txt'], 'data');
-  const file = await E(mount).lookup('file.txt');
+  const file = /** @type {EndoMountFile} */ (await E(mount).lookup('file.txt'));
   // eslint-disable-next-line no-underscore-dangle
-  const methods = await E(file).__getMethodNames__();
+  const methods = await E(/** @type {any} */ (file)).__getMethodNames__();
   for (const name of PLATFORM_FILE_METHODS) {
     t.true(
       methods.includes(name),
@@ -495,10 +467,10 @@ test('EndoMountFile exposes every method on PlatformFileInterface', async t => {
 test('EndoMountFile.readOnly() returns a structural ReadableBlob view', async t => {
   const { mount } = makeConfiguredMount(t);
   await E(mount).writeText(['file.txt'], 'rb-data');
-  const file = await E(mount).lookup('file.txt');
+  const file = /** @type {EndoMountFile} */ (await E(mount).lookup('file.txt'));
   const view = await E(file).readOnly();
   // eslint-disable-next-line no-underscore-dangle
-  const methods = await E(view).__getMethodNames__();
+  const methods = await E(/** @type {any} */ (view)).__getMethodNames__();
   t.deepEqual(
     methods.filter(name => !name.startsWith('__')).sort(),
     [...PLATFORM_READABLE_BLOB_METHODS].sort(),
@@ -506,11 +478,11 @@ test('EndoMountFile.readOnly() returns a structural ReadableBlob view', async t 
   );
   t.is(await E(view).text(), 'rb-data');
 
-  const iter = await E(view).streamBase64();
-  const first = await E(iter).next();
+  const iter = iterateBytesReader(/** @type {any} */ (view));
+  const first = await iter.next();
   t.false(first.done);
   t.is(
-    Buffer.from(first.value, 'base64').toString('utf-8'),
+    new TextDecoder().decode(first.value),
     'rb-data',
     'read-only blob view streams through the platform surface',
   );
@@ -525,7 +497,7 @@ test('EndoMountFile json and streamBase64 re-check confinement on use', async t 
   const fileName = 'confined.json';
   const mountFile = path.join(rootPath, fileName);
   await E(mount).writeText([fileName], '{"ok":true}');
-  const file = await E(mount).lookup(fileName);
+  const file = /** @type {EndoMountFile} */ (await E(mount).lookup(fileName));
 
   fs.rmSync(mountFile);
   fs.symlinkSync(outsideFile, mountFile);
@@ -534,8 +506,8 @@ test('EndoMountFile json and streamBase64 re-check confinement on use', async t 
     message: /escapes mount root/,
   });
 
-  const reader = await E(file).streamBase64();
-  await t.throwsAsync(() => E(reader).next(), {
+  const reader = iterateBytesReader(/** @type {any} */ (file));
+  await t.throwsAsync(() => reader.next(), {
     message: /escapes mount root/,
   });
 });
@@ -545,11 +517,17 @@ test('EndoMount.snapshot returns a SnapshotTree-shaped capability', async t => {
   await E(mount).writeText(['s.txt'], 'snap');
   const snapshot = await E(mount).snapshot();
   // eslint-disable-next-line no-underscore-dangle
-  const methods = await E(snapshot).__getMethodNames__();
+  const methods = await E(/** @type {any} */ (snapshot)).__getMethodNames__();
   t.true(methods.includes('has'));
   t.true(methods.includes('list'));
   t.true(methods.includes('lookup'));
   t.true(methods.includes('sha256'));
+  // The tree also carries the uniform `getInfo()` identity accessor. (Its
+  // *value* behavior is exercised against a real content store in
+  // content-store-gc.test.js and at the platform layer in snapshot-hash.test.js;
+  // this mount mock fabricates non-hex content ids, so only existence is
+  // asserted here.)
+  t.true(methods.includes('getInfo'));
 });
 
 // --- XS file-powers / Node file-powers contract conformance ---
@@ -591,6 +569,38 @@ test('XS file powers expose the EndoMount call sites that regressed', t => {
       `XS powers must implement ${name}`,
     );
   }
+});
+
+test('XS statPath converts a fractional mtime (ms) to bigint nanoseconds without crashing', async t => {
+  // The XS host stat JSON carries `modifiedMs` as a Number, which — like
+  // Node's `fs.Stats.mtimeMs` — can be fractional. `BigInt(modifiedMs)`
+  // throws RangeError on a non-integer, so statPath must round to whole
+  // milliseconds before scaling to nanoseconds in BigInt space. Inject a
+  // mock `hostStat` (read as a free global by the XS powers) returning a
+  // fractional ms and assert statPath succeeds with the rounded ns value.
+  const realHostStat = /** @type {any} */ (globalThis).hostStat;
+  /** @type {any} */ (globalThis).hostStat = () =>
+    JSON.stringify({
+      kind: 'file',
+      sizeBytes: 5,
+      modifiedMs: 1_750_000_000_123.456,
+      dev: 1,
+      ino: 2,
+    });
+  t.teardown(() => {
+    /** @type {any} */ (globalThis).hostStat = realHostStat;
+  });
+
+  const xsPowers = makeXsFilePowers();
+  const stat = await xsPowers.statPath('f.txt');
+  t.is(stat.kind, 'file');
+  t.is(stat.size, 5n);
+  // 1_750_000_000_123.456 ms → round to 1_750_000_000_123 ms → ×1e6 ns,
+  // the multiply done in BigInt space so no precision is lost past 2**53.
+  t.is(stat.mtime, 1_750_000_000_123n * 1_000_000n);
+  t.is(typeof stat.mtime, 'bigint');
+  // XS host stat lacks atime, so it mirrors mtime (documented limitation).
+  t.is(stat.atime, stat.mtime);
 });
 
 // Suppress unused-import warnings for the platform interfaces; their

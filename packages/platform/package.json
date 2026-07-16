@@ -25,8 +25,30 @@
       "node": "./src/fs-node/index.js"
     },
     "./fs/lite": "./src/fs/index.js",
-    "./fs/lite/types": "./src/fs/types.js",
+    "./fs/lite/types": {
+      "types": "./src/fs/types.d.ts"
+    },
+    "./fs/lite/types.js": {
+      "types": "./src/fs/types.d.ts"
+    },
     "./fs/node": "./src/fs-node/index.js",
+    "./fs/search": "./src/fs/search.js",
+    "./fs/search.types": {
+      "types": "./src/fs/search.types.d.ts"
+    },
+    "./fs/search.types.js": {
+      "types": "./src/fs/search.types.d.ts"
+    },
+    "./fs/node/search": "./src/fs-node/search-powers.js",
+    "./fs/extended": {
+      "types": "./src/fs/extended/types-index.d.ts",
+      "default": "./src/fs/extended/index.js"
+    },
+    "./fs/extended/types-index.js": {
+      "types": "./src/fs/extended/types-index.d.ts",
+      "default": "./src/fs/extended/types-index.js"
+    },
+    "./fs/extended/*": "./src/fs/extended/*",
     "./proc": "./src/proc.js",
     "./exo-fs": "./src/exo-fs.js",
     "./package.json": "./package.json"
@@ -37,20 +59,25 @@
     "lint-fix": "eslint --fix .",
     "lint:eslint": "eslint .",
     "lint:types": "tsc",
-    "test": "exit 0"
+    "test": "ava"
   },
   "dependencies": {
     "@endo/base64": "workspace:^",
     "@endo/errors": "workspace:^",
     "@endo/eventual-send": "workspace:^",
     "@endo/exo": "workspace:^",
+    "@endo/exo-stream": "workspace:^",
     "@endo/far": "workspace:^",
     "@endo/harden": "workspace:^",
+    "@endo/hex": "workspace:^",
+    "@endo/init": "workspace:^",
     "@endo/patterns": "workspace:^",
     "@endo/stream": "workspace:^",
     "@endo/stream-node": "workspace:^"
   },
   "devDependencies": {
+    "@endo/captp": "workspace:^",
+    "@endo/pass-style": "workspace:^",
     "ava": "catalog:dev",
     "eslint": "catalog:dev",
     "typescript": "catalog:dev"

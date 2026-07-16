@@ -10,8 +10,9 @@ import url from 'url';
 import path from 'path';
 import http from 'node:http';
 import { WebSocketServer } from 'ws';
-import { E } from '@endo/far';
+import { E } from '@endo/eventual-send';
 import { makePromiseKit } from '@endo/promise-kit';
+import { iterateReader } from '@endo/exo-stream/iterate-reader.js';
 import { start, stop, purge, makeEndoClient } from '../index.js';
 
 // All channel-relay tests use prepareHostWithTestNetwork which
@@ -234,7 +235,7 @@ test.serial(
       await E(channel).createInvitation('Bob');
 
       // --- Host A: generate a sharing locator ---
-      const locator = await E(hostA).locateForSharing('test-channel');
+      const locator = await E(hostA).locateWithHints('test-channel');
       t.truthy(locator, 'locator should be generated');
       t.assert(
         /** @type {string} */ (locator).startsWith('endo://'),
@@ -303,13 +304,21 @@ test.serial(
         .then(ch => E(ch).createInvitation('Carol'));
 
       // Generate locator
-      const locator = await E(hostA).locateForSharing('test-channel');
+      const locator = await E(hostA).locateWithHints('test-channel');
 
       // Simulate the broken chat UI flow: extract formula ID but
-      // discard connection hints (use write instead of adoptFromLocator)
+      // discard connection hints (use write instead of adoptFromLocator).
+      // The locator format puts `@`-delimited URL-encoded path components
+      // after the host:
+      //   endo://{node}/{formulaAddress}@{hint1}@{hint2}?type={type}
+      // The first path component is the formula address; the rest are
+      // hints.
       const locatorUrl = new URL(/** @type {string} */ (locator));
       const nodeNumber = locatorUrl.host;
-      const formulaNumber = locatorUrl.searchParams.get('id');
+      const [formulaNumber] = locatorUrl.pathname
+        .replace(/^\//, '')
+        .split('@')
+        .map(decodeURIComponent);
       // Deliberately NOT calling addPeerInfo — simulates the bug.
       // However, peers were already introduced above, so connectivity
       // works. The real failure is a NAME MISMATCH: the UI calls
@@ -361,7 +370,7 @@ test.serial(
       await E(channel).createInvitation('Bob');
 
       // Host B adopts and joins
-      const locator = await E(hostA).locateForSharing('chat-room');
+      const locator = await E(hostA).locateWithHints('chat-room');
       await E(hostB).adoptFromLocator(
         /** @type {string} */ (locator),
         'remote-chat',
@@ -370,7 +379,7 @@ test.serial(
       const bobMember = await E(remoteChannel).join('Bob');
 
       // Follow messages from Bob's side
-      const bobIterator = await E(bobMember).followMessages();
+      const bobIterator = iterateReader(await E(bobMember).followMessages());
 
       // Alice posts first
       await E(channel).post(['Message 1 from Alice'], [], []);
@@ -385,7 +394,7 @@ test.serial(
       const messages = [];
       for (let i = 0; i < 3; i += 1) {
         // eslint-disable-next-line no-await-in-loop
-        const result = await E(bobIterator).next();
+        const result = await bobIterator.next();
         messages.push(result.value);
       }
 
@@ -422,12 +431,16 @@ test.serial(
       await E(hostA).evaluate('@main', '"shared value"', [], [], ['my-val']);
 
       // Host A generates locator (includes connection hints)
-      const locator = await E(hostA).locateForSharing('my-val');
+      const locator = await E(hostA).locateWithHints('my-val');
       t.truthy(locator, 'locator should exist');
 
-      // Verify locator has connection hints
+      // Verify locator has connection hints (subsequent `@`-delimited
+      // path components after the formula address).
       const locatorUrl = new URL(/** @type {string} */ (locator));
-      const hints = locatorUrl.searchParams.getAll('at');
+      const [, ...hints] = locatorUrl.pathname
+        .replace(/^\//, '')
+        .split('@')
+        .map(decodeURIComponent);
       t.true(hints.length > 0, 'locator should contain connection hints');
 
       // Host B uses adoptFromLocator — this should register peer info

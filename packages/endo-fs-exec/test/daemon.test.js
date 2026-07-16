@@ -18,7 +18,7 @@ import fs from 'fs';
 import url from 'url';
 import crypto from 'crypto';
 import { createRequire } from 'module';
-import { E } from '@endo/far';
+import { E } from '@endo/eventual-send';
 import { makePromiseKit } from '@endo/promise-kit';
 import { makeArchive as makeCompartmentArchive } from '@endo/compartment-mapper';
 import { makeReadPowers } from '@endo/compartment-mapper/node-powers.js';
@@ -36,7 +36,7 @@ const treeViewModuleHref = url.pathToFileURL(
 ).href;
 
 const nodeFsModuleHref = url.pathToFileURL(
-  require.resolve('@endo/endo-fs/src/node-fs-module.js'),
+  require.resolve('@endo/platform/fs/extended/node-fs-module.js'),
 ).href;
 
 let testCounter = 0;

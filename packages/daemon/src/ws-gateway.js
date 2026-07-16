@@ -3,7 +3,7 @@
 import http from 'node:http';
 import { WebSocketServer } from 'ws';
 
-import { E } from '@endo/far';
+import { E } from '@endo/eventual-send';
 import { makeExo } from '@endo/exo';
 import { M } from '@endo/patterns';
 import { makePromiseKit } from '@endo/promise-kit';
@@ -72,9 +72,22 @@ harden(makeRateLimiter);
  * @param {string} opts.host
  * @param {number} opts.port
  * @param {Promise<never>} opts.cancelled
+ * @param {(err: Error, errorId?: string) => void} [opts.marshalSaveError] -
+ *   Outbound-error hook the daemon installs so a browser-facing errorId (minted
+ *   by this gateway's CapTP when it serializes an error out to the Chat client)
+ *   is aliased onto the worker-side trace record. Without it the client's
+ *   `diagnostics().traces().lookup(errorId)` misses and the error surfaces as a
+ *   bare message with no stack or worker chip (the private-path CLI already
+ *   passes the same hook).
  * @returns {{ started: Promise<string>, stopped: Promise<void> }}
  */
-export const startWsGateway = ({ endoBootstrap, host, port, cancelled }) => {
+export const startWsGateway = ({
+  endoBootstrap,
+  host,
+  port,
+  cancelled,
+  marshalSaveError = undefined,
+}) => {
   const fetchLimiter = makeRateLimiter(1000);
   const gatewayP = E(endoBootstrap).gateway();
 
@@ -174,6 +187,7 @@ export const startWsGateway = ({ endoBootstrap, host, port, cancelled }) => {
       messageReader,
       cancelled,
       clientBootstrap,
+      { marshalSaveError },
     );
     const remoteBootstrap = getBootstrap();
     E.sendOnly(remoteBootstrap).ping();

@@ -8,6 +8,7 @@
  */
 
 import { makePromiseKit } from '@endo/promise-kit';
+import { readerFromIterator } from '@endo/exo-stream/reader-from-iterator.js';
 
 const SELF_ID = 'lal-self-id';
 
@@ -340,13 +341,13 @@ export function makeMockPowers(options = {}) {
       const v = directory.get(key);
       return Promise.resolve(
         v !== undefined
-          ? `endo://localhost/?id=${/** @type {string} */ (v)}&type=handle`
+          ? `endo://localhost/${encodeURIComponent(/** @type {string} */ (v))}?type=handle`
           : undefined,
       );
     },
 
     followMessages() {
-      return followMessages();
+      return readerFromIterator(followMessages());
     },
 
     evaluate(_workerName, source, _codeNames, _edgeNames, _resultName) {

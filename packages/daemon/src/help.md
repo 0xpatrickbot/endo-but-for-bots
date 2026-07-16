@@ -435,19 +435,19 @@ Get this node's peer information for sharing with others.
 Add information about a remote peer.
 peerInfo: { node: string, addresses: string[] }
 
-## locateForSharing(...petNamePath) -> Promise<string | undefined>
+## locateWithHints(...petNamePath) -> Promise<string | undefined>
 
 Locate a formula and return a locator URL with connection hints.
 The returned locator includes network addresses from all registered netlayers,
 allowing remote peers to connect and access the value.
-Example: locateForSharing("my-channel") returns a shareable locator URL.
+Example: locateWithHints("my-channel") returns a shareable locator URL.
 
 ## adoptFromLocator(locator, petNameOrPath) -> Promise<void>
 
 Adopt a value from a locator that includes connection hints.
 Parses the locator to extract peer info, establishes a connection if needed,
 and writes the formula ID into the local pet store.
-Example: adoptFromLocator("endo://node...?id=...&type=channel&at=...", "remote-channel")
+Example: adoptFromLocator("endo://node.../formula@hint?type=channel", "remote-channel")
 
 ## invite(guestName) -> Promise<Invitation>
 
@@ -515,6 +515,38 @@ this agent's pet store.
 
 Used by the Chat inventory graph space to visualize formula relationships.
 
+## listRetentionPaths(locator) -> Promise<RetentionPath[]>
+
+Snapshot every retention path from a GC root to the target locator.
+
+Each path is an array of segments walking upstream from the target
+to a root. A segment carries:
+
+- `groupMembers`: identifiers union-merged into the segment's group
+- `referencedBy`: id of the upstream group representative
+  (absent on the root)
+- `labels`: edge labels from the referrer into this group;
+  pet-store edges render as `pet:<name>`, internal edges keep
+  their field name (e.g. `worker`, `petStore`, `retention`), and
+  the root segment carries `type: "root"`.
+
+Useful for answering "why is this value still alive?" without
+polling the whole graph. See `endo paths <name>` for the CLI form.
+
+## followRetentionPaths(locator) -> AsyncIterator<RetentionPathDelta>
+
+Subscribe to retention-path changes for the target locator.
+
+The first delta is always a full `{ snapshot: RetentionPath[] }`.
+Subsequent deltas are `{ added, removed }` diffs over a
+microtask-coalesced batch window, so a single `provideGuest`
+yields one delta rather than many.
+
+Drop the returned reference to release the subscription, exactly
+as with `followNameChanges` and `followLocatorNameChanges`.
+
+Use with `for-await-of` to receive updates.
+
 ## readText(petNameOrPath) -> Promise<string>
 
 Read text content by pet name or path.
@@ -540,20 +572,29 @@ Example: writeText(["my-mount", "output.txt"], "hello")
 
 Blobs store binary content with a content-addressed hash.
 Use text() to read as a string, json() to parse as JSON,
-or streamBase64() for streaming access.
+streamBase64() for streaming access, or getInfo()/fetch()
+for the content-addressed range-I/O surface.
 
 ## help(methodName?) -> string
 
 Get documentation for this interface or a specific method.
 
-## sha256() -> string
+## getInfo() -> Promise<{ algorithm, hash, size }>
 
-Get the SHA-256 hash of the blob content.
-This is the content address used for storage.
+The content-addressed identity of the blob in one round-trip:
+algorithm ("sha256"), hash (base64), and size (bigint bytes).
+Lets a caller consult a local content store before fetching.
 
-## streamBase64() -> AsyncIterator<string>
+## fetch(offset, length) -> Promise<PassableBytesReader>
 
-Stream the blob content as base64-encoded chunks.
+Read the byte range [offset, offset + length) without
+streaming the whole blob. offset and length are bigints;
+the range is clamped at end-of-content.
+
+## streamBase64(syndicationPromise) -> Promise
+
+Stream the blob content as base64 chunks, driven by the
+syndication promise (the reader-pump flow-control protocol).
 Use for large files to avoid loading everything into memory.
 
 ## text() -> Promise<string>
@@ -604,6 +645,21 @@ Get the network gateway for providing values to peers.
 Get this node's unique identifier.
 Used for peer-to-peer communication.
 
+## readLog(options?) -> AsyncIterator
+
+Stream the daemon logs as { source, chunk } records, where source is a log
+display name (such as endo.log or worker/<id8>) and chunk is a run of UTF-8
+text.
+Returns a reader; consume it with iterateReader.
+The optional options.name restricts the stream to a single log by display
+name; omitting it streams every log.
+options.pattern emits only lines matching a regular expression given as a
+RegExp source string (a plain substring is just an unanchored pattern).
+By default the stream ends once the current logs have been read; pass
+options.follow true to keep it open and keep emitting new lines as the logs
+grow (and as new logs appear) until you close the reader.
+Logs are read in bounded windows so a large log is never buffered whole.
+
 ## reviveNetworks() -> Promise<void>
 
 Restore network connections from persisted state.
@@ -619,13 +675,25 @@ peerInfo: { node: string, addresses: string[] }
 
 # ReadableTree - A read-only tree of files and subdirectories.
 
-An immutable directory: entries cannot be added, removed, or modified.
-lookup() returns EndoReadable values for files and nested ReadableTree
-values for subdirectories.
+An immutable, content-addressed directory: entries cannot be added, removed,
+or modified. lookup() returns EndoReadable values for files and nested
+ReadableTree values for subdirectories. Its identity is available via sha256()
+or, uniformly with blobs, via getInfo().
 
 ## help(methodName?) -> string
 
 Get documentation for this interface or a specific method.
+
+## sha256() -> string
+
+The content address of the tree's manifest, as base64.
+
+## getInfo() -> Promise<{ algorithm, hash, size }>
+
+The content-addressed identity of the tree in one round-trip: algorithm
+("sha256"), hash (base64, the same value as sha256()), and size (the byte
+length of the tree's own manifest). The uniform identity accessor shared with
+blobs, so generic code can read a content hash off any blob or tree.
 
 ## has(...names) -> Promise<boolean>
 
@@ -653,6 +721,12 @@ Example: lookup(["assets", "style.css"]) → EndoReadable
 
 All paths are confined to the mount root. Symlinks that escape
 the root are invisible. Use readOnly() for an attenuated view.
+
+Well-known credential and configuration names (such as .ssh, .aws,
+.env, and .gnupg) are restricted: naming one in a path throws
+"Access denied", and list() and followNameChanges() omit them.
+Matching is case-insensitive. Ordinary dotfiles like .gitignore stay
+accessible. The set can be replaced when the mount is created.
 
 ## help(methodName?) -> string
 
@@ -710,6 +784,15 @@ to: string | string[] — Destination name or path segments.
 Create a directory (and missing parents) at the given path; returns a sub-mount.
 path: string | string[] | EndoMountEntry — Name, path segments, or mount entry.
 
+## followNameChanges(...pathSegments) -> AsyncIterator
+
+Subscribe to entry-name changes within the named subdirectory.
+First yields existing entries in alphabetical order as
+{ add: name, type: 'file' | 'directory' } records, then yields
+{ add, type } and { remove } diffs as entries appear or disappear.
+Shallow (immediate children only) and confinement-filtered.
+Releases the underlying OS watcher when the iterator is dropped.
+
 ## makeFile(path, content?) -> Promise<void>
 
 Create a file at the given path, with optional initial text content.
@@ -746,17 +829,35 @@ Capture current state as an immutable readable-tree.
 
 # EndoMountFile - A file within a mounted directory.
 
+A live, host-backed file. Read it with text() / json() / streamBase64(),
+inspect and range-read it with getInfo() / fetch(), write it with
+writeText() / append() / writeBytes(), or snapshot() it into the content
+store. stat() returns the bigint-nanosecond metadata record.
+
 ## help(methodName?) -> string
 
 Get documentation for this interface or a specific method.
+
+## getInfo() -> Promise<{ algorithm, hash, size }>
+
+The content-addressed identity of the file's current bytes in one
+round-trip: algorithm ("sha256"), hash (base64), and size (bigint).
+Recomputed each call, since the live file may change.
+
+## fetch(offset, length) -> Promise<PassableBytesReader>
+
+Read the byte range [offset, offset + length) of the live file without
+streaming the whole thing. offset and length are bigints; the range is
+clamped at end-of-content.
 
 ## text() -> Promise<string>
 
 Read the file content as a UTF-8 string.
 
-## streamBase64() -> AsyncIterator<string>
+## streamBase64(syndicationPromise) -> Promise
 
-Stream the file content as base64 chunks.
+Stream the file content as base64 chunks, driven by the syndication
+promise (the reader-pump flow-control protocol).
 
 ## json() -> Promise<any>
 
@@ -776,5 +877,6 @@ Write bytes from an async iterator. Throws if read-only.
 
 ## readOnly() -> ReadableBlob
 
-Returns a structural ReadableBlob view (streamBase64, text, json) of this file.
-Mount-specific extensions (stat, snapshot) are not on the view.
+Returns a structural ReadableBlob view (text, json, streamBase64, getInfo,
+fetch) of this file. The view is a write-disabled face over the live file,
+not a snapshot. Mount-specific extensions (stat, snapshot) are not on it.

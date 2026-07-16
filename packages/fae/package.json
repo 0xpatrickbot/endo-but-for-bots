@@ -49,15 +49,18 @@
     "timeout": "2m"
   },
   "dependencies": {
+    "@endo/agentry": "workspace:^",
     "@endo/conversation-tree": "workspace:^",
     "@endo/daemon": "workspace:^",
     "@endo/errors": "workspace:^",
     "@endo/eventual-send": "workspace:^",
     "@endo/exo": "workspace:^",
+    "@endo/exo-stream": "workspace:^",
     "@endo/far": "workspace:^",
     "@endo/init": "workspace:^",
     "@endo/lal": "workspace:^",
     "@endo/marshal": "workspace:^",
+    "@endo/pass-style": "workspace:^",
     "@endo/patterns": "workspace:^",
     "@endo/promise-kit": "workspace:^"
   },

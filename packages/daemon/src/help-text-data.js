@@ -134,10 +134,10 @@ export const helpTextEntries = harden([
         "getPeerInfo() -> Promise<{node: string, addresses: string[]}>\nGet this node's peer information for sharing with others.",
       addPeerInfo:
         'addPeerInfo(peerInfo) -> Promise<void>\nAdd information about a remote peer.\npeerInfo: { node: string, addresses: string[] }',
-      locateForSharing:
-        'locateForSharing(...petNamePath) -> Promise<string | undefined>\nLocate a formula and return a locator URL with connection hints.\nThe returned locator includes network addresses from all registered netlayers,\nallowing remote peers to connect and access the value.\nExample: locateForSharing("my-channel") returns a shareable locator URL.',
+      locateWithHints:
+        'locateWithHints(...petNamePath) -> Promise<string | undefined>\nLocate a formula and return a locator URL with connection hints.\nThe returned locator includes network addresses from all registered netlayers,\nallowing remote peers to connect and access the value.\nExample: locateWithHints("my-channel") returns a shareable locator URL.',
       adoptFromLocator:
-        'adoptFromLocator(locator, petNameOrPath) -> Promise<void>\nAdopt a value from a locator that includes connection hints.\nParses the locator to extract peer info, establishes a connection if needed,\nand writes the formula ID into the local pet store.\nExample: adoptFromLocator("endo://node...?id=...&type=channel&at=...", "remote-channel")',
+        'adoptFromLocator(locator, petNameOrPath) -> Promise<void>\nAdopt a value from a locator that includes connection hints.\nParses the locator to extract peer info, establishes a connection if needed,\nand writes the formula ID into the local pet store.\nExample: adoptFromLocator("endo://node.../formula@hint?type=channel", "remote-channel")',
       invite:
         'invite(guestName) -> Promise<Invitation>\nCreate an invitation for a guest to connect.',
       accept:
@@ -151,6 +151,10 @@ export const helpTextEntries = harden([
         'sendValue(messageNumber, petNameOrPath) -> Promise<void>\nReply to any message with a retained value from your pet store.\n\n- messageNumber: The inbox message number to reply to\n- petNameOrPath: Pet name (or path) of the value to send\n\nExample: sendValue(0, "my-counter")',
       getFormulaGraph:
         "getFormulaGraph() -> Promise<{ nodes, edges }>\nReturns a snapshot of the formula dependency graph reachable from\nthis agent's pet store.\n\n- nodes: Array of { id, type } for each formula\n- edges: Array of { sourceId, targetId, label } for each dependency\n\nUsed by the Chat inventory graph space to visualize formula relationships.",
+      listRetentionPaths:
+        'listRetentionPaths(locator) -> Promise<RetentionPath[]>\nSnapshot every retention path from a GC root to the target locator.\n\nEach path is an array of segments walking upstream from the target to a root.\nA segment carries:\n- groupMembers: identifiers union-merged into the segment\'s group\n- referencedBy: id of the upstream group representative (absent on the root)\n- labels: edge labels from the referrer into this group; pet-store edges\n  render as "pet:<name>", internal edges keep their field name\n  (e.g. "worker", "petStore", "retention"), and the root segment carries\n  type: "root".\n\nUseful for answering "why is this value still alive?" without polling the\nwhole graph. See `endo paths <name>` for the CLI form.',
+      followRetentionPaths:
+        'followRetentionPaths(locator) -> AsyncIterator<RetentionPathDelta>\nSubscribe to retention-path changes for the target locator.\n\nThe first delta is always a full { snapshot: RetentionPath[] }. Subsequent\ndeltas are { added, removed } diffs over a microtask-coalesced batch\nwindow, so a single provideGuest yields one delta rather than many.\n\nDrop the returned reference to release the subscription, exactly as with\nfollowNameChanges and followLocatorNameChanges.\n\nUse with for-await-of to receive updates.',
       readText:
         'readText(petNameOrPath) -> Promise<string>\nRead text content by pet name or path.\nFor a single name, reads the blob\'s text content.\nFor a multi-segment path, reads through the mount.\nExample: readText(["my-blob"])\nExample: readText(["my-mount", "config.json"])',
       maybeReadText:
@@ -162,12 +166,14 @@ export const helpTextEntries = harden([
   [
     'EndoReadable',
     {
-      '': 'EndoReadable - A readable blob of binary data.\n\nBlobs store binary content with a content-addressed hash.\nUse text() to read as a string, json() to parse as JSON,\nor streamBase64() for streaming access.',
+      '': 'EndoReadable - A readable blob of binary data.\n\nBlobs store binary content with a content-addressed hash.\nUse text() to read as a string, json() to parse as JSON,\nstreamBase64() for streaming access, or getInfo()/fetch()\nfor the content-addressed range-I/O surface.',
       help: 'help(methodName?) -> string\nGet documentation for this interface or a specific method.',
-      sha256:
-        'sha256() -> string\nGet the SHA-256 hash of the blob content.\nThis is the content address used for storage.',
+      getInfo:
+        'getInfo() -> Promise<{ algorithm, hash, size }>\nThe content-addressed identity of the blob in one round-trip:\nalgorithm ("sha256"), hash (base64), and size (bigint bytes).\nLets a caller consult a local content store before fetching.',
+      fetch:
+        'fetch(offset, length) -> Promise<PassableBytesReader>\nRead the byte range [offset, offset + length) without\nstreaming the whole blob. offset and length are bigints;\nthe range is clamped at end-of-content.',
       streamBase64:
-        'streamBase64() -> AsyncIterator<string>\nStream the blob content as base64-encoded chunks.\nUse for large files to avoid loading everything into memory.',
+        'streamBase64(syndicationPromise) -> Promise\nStream the blob content as base64 chunks, driven by the\nsyndication promise (the reader-pump flow-control protocol).\nUse for large files to avoid loading everything into memory.',
       text: 'text() -> Promise<string>\nRead the entire blob as a UTF-8 string.',
       json: 'json() -> Promise<any>\nRead and parse the blob as JSON.',
     },
@@ -188,6 +194,8 @@ export const helpTextEntries = harden([
         'gateway() -> Promise<EndoGateway>\nGet the network gateway for providing values to peers.',
       nodeId:
         "nodeId() -> string\nGet this node's unique identifier.\nUsed for peer-to-peer communication.",
+      readLog:
+        'readLog(options?) -> AsyncIterator\nStream the daemon logs as { source, chunk } records, where source is a log\ndisplay name (such as endo.log or worker/<id8>) and chunk is a run of UTF-8\ntext. Returns a reader; consume it with iterateReader. The optional\noptions.name restricts the stream to a single log by display name; omitting\nit streams every log. options.pattern emits only lines matching a regular\nexpression given as a RegExp source string (a plain substring is just an\nunanchored pattern). By default the stream ends once the current logs have\nbeen read; pass options.follow true to keep it open and keep emitting new\nlines as the logs grow (and as new logs appear) until you close the reader.\nLogs are read in bounded windows so a large log is never buffered whole.',
       reviveNetworks:
         'reviveNetworks() -> Promise<void>\nRestore network connections from persisted state.',
       revivePins:
@@ -199,8 +207,12 @@ export const helpTextEntries = harden([
   [
     'ReadableTree',
     {
-      '': 'ReadableTree - A read-only tree of files and subdirectories.\n\nAn immutable directory: entries cannot be added, removed, or modified.\nlookup() returns EndoReadable values for files and nested ReadableTree\nvalues for subdirectories.',
+      '': 'ReadableTree - A read-only tree of files and subdirectories.\n\nAn immutable, content-addressed directory: entries cannot be added, removed,\nor modified. lookup() returns EndoReadable values for files and nested\nReadableTree values for subdirectories. Its identity is available via sha256()\nor, uniformly with blobs, via getInfo().',
       help: 'help(methodName?) -> string\nGet documentation for this interface or a specific method.',
+      sha256:
+        "sha256() -> string\nThe content address of the tree's manifest, as base64.",
+      getInfo:
+        'getInfo() -> Promise<{ algorithm, hash, size }>\nThe content-addressed identity of the tree in one round-trip: algorithm\n("sha256"), hash (base64, the same value as sha256()), and size (the byte\nlength of the tree\'s own manifest). The uniform identity accessor shared with\nblobs, so generic code can read a content hash off any blob or tree.',
       has: 'has(...names) -> Promise<boolean>\nCheck if an entry exists at the given path.\nnames: string[] - Path segments.\nExample: has("index.html") → true\nExample: has("assets", "style.css") → true',
       list: 'list(...names) -> Promise<string[]>\nList entry names at the given path (or root).\nnames: string[] - Path segments (optional, defaults to root).\nExample: list() → ["index.html", "app.js", "assets"]\nExample: list("assets") → ["style.css", "logo.png"]',
       lookup:
@@ -210,7 +222,7 @@ export const helpTextEntries = harden([
   [
     'EndoMount',
     {
-      '': 'EndoMount - Live mutable access to a filesystem directory.\n\nAll paths are confined to the mount root. Symlinks that escape\nthe root are invisible. Use readOnly() for an attenuated view.',
+      '': 'EndoMount - Live mutable access to a filesystem directory.\n\nAll paths are confined to the mount root. Symlinks that escape\nthe root are invisible. Use readOnly() for an attenuated view.\n\nWell-known credential and configuration names (such as .ssh, .aws,\n.env, and .gnupg) are restricted: naming one in a path throws\n"Access denied", and list() and followNameChanges() omit them.\nMatching is case-insensitive. Ordinary dotfiles like .gitignore stay\naccessible. The set can be replaced when the mount is created.',
       help: 'help(methodName?) -> string\nGet documentation for this interface or a specific method.',
       has: 'has(...pathSegments | entry) -> Promise<boolean>\nCheck if a path exists within the mount.\nEither pass path segments (has("dir", "file.txt")) or a single EndoMountEntry.',
       list: 'list(...pathSegments) -> Promise<string[]>\nList directory entries at the given path.\nEach argument is one path segment: list("subdir").\nCall with no arguments to list the root.\nEntries with symlinks escaping the mount root are excluded.',
@@ -227,6 +239,8 @@ export const helpTextEntries = harden([
       move: 'move(from, to) -> Promise<void>\nRename an entry within the mount.\nfrom: string | string[] — Source name or path segments.\nto: string | string[] — Destination name or path segments.',
       makeDirectory:
         'makeDirectory(path) -> Promise<EndoMount>\nCreate a directory (and missing parents) at the given path; returns a sub-mount.\npath: string | string[] | EndoMountEntry — Name, path segments, or mount entry.',
+      followNameChanges:
+        "followNameChanges(...pathSegments) -> AsyncIterator\nSubscribe to entry-name changes within the named subdirectory.\nFirst yields existing entries in alphabetical order as\n{ add: name, type: 'file' | 'directory' } records, then yields\n{ add, type } and { remove } diffs as entries appear or disappear.\nShallow (immediate children only) and confinement-filtered.\nReleases the underlying OS watcher when the iterator is dropped.",
       makeFile:
         'makeFile(path, content?) -> Promise<void>\nCreate a file at the given path, with optional initial text content.\npath: string | string[] | EndoMountEntry — Name, path segments, or mount entry.\ncontent: string (optional) — Initial text content. An existing file is truncated when content is provided. For binary content, use `write(path, readableBlob)`.',
       write:
@@ -242,11 +256,15 @@ export const helpTextEntries = harden([
   [
     'EndoMountFile',
     {
-      '': 'EndoMountFile - A file within a mounted directory.',
+      '': 'EndoMountFile - A file within a mounted directory.\n\nA live, host-backed file. Read it with text() / json() / streamBase64(),\ninspect and range-read it with getInfo() / fetch(), write it with\nwriteText() / append() / writeBytes(), or snapshot() it into the content\nstore. stat() returns the bigint-nanosecond metadata record.',
       help: 'help(methodName?) -> string\nGet documentation for this interface or a specific method.',
+      getInfo:
+        'getInfo() -> Promise<{ algorithm, hash, size }>\nThe content-addressed identity of the file\'s current bytes in one\nround-trip: algorithm ("sha256"), hash (base64), and size (bigint).\nRecomputed each call, since the live file may change.',
+      fetch:
+        'fetch(offset, length) -> Promise<PassableBytesReader>\nRead the byte range [offset, offset + length) of the live file without\nstreaming the whole thing. offset and length are bigints; the range is\nclamped at end-of-content.',
       text: 'text() -> Promise<string>\nRead the file content as a UTF-8 string.',
       streamBase64:
-        'streamBase64() -> AsyncIterator<string>\nStream the file content as base64 chunks.',
+        'streamBase64(syndicationPromise) -> Promise\nStream the file content as base64 chunks, driven by the syndication\npromise (the reader-pump flow-control protocol).',
       json: 'json() -> Promise<any>\nRead and parse the file as JSON.',
       writeText:
         'writeText(content) -> Promise<void>\nWrite a string to the file. Throws if read-only.',
@@ -255,7 +273,7 @@ export const helpTextEntries = harden([
       writeBytes:
         'writeBytes(readableRef) -> Promise<void>\nWrite bytes from an async iterator. Throws if read-only.',
       readOnly:
-        'readOnly() -> ReadableBlob\nReturns a structural ReadableBlob view (streamBase64, text, json) of this file.\nMount-specific extensions (stat, snapshot) are not on the view.',
+        'readOnly() -> ReadableBlob\nReturns a structural ReadableBlob view (text, json, streamBase64, getInfo,\nfetch) of this file. The view is a write-disabled face over the live file,\nnot a snapshot. Mount-specific extensions (stat, snapshot) are not on it.',
     },
   ],
 ]);

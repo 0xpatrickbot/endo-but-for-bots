@@ -1,6 +1,7 @@
 // @ts-check
-/* global Buffer, process */
+/* global Buffer, clearTimeout, process, setTimeout */
 
+import { createHash } from 'node:crypto';
 import harden from '@endo/harden';
 import { encodeHex } from '@endo/hex';
 import { bytesFromText } from '@endo/bytes/from-string.js';
@@ -160,6 +161,7 @@ export const makeNetworkPowers = ({ net, fsp }) => {
    * @param {Promise<never>} cancelled
    * @param {(error: Error) => void} exitWithError
    * @param {CapTpConnectionRegistrar} [capTpConnectionRegistrar]
+   * @param {(err: Error, errorId?: string) => void} [marshalSaveError]
    * @returns {{ started: Promise<void>, stopped: Promise<void> }}
    */
   const makePrivatePathService = (
@@ -168,6 +170,7 @@ export const makeNetworkPowers = ({ net, fsp }) => {
     cancelled,
     exitWithError,
     capTpConnectionRegistrar = undefined,
+    marshalSaveError = undefined,
   ) => {
     const privatePathService = servePrivatePath(sockPath, endoBootstrap, {
       servePath,
@@ -175,6 +178,7 @@ export const makeNetworkPowers = ({ net, fsp }) => {
       cancelled,
       exitWithError,
       capTpConnectionRegistrar,
+      marshalSaveError,
     });
     return privatePathService;
   };
@@ -254,6 +258,55 @@ export const makeFilePowers = ({ fs, path: fspath }) => {
    * @returns {Promise<Uint8Array>}
    */
   const readFile = async path => fs.promises.readFile(path);
+
+  /**
+   * Binary-safe range read: returns the bytes in `[offset, offset +
+   * length)`, reading only that window from disk rather than the whole
+   * file. Returns fewer bytes when the window extends past EOF (and an
+   * empty array when `offset` is already at or beyond EOF), mirroring
+   * the in-memory `BlobRef.fetch` clamp semantics.
+   *
+   * @param {string} path
+   * @param {number} offset
+   * @param {number} length
+   * @returns {Promise<Uint8Array>}
+   */
+  const readFileRange = async (path, offset, length) => {
+    if (length <= 0) {
+      return new Uint8Array(0);
+    }
+    const handle = await fs.promises.open(path, 'r');
+    try {
+      // Clamp the request to the bytes actually available before allocating,
+      // so a huge `length` against a small file can't drive a multi-GB host
+      // allocation (the buffer stays bounded by the file size).
+      const { size } = await handle.stat();
+      const clamped = Math.min(length, Math.max(0, size - offset));
+      if (clamped <= 0) {
+        return new Uint8Array(0);
+      }
+      const buffer = new Uint8Array(clamped);
+      const { bytesRead } = await handle.read(buffer, 0, clamped, offset);
+      return buffer.subarray(0, bytesRead);
+    } finally {
+      await handle.close();
+    }
+  };
+
+  /**
+   * Content hash of a file: the hex sha256 of its current bytes. The `hash`
+   * half of a content-addressed `getInfo()` triple for a *live* file (recomputed
+   * on each call, since the file may change).
+   *
+   * @param {string} path
+   * @returns {Promise<string>}
+   */
+  const sha256 = async path =>
+    encodeHex(
+      createHash('sha256')
+        .update(await readFile(path))
+        .digest(),
+    );
 
   /**
    * Binary-safe whole-file read that returns `undefined` when the
@@ -345,7 +398,10 @@ export const makeFilePowers = ({ fs, path: fspath }) => {
 
   /** @param {string} path */
   const statPath = async path => {
-    const stat = await fs.promises.lstat(path);
+    // `bigint: true` yields `size` / `mtimeNs` / `atimeNs` as bigint
+    // nanoseconds, matching the extended `Stat` shape (size: bigint,
+    // mtime/atime: bigint ns) — see designs/fs-interface-consolidation.md.
+    const stat = await fs.promises.lstat(path, { bigint: true });
     const kind = /** @type {'directory' | 'file' | 'symlink'} */ (
       stat.isDirectory()
         ? 'directory'
@@ -355,8 +411,9 @@ export const makeFilePowers = ({ fs, path: fspath }) => {
     );
     return harden({
       kind,
-      sizeBytes: stat.size,
-      modifiedMs: stat.mtimeMs,
+      size: stat.size,
+      mtime: stat.mtimeNs,
+      atime: stat.atimeNs,
     });
   };
 
@@ -393,6 +450,204 @@ export const makeFilePowers = ({ fs, path: fspath }) => {
     }
   };
 
+  /**
+   * Watch a directory for entry-name changes (children added or
+   * removed).  Wraps `fs.watch` and translates its raw events into a
+   * snapshot-agnostic add/remove/replace stream over the watched
+   * directory's immediate children.  The consumer reconciles each
+   * `event.name` against its own bookkeeping (the snapshot it took
+   * before subscribing) to decide whether an entry is genuinely new,
+   * gone, or replaced.
+   *
+   * Events are coalesced over a short debounce window (50 ms) so the
+   * editor save dance of "write temp + rename" delivers one event per
+   * filename rather than a remove/add pair.
+   *
+   * The returned `events` async-iterable terminates only when
+   * `cancel()` is called (consumer dropping the iterator or the
+   * surrounding subscription closing).  `cancel()` is idempotent.
+   *
+   * @param {string} dirPath
+   * @returns {{
+   *   events: AsyncIterable<{ kind: 'add' | 'remove' | 'replace', name: string }>;
+   *   cancel: () => void;
+   * }}
+   */
+  const watchDirectory = dirPath => {
+    /** @type {Array<{ kind: 'add' | 'remove' | 'replace', name: string }>} */
+    const buffered = [];
+    /** @type {Array<(value: IteratorResult<{ kind: 'add' | 'remove' | 'replace', name: string }>) => void>} */
+    const waiters = [];
+    let closed = false;
+    /** @type {Map<string, ReturnType<typeof setTimeout>>} */
+    const pending = new Map();
+    const debounceMs = 50;
+
+    const deliver = event => {
+      if (closed) {
+        return;
+      }
+      const waiter = waiters.shift();
+      if (waiter !== undefined) {
+        waiter({ value: event, done: false });
+      } else {
+        buffered.push(event);
+      }
+    };
+
+    const close = () => {
+      if (closed) {
+        return;
+      }
+      closed = true;
+      for (const timer of pending.values()) {
+        clearTimeout(timer);
+      }
+      pending.clear();
+      try {
+        watcher.close();
+      } catch {
+        // ignore
+      }
+      while (waiters.length > 0) {
+        const waiter = /** @type {(typeof waiters)[number]} */ (
+          waiters.shift()
+        );
+        waiter({ value: undefined, done: true });
+      }
+    };
+
+    /**
+     * Schedule (or reset) a debounced reconciliation for `name`.  The
+     * `kind` we report is a best-effort guess based on what `stat`
+     * sees when the timer fires; the consumer is the source of truth
+     * for whether `name` is currently in its snapshot set.
+     *
+     * @param {string} name
+     */
+    const schedule = name => {
+      const existing = pending.get(name);
+      if (existing !== undefined) {
+        clearTimeout(existing);
+      }
+      const timer = setTimeout(() => {
+        pending.delete(name);
+        // Probe disk to classify, but the consumer reconciles
+        // against its own snapshot set, so the `kind` field is only
+        // a hint.  Use 'replace' as a neutral term that the
+        // consumer will resolve to add / remove / no-op.
+        deliver(harden({ kind: 'replace', name }));
+      }, debounceMs);
+      pending.set(name, timer);
+    };
+
+    let watcher;
+    try {
+      watcher = fs.watch(dirPath, { persistent: false });
+    } catch (error) {
+      // Surface watcher-creation failures by returning a cancelled
+      // stream that immediately terminates.
+      const code = /** @type {NodeJS.ErrnoException} */ (error).code;
+      console.error(
+        `watchDirectory(${dirPath}): fs.watch unavailable (${code}); stream will close immediately`,
+      );
+      /** @type {AsyncIterable<{ kind: 'add' | 'remove' | 'replace', name: string }>} */
+      const emptyEvents = harden({
+        [Symbol.asyncIterator]() {
+          return harden({
+            /** @returns {Promise<IteratorResult<{ kind: 'add' | 'remove' | 'replace', name: string }>>} */
+            next: async () =>
+              harden(
+                /** @type {IteratorResult<{ kind: 'add' | 'remove' | 'replace', name: string }>} */ ({
+                  value: undefined,
+                  done: true,
+                }),
+              ),
+            return: async () =>
+              harden(
+                /** @type {IteratorResult<{ kind: 'add' | 'remove' | 'replace', name: string }>} */ ({
+                  value: undefined,
+                  done: true,
+                }),
+              ),
+          });
+        },
+      });
+      return harden({
+        events: emptyEvents,
+        cancel: () => {},
+      });
+    }
+
+    watcher.on('change', (eventType, filename) => {
+      // `filename` may be null on some platforms; ignore the event
+      // when we cannot tell which child changed.
+      if (filename === null || filename === undefined) {
+        return;
+      }
+      const name =
+        typeof filename === 'string' ? filename : filename.toString();
+      if (eventType === 'rename') {
+        schedule(name);
+      }
+      // 'change' events refer to file-content mutations, not name
+      // changes; the followNameChanges contract intentionally drops
+      // them.
+    });
+
+    watcher.on('error', error => {
+      console.error(`watchDirectory(${dirPath}): ${error.message}`);
+      close();
+    });
+
+    /** @type {AsyncIterable<{ kind: 'add' | 'remove' | 'replace', name: string }>} */
+    const events = harden({
+      [Symbol.asyncIterator]() {
+        return harden({
+          /** @returns {Promise<IteratorResult<{ kind: 'add' | 'remove' | 'replace', name: string }>>} */
+          next: async () => {
+            await null;
+            if (buffered.length > 0) {
+              const value = /** @type {(typeof buffered)[number]} */ (
+                buffered.shift()
+              );
+              return harden(
+                /** @type {IteratorResult<{ kind: 'add' | 'remove' | 'replace', name: string }>} */ ({
+                  value,
+                  done: false,
+                }),
+              );
+            }
+            if (closed) {
+              return harden(
+                /** @type {IteratorResult<{ kind: 'add' | 'remove' | 'replace', name: string }>} */ ({
+                  value: undefined,
+                  done: true,
+                }),
+              );
+            }
+            return /** @type {Promise<IteratorResult<{ kind: 'add' | 'remove' | 'replace', name: string }>>} */ (
+              new Promise(resolve => {
+                waiters.push(resolve);
+              })
+            );
+          },
+          return: async () => {
+            close();
+            return harden(
+              /** @type {IteratorResult<{ kind: 'add' | 'remove' | 'replace', name: string }>} */ ({
+                value: undefined,
+                done: true,
+              }),
+            );
+          },
+        });
+      },
+    });
+
+    return harden({ events, cancel: close });
+  };
+
   return harden({
     makeFileReader,
     makeFileWriter,
@@ -401,6 +656,8 @@ export const makeFilePowers = ({ fs, path: fspath }) => {
     readFileText,
     readFileBytes,
     readFile,
+    readFileRange,
+    sha256,
     maybeReadFile,
     maybeReadFileText,
     readDirectory,
@@ -414,6 +671,7 @@ export const makeFilePowers = ({ fs, path: fspath }) => {
     statPath,
     isDirectory,
     exists,
+    watchDirectory,
   });
 };
 
@@ -540,6 +798,15 @@ export const makeDaemonicControlPowers = (
    * @param {CapTpConnectionRegistrar} [capTpConnectionRegistrar]
    * @param {string[]} [trustedShims]
    * @param {string} [label]
+   * @param {'locked' | 'node'} [kind]
+   *   Worker kind. Currently unused by the Node powers implementation,
+   *   but accepted to keep the positional arity aligned with the type
+   *   in `types.d.ts` so `marshalLoadError` lands in the correct slot.
+   * @param {(err: Error, errorId?: string) => void} [marshalLoadError]
+   *   Forwarded to the worker connection's CapTP. Called for every error
+   *   the daemon decodes from this worker, with the wire-level errorId
+   *   so the daemon's trace aggregator can correlate inbound errors with
+   *   the worker's prior trace push.
    */
   const makeWorker = async (
     workerId,
@@ -549,6 +816,9 @@ export const makeDaemonicControlPowers = (
     capTpConnectionRegistrar = undefined,
     trustedShims = undefined,
     label = '<untitled>',
+    // eslint-disable-next-line no-unused-vars
+    kind = undefined,
+    marshalLoadError = undefined,
   ) => {
     const { statePath, ephemeralStatePath } = config;
 
@@ -627,7 +897,7 @@ export const makeDaemonicControlPowers = (
       reader,
       cancelled,
       daemonWorkerFacet,
-      undefined,
+      { marshalLoadError },
       capTpConnectionRegistrar,
     );
 

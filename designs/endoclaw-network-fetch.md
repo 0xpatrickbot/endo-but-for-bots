@@ -3,10 +3,50 @@
 | | |
 |---|---|
 | **Created** | 2026-03-03 |
-| **Updated** | 2026-03-03 |
+| **Updated** | 2026-07-15 |
 | **Author** | Kris Kowal (prompted) |
-| **Status** | Not Started |
+| **Status** | Superseded by [endo-fetch](endo-fetch.md) |
 | **Parent** | [endoclaw](endoclaw.md) |
+
+> **Superseded by [endo-fetch](endo-fetch.md)** (2026-07-13). The capability
+> shape specified here was realized by PR #566 (`@endo/exo-http-client` over
+> `@endo/http-confine`) and remains normative by reference. What this
+> document still sketched — daemon-side provisioning that hands the
+> capability to agents (`provideHttpClient`, tracked as
+> [`daemon-agent-tools`](daemon-agent-tools.md) Phase 3.6) — is redrafted as
+> the unconfined base `@endo/fetch` plus the stateful confined plugin
+> `@endo/confined-fetch`, which receives that base and its state directory,
+> persists policy and trust-on-first-bind pins through the virtual file
+> system, and revives under integration ownership (like `@pins`), per the
+> maintainer's unconfined-plugin direction on PR
+> [#609](https://github.com/endojs/endo-but-for-bots/pull/609) and the
+> [endo-reminder](endo-reminder.md) precedent.
+
+## Status
+
+The `HttpClient` / `HttpClientControl` capability shape specified here is
+realized, but the daemon-side provisioning wiring that hands the capability to
+agents is not yet built, so this design is In Progress.
+
+PR #566 landed two packages on `llm`:
+
+- [`@endo/http-confine`](http-confine.md) — the pure confinement core, enforcing
+  origin, method, rate, redirect, timeout, and byte-cap limits with no exo or
+  daemon dependency.
+- `@endo/exo-http-client` — the `HttpClient` / `HttpClientControl` exo facets
+  over that core (`makeHttpClientAndControl`), plus
+  `makeTrustOnFirstBindPolicyAdapter`, the TOFU policy adapter described in
+  [`trust-on-first-bind`](trust-on-first-bind.md).
+
+What remains: the daemon `provideHttpClient` provisioning and the
+`makeHttpTool` agent-tool binding that expose the capability to agents.
+That wiring is tracked as the Network (HTTP) tier (Phase 3.6) in
+[`daemon-agent-tools`](daemon-agent-tools.md).
+
+The single-`HttpClient`-formula provisioning shape sketched below is superseded
+in part by the controller-plus-client split decided in
+[`cli-http-client`](cli-http-client.md); the capability facets themselves are
+unchanged.
 
 ## Summary
 
@@ -14,6 +54,10 @@ An `HttpClient` capability lets an agent make HTTP requests to a
 host-controlled allowlist of origins. Prevents data exfiltration to
 attacker-controlled servers while enabling web research and API access.
 Foundation for the OAuth capability and productivity integrations.
+
+This capability is realized by `@endo/exo-http-client`, which layers exo facets
+and optional trust-on-first-bind policy over the shared
+[`@endo/http-confine`](http-confine.md) confinement core.
 
 ## Capability Shape
 

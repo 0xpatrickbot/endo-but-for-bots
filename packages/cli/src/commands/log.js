@@ -10,7 +10,7 @@ import { makePromiseKit } from '@endo/promise-kit';
 import { makeEndoClient } from '@endo/daemon';
 import { waitForExitOrCancel } from '@endo/platform/proc';
 import { whereEndoState, whereEndoSock } from '@endo/where';
-import { E } from '@endo/far';
+import { E } from '@endo/eventual-send';
 import { withInterrupt } from '../context.js';
 
 const delay = async (ms, cancelled) => {
@@ -254,7 +254,7 @@ const printAllLogs = async statePath => {
 export const log = async ({ follow, ping, all }) =>
   withInterrupt(async ({ cancelled }) => {
     await null;
-    const logCheckIntervalMs = ping !== undefined ? Number(ping) : 5_000;
+    const logCheckIntervalMs = ping !== undefined ? Number(ping) : 5000;
 
     const { username, homedir } = os.userInfo();
     const temp = os.tmpdir();

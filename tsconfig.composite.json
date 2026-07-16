@@ -18,7 +18,16 @@
       "path": "packages/cache-map/tsconfig.composite.json"
     },
     {
+      "path": "packages/cancel/tsconfig.composite.json"
+    },
+    {
       "path": "packages/captp/tsconfig.composite.json"
+    },
+    {
+      "path": "packages/chacha12/tsconfig.composite.json"
+    },
+    {
+      "path": "packages/chacha12-fast-check-test/tsconfig.composite.json"
     },
     {
       "path": "packages/chat/tsconfig.composite.json"
@@ -42,6 +51,9 @@
       "path": "packages/daemon/tsconfig.composite.json"
     },
     {
+      "path": "packages/daemon-cas/tsconfig.composite.json"
+    },
+    {
       "path": "packages/env-options/tsconfig.composite.json"
     },
     {
@@ -60,6 +72,18 @@
       "path": "packages/exo/tsconfig.composite.json"
     },
     {
+      "path": "packages/exo-git/tsconfig.composite.json"
+    },
+    {
+      "path": "packages/exo-http-client/tsconfig.composite.json"
+    },
+    {
+      "path": "packages/exo-playwright/tsconfig.composite.json"
+    },
+    {
+      "path": "packages/exo-shell/tsconfig.composite.json"
+    },
+    {
       "path": "packages/exo-stream/tsconfig.composite.json"
     },
     {
@@ -69,6 +93,12 @@
       "path": "packages/far/tsconfig.composite.json"
     },
     {
+      "path": "packages/gateway/tsconfig.composite.json"
+    },
+    {
+      "path": "packages/git/tsconfig.composite.json"
+    },
+    {
       "path": "packages/goblin-chat/tsconfig.composite.json"
     },
     {
@@ -76,6 +106,12 @@
     },
     {
       "path": "packages/hex/tsconfig.composite.json"
+    },
+    {
+      "path": "packages/host-spawner/tsconfig.composite.json"
+    },
+    {
+      "path": "packages/http-confine/tsconfig.composite.json"
     },
     {
       "path": "packages/immutable-arraybuffer/tsconfig.composite.json"
@@ -129,7 +165,16 @@
       "path": "packages/patterns/tsconfig.composite.json"
     },
     {
+      "path": "packages/platform/tsconfig.composite.json"
+    },
+    {
       "path": "packages/promise-kit/tsconfig.composite.json"
+    },
+    {
+      "path": "packages/pubsub/tsconfig.composite.json"
+    },
+    {
+      "path": "packages/random/tsconfig.composite.json"
     },
     {
       "path": "packages/sandbox/tsconfig.composite.json"
@@ -150,6 +195,9 @@
       "path": "packages/syrup-frame/tsconfig.composite.json"
     },
     {
+      "path": "packages/tar/tsconfig.composite.json"
+    },
+    {
       "path": "packages/test262-runner/tsconfig.composite.json"
     },
     {
@@ -157,6 +205,9 @@
     },
     {
       "path": "packages/where/tsconfig.composite.json"
+    },
+    {
+      "path": "packages/x402/tsconfig.composite.json"
     },
     {
       "path": "packages/zip/tsconfig.composite.json"

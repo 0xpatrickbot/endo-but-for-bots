@@ -151,6 +151,39 @@ export const makeXsFilePowers = () => {
   const readFileBytes = async path => readFile(path);
 
   /**
+   * Binary-safe range read returning `[offset, offset + length)`. The XS
+   * host has no native pread primitive, so this reads the whole file and
+   * slices — correct, if not as I/O-efficient as the Node powers' windowed
+   * read. Mirrors the `BlobRef.fetch` clamp: a short read past EOF returns
+   * the available bytes, and `offset` at/beyond EOF returns empty.
+   *
+   * @type {FilePowers['readFileRange']}
+   */
+  const readFileRange = async (path, offset, length) => {
+    if (length <= 0) {
+      return new Uint8Array(0);
+    }
+    const bytes = await readFile(path);
+    if (offset >= bytes.length) {
+      return new Uint8Array(0);
+    }
+    return bytes.subarray(offset, Math.min(offset + length, bytes.length));
+  };
+
+  /**
+   * Content hash of a file: the hex sha256 of its current bytes, via the XS
+   * host's streaming sha256 (the same host functions `makeXsCryptoPowers` uses).
+   *
+   * @type {FilePowers['sha256']}
+   */
+  const sha256 = async path => {
+    const bytes = await readFile(path);
+    const handle = hostSha256Init();
+    hostSha256UpdateBytes(handle, bytes);
+    return hostSha256Finish(handle);
+  };
+
+  /**
    * Like {@link readFile} but resolves to `undefined` when the file
    * does not exist (or the path is a directory).  The host returns
    * `undefined` for those cases natively; other I/O errors come back
@@ -277,7 +310,23 @@ export const makeXsFilePowers = () => {
   /** @type {FilePowers['statPath']} */
   const statPath = async path => {
     const { kind, sizeBytes, modifiedMs } = await statRaw(path);
-    return harden({ kind, sizeBytes, modifiedMs });
+    // Align to the extended `Stat` shape (size: bigint, mtime/atime: bigint
+    // nanoseconds). The XS host stat JSON carries ms; convert to ns. It does
+    // not provide atime, so atime mirrors mtime (a documented XS limitation,
+    // like pathIdentity below).
+    //
+    // `modifiedMs` is a Number and may be fractional (`fs.Stats.mtimeMs` is),
+    // so `BigInt(modifiedMs)` would throw `RangeError: not an integer`. Round
+    // to whole milliseconds *first* (well within `Number.MAX_SAFE_INTEGER`),
+    // then scale to nanoseconds in BigInt space so the multiply stays exact —
+    // rounding after `* 1_000_000` would instead lose precision past 2**53.
+    const mtimeNs = BigInt(Math.round(modifiedMs)) * 1_000_000n;
+    return harden({
+      kind,
+      size: BigInt(sizeBytes),
+      mtime: mtimeNs,
+      atime: mtimeNs,
+    });
   };
 
   /**
@@ -378,14 +427,45 @@ export const makeXsFilePowers = () => {
     });
   };
 
+  /**
+   * Directory-change watcher.  The XS host exposes no `fs.watch`
+   * equivalent, so this returns an event stream that closes
+   * immediately, mirroring the Node powers' documented fallback for
+   * when `fs.watch` is unavailable.  `followNameChanges` under the XS
+   * supervisor therefore yields its initial snapshot and then ends,
+   * a graceful degradation rather than a crash, and the method is
+   * present so the XS powers satisfy the same `FilePowers` contract
+   * as the Node powers (enforced by mount-platform-fs-conformance).
+   *
+   * @type {FilePowers['watchDirectory']}
+   */
+  const watchDirectory = _dirPath => {
+    /** @type {AsyncIterable<{ kind: 'add' | 'remove' | 'replace', name: string }>} */
+    const events = harden({
+      [Symbol.asyncIterator]() {
+        return harden({
+          next: async () => harden({ value: undefined, done: true }),
+          return: async () => harden({ value: undefined, done: true }),
+        });
+      },
+    });
+    return harden({
+      events,
+      cancel: () => {},
+    });
+  };
+
   return harden({
     makeFileReader,
     makeFileWriter,
+    watchDirectory,
     writeFileText,
     appendFileText,
     readFileText,
     readFileBytes,
     readFile,
+    readFileRange,
+    sha256,
     maybeReadFile,
     maybeReadFileText,
     readDirectory,

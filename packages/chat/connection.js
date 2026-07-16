@@ -1,10 +1,11 @@
 // @ts-check
 
 import { makeCapTP } from '@endo/captp';
-import { E } from '@endo/far';
+import { E } from '@endo/eventual-send';
 import { makeExo } from '@endo/exo';
 import { M } from '@endo/patterns';
 import { makePromiseKit } from '@endo/promise-kit';
+import { noteDecodedErrorId } from '@endo/spaces-util/error-trace.js';
 
 /**
  * @typedef {object} ConnectionOptions
@@ -33,7 +34,12 @@ const ClientBootstrapInterface = M.interface('ClientBootstrap', {
  * @returns {Connection}
  */
 export const connectToGateway = ({ gateway, agent }) => {
-  const gatewayUrl = `ws://${gateway}/`;
+  // Match the page's security context: an HTTPS page (e.g. served over a
+  // Tailscale cert) cannot open an insecure ws:// socket (mixed content), so
+  // use wss:// there. Plain http/file origins keep ws://.
+  const secure =
+    typeof window !== 'undefined' && window.location.protocol === 'https:';
+  const gatewayUrl = `${secure ? 'wss' : 'ws'}://${gateway}/`;
   console.log(`[Gateway] Connecting to ${gatewayUrl}...`);
 
   const powersKit = makePromiseKit();
@@ -85,7 +91,15 @@ export const connectToGateway = ({ gateway, agent }) => {
       ws.send(bytes);
     };
 
-    const captp = makeCapTP('Chat', send, clientBootstrap);
+    // Capture the wire-level errorId of every decoded CapTP error at marshal
+    // decode time. Under SES `errorTaming: 'safe'` the decoded error's public
+    // `.name` is the bare constructor name, so the id is not otherwise
+    // recoverable from the error object. The chat's `/js` failure path
+    // (`resolveErrorTrace`) reads it back to correlate the local error to its
+    // daemon-side trace (stack + producing worker) via `diagnostics().traces()`.
+    const captp = makeCapTP('Chat', send, clientBootstrap, {
+      marshalLoadError: (err, errorId) => noteDecodedErrorId(err, errorId),
+    });
     dispatch = captp.dispatch;
     abort = captp.abort;
 

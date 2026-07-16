@@ -151,7 +151,7 @@ Forge uses Python's native asyncio for streaming and concurrency.
 | `ResponseValidator` + rescue parse | `extractToolCallsFromContent` in `packages/lal/agent.js:944` | Endo rescues tool calls from `<tool_call>...</tool_call>` text; forge's pipeline is structured and emits a retry nudge with attempt counter on failure. |
 | `ErrorTracker` (retry + tool-error budgets) | No analogue | Endo's loop has no explicit retry budget; failures propagate. |
 | `SlotWorker` (priority queue + preemption) | `@endo/fae` factory pattern (sub-guests per agent) | Endo serializes via factory creation and CapTP message-passing; forge serializes one inference slot across competing workflows in-process. |
-| HTTP proxy (`python -m forge.proxy`) | `@endo/daemon`'s HTTP gateway (`packages/daemon`); the `endo-gateway` design | Forge's proxy is OpenAI-shape passthrough with guardrails; endo's gateway is a capability gateway carrying OCapN/CapTP. |
+| HTTP proxy (`python -m forge.proxy`) | `@endo/daemon`'s HTTP gateway (`packages/daemon`); the `gateway-package` design | Forge's proxy is OpenAI-shape passthrough with guardrails; endo's gateway is a capability gateway carrying OCapN/CapTP. |
 | Pydantic dynamic-model build (`ToolSpec.from_json_schema`) | `@endo/patterns` pattern compilation | Forge converts JSON Schema → Pydantic at runtime to validate LLM tool-call args; endo has nothing equivalent in the agent stack. |
 | `ToolDef.prerequisites` | No analogue in lal/fae/genie | Endo's tools have no declarative dependency graph; the LLM is expected to call things in a sensible order. |
 
@@ -503,7 +503,7 @@ trust model that no module ports cleanly without adaptation.
 4. **`ToolSpec`-style declarative tool schemas.**
    Endo's tools today are caplet methods discovered via CapTP
    introspection (`E(ref).__getMethodNames__()` per the project
-   `CLAUDE.md`).
+   `AGENTS.md`).
    Wrapping a caplet's method set in a forge-shape `ToolSpec`
    (name, description, parameter schema in JSON Schema) at the agent
    boundary would give the LLM a uniform tool-call shape regardless
@@ -566,7 +566,7 @@ trust model that no module ports cleanly without adaptation.
    amortize the lookup cost.
 
 4. **Is the forge proxy worth a deeper look as a prior-art reference
-   for `designs/endo-gateway.md`?**
+   for `designs/gateway-package.md`?**
    The proxy shows one concrete shape (OpenAI-compatible REST
    passthrough with synthetic tool injection) that endo's gateway
    does not currently address.
@@ -603,7 +603,7 @@ trust model that no module ports cleanly without adaptation.
 - `packages/lal/agent.js` lines 938-988
   (`extractToolCallsFromContent`) and 1336-1395 (`runAgenticLoop`).
 - `packages/lal/README.md` (`LAL_MAX_MESSAGES`).
-- `packages/lal/CLAUDE.md` (manager-loop architecture).
+- `packages/lal/AGENTS.md` (manager-loop architecture).
 - `packages/fae/agent.js`, `packages/fae/driver.js`,
   `packages/fae/FAE-ARCHITECTURE.md`,
   `packages/fae/COMPARISON-FAE-LAL.md`.
@@ -611,7 +611,7 @@ trust model that no module ports cleanly without adaptation.
 - `packages/ses`, `packages/init`, `packages/harden`,
   `packages/compartment-mapper`, `packages/captp`, `packages/ocapn`
   for the substrate referenced in § "Where the trust models clash".
-- `designs/endo-gateway.md` (related to forge's proxy shape).
+- `designs/gateway-package.md` (related to forge's proxy shape; supersedes the prior `endo-gateway.md` which was removed 2026-05-29).
 
 ## Prompt
 

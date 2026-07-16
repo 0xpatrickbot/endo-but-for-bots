@@ -1,17 +1,22 @@
 // @ts-check
 /// <reference types="ses"/>
 
+/** @import { WritableGitWorktree } from '@endo/exo-git' */
+
 import test from '@endo/ses-ava/prepare-endo.js';
 
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify as nodePromisify } from 'node:util';
 
-import { E, Far } from '@endo/far';
-import { makeNativeGitBackend } from '@endo/endo-git';
+import { E } from '@endo/eventual-send';
+import { makeNativeGitBackend } from '@endo/git';
+import { Far } from '@endo/pass-style';
+import { makePromiseKit } from '@endo/promise-kit';
 import {
   assertGitCredentialForUrl,
   getGitCredentialController,
@@ -19,15 +24,17 @@ import {
   makeBasicCredential,
   makeBearerCredential,
   makeGit,
+  makeGitCloner,
   makeGitRemote,
+  makeGitRemoteEndpoint,
   makeNotYetImplementedBackend,
   makeUnavailableGitCredential,
   revokeGitCredential,
 } from '@endo/exo-git';
 
+import { start, stop, purge, makeEndoClient } from '../index.js';
 import { makeFilePowers } from '../src/daemon-node-powers.js';
 import { lineageOf, makeMount } from '../src/mount.js';
-import { makeReaderRef } from '../src/reader-ref.js';
 
 const execFileAsync = nodePromisify(execFile);
 const exampleCredential = () =>
@@ -35,6 +42,87 @@ const exampleCredential = () =>
     audience: 'https://github.com',
     token: 'test-token',
   });
+
+/**
+ * The remote tests exercise policy and transport paths that never touch the
+ * worktree.
+ * Keep their fake mount structurally honest enough for the writable
+ * Git construction contract without weakening it to an opaque object.
+ *
+ * @returns {WritableGitWorktree}
+ */
+const makeFakeGitMount = () => {
+  const entry = Far('FakeEntry', {
+    segments: () => [],
+    displayPath: () => '',
+    child: () => entry,
+    help: () => '',
+  });
+  const readOnlyMount = Far('FakeReadOnlyMount', {
+    has: async () => false,
+    list: async () => [],
+    lookup: async () => undefined,
+    sha256: () => '',
+    getInfo: async () => ({
+      algorithm: 'sha256',
+      hash: '',
+      size: 0n,
+    }),
+  });
+  const mount = Far('FakeMount', {
+    has: async () => false,
+    list: async () => [],
+    lookup: async () => undefined,
+    write: async () => undefined,
+    remove: async () => undefined,
+    move: async () => undefined,
+    copy: async () => undefined,
+    makeDirectory: async () => mount,
+    readOnly: () => readOnlyMount,
+    snapshot: async () => readOnlyMount,
+    entry: () => entry,
+  });
+  return /** @type {WritableGitWorktree} */ (mount);
+};
+harden(makeFakeGitMount);
+
+/**
+ * @param {import('ava').ExecutionContext} t
+ */
+const provisionHostContext = async t => {
+  const root = await fs.promises.mkdtemp(
+    path.join(os.tmpdir(), 'git-clone-daemon-'),
+  );
+  const config = {
+    statePath: path.join(root, 'state'),
+    ephemeralStatePath: path.join(root, 'run'),
+    cachePath: path.join(root, 'cache'),
+    sockPath:
+      process.platform === 'win32'
+        ? String.raw`\\?\pipe\endo-git-clone-${path.basename(root)}.sock`
+        : path.join(root, 'endo.sock'),
+    address: '127.0.0.1:0',
+    pets: new Map(),
+    values: new Map(),
+    gcEnabled: true,
+  };
+  const { reject: cancel, promise: cancelled } = makePromiseKit();
+  cancelled.catch(() => {});
+  await purge(config);
+  await start(config);
+  const { getBootstrap, closed } = await makeEndoClient(
+    'client',
+    config.sockPath,
+    cancelled,
+  );
+  closed.catch(() => {});
+  t.teardown(async () => {
+    await stop(config);
+    cancel(Error('teardown'));
+    await fs.promises.rm(root, { recursive: true, force: true });
+  });
+  return { host: E(getBootstrap()).host(), config };
+};
 
 /**
  * @param {import('ava').ExecutionContext} t
@@ -59,7 +147,7 @@ const provisionGitContext = async t => {
   );
   const filePowers = makeFilePowers({ fs, path });
   const mount = makeMount({ rootPath: root, readOnly: false, filePowers });
-  const backend = makeNativeGitBackend({ repoRoot: root, makeReaderRef });
+  const backend = makeNativeGitBackend({ repoRoot: root });
   await backend.assertRepositoryRoot();
   const git = makeGit({ mount, backend, lineageOf });
   return { git, mount, root };
@@ -79,33 +167,6 @@ const provisionBareRemote = async (t, sourceRepo) => {
   const remoteRoot = path.join(remoteParent, 'remote.git');
   await execFileAsync('git', ['clone', '--bare', sourceRepo, remoteRoot]);
   return remoteRoot;
-};
-
-/**
- * @param {import('ava').ExecutionContext} t
- * @param {string} remoteRoot
- */
-const advanceRemoteMain = async (t, remoteRoot) => {
-  const cloneRoot = await fs.promises.mkdtemp(
-    path.join(os.tmpdir(), 'git-remote-upstream-'),
-  );
-  t.teardown(() => fs.promises.rm(cloneRoot, { recursive: true, force: true }));
-  await execFileAsync('git', ['clone', remoteRoot, cloneRoot]);
-  await fs.promises.writeFile(
-    path.join(cloneRoot, 'upstream.txt'),
-    'upstream\n',
-  );
-  await execFileAsync('git', ['add', 'upstream.txt'], { cwd: cloneRoot });
-  await execFileAsync(
-    'git',
-    ['-c', 'user.email=t@t', '-c', 'user.name=T', 'commit', '-m', 'upstream'],
-    { cwd: cloneRoot },
-  );
-  await execFileAsync('git', ['push', 'origin', 'main'], { cwd: cloneRoot });
-  const { stdout } = await execFileAsync('git', ['rev-parse', 'main'], {
-    cwd: cloneRoot,
-  });
-  return stdout.trim();
 };
 
 test('makeGitRemote produces a paired (remote, controller) facet', async t => {
@@ -341,7 +402,11 @@ test('GitRemote passes HTTPS credential material to backend transport only', asy
       return harden({ updatedRefs: harden([]), text: 'ok' });
     },
   });
-  const git = makeGit({ mount: Far('FakeMount', {}), backend, lineageOf });
+  const git = makeGit({
+    mount: makeFakeGitMount(),
+    backend,
+    lineageOf,
+  });
   const credential = exampleCredential();
   const credentialController = getGitCredentialController(credential);
   t.truthy(credentialController);
@@ -358,6 +423,10 @@ test('GitRemote passes HTTPS credential material to backend transport only', asy
   });
   const remoteController = getGitRemoteController(remote);
   t.truthy(remoteController);
+  const liveRemoteController =
+    /** @type {import('@endo/exo-git').GitRemoteController} */ (
+      remoteController
+    );
 
   t.false(JSON.stringify(await E(remote).inspect()).includes('test-token'));
   await E(remote).fetch();
@@ -378,7 +447,7 @@ test('GitRemote passes HTTPS credential material to backend transport only', asy
   await t.throwsAsync(E(remote).fetch(), {
     message: /credential .* revoked/,
   });
-  const remoteAudit = JSON.stringify(await E(remoteController).audit());
+  const remoteAudit = JSON.stringify(await E(liveRemoteController).audit());
   t.false(remoteAudit.includes('test-token'));
   t.false(remoteAudit.includes('rotated-token'));
   const credentialView = JSON.stringify(
@@ -398,7 +467,11 @@ test('GitCredentialController rotates material used by existing remotes', async 
       return harden({ updatedRefs: harden([]), text: 'ok' });
     },
   });
-  const git = makeGit({ mount: Far('FakeMount', {}), backend, lineageOf });
+  const git = makeGit({
+    mount: makeFakeGitMount(),
+    backend,
+    lineageOf,
+  });
   const credential = exampleCredential();
   const controller = getGitCredentialController(credential);
   t.truthy(controller);
@@ -460,7 +533,11 @@ test('GitRemoteController.revoke during in-flight fetch prevents stale success',
       return fetchResult;
     },
   });
-  const git = makeGit({ mount: Far('FakeMount', {}), backend, lineageOf });
+  const git = makeGit({
+    mount: makeFakeGitMount(),
+    backend,
+    lineageOf,
+  });
   const { remote, controller } = makeGitRemote({
     git,
     name: 'origin',
@@ -518,7 +595,11 @@ test('GitCredentialController.rotate during in-flight fetch prevents stale succe
       return harden({ updatedRefs: harden([]), text: 'ok' });
     },
   });
-  const git = makeGit({ mount: Far('FakeMount', {}), backend, lineageOf });
+  const git = makeGit({
+    mount: makeFakeGitMount(),
+    backend,
+    lineageOf,
+  });
   const credential = exampleCredential();
   const credentialController = getGitCredentialController(credential);
   t.truthy(credentialController);
@@ -563,6 +644,83 @@ test('GitCredentialController.rotate during in-flight fetch prevents stale succe
   t.like(audit[2], { type: 'fetch', outcome: 'ok' });
 });
 
+test('GitCloner fences HTTPS credential changes during in-flight clone', async t => {
+  /**
+   * @param {'rotate' | 'revoke'} change
+   * @param {RegExp} expected
+   */
+  const exerciseChange = async (change, expected) => {
+    const credential = exampleCredential();
+    const credentialController = getGitCredentialController(credential);
+    t.truthy(credentialController);
+    const endpoint = makeGitRemoteEndpoint({
+      url: 'https://github.com/example/repo.git',
+      credential,
+    });
+    /** @type {AbortSignal | undefined} */
+    let cloneSignal;
+    /** @type {unknown} */
+    let cloneCredential;
+    /** @type {(value?: unknown) => void} */
+    let cloneStartedResolve = () => {};
+    const cloneStarted = new Promise(resolve => {
+      cloneStartedResolve = resolve;
+    });
+    /** @type {(value: unknown) => void} */
+    let cloneResolve = () => {};
+    const cloneResult = new Promise(resolve => {
+      cloneResolve = resolve;
+    });
+    let makeGitCalled = false;
+    let makeRemoteCalled = false;
+    const cloner = makeGitCloner({
+      endpoint,
+      clone: async input => {
+        cloneCredential = /** @type {{ credential?: unknown }} */ (input)
+          .credential;
+        cloneSignal = /** @type {{ signal?: AbortSignal }} */ (input).signal;
+        cloneStartedResolve();
+        return cloneResult;
+      },
+      makeGit: async () => {
+        makeGitCalled = true;
+        return Far('FakeGit', {});
+      },
+      makeRemote: async () => {
+        makeRemoteCalled = true;
+        return /** @type {import('@endo/exo-git').GitRemote} */ (
+          /** @type {unknown} */ (Far('FakeRemote', {}))
+        );
+      },
+    });
+
+    const cloneP = cloner.clone({
+      destMount: Far('FakeMount', {}),
+      destPath: '/tmp/clone-destination',
+    });
+    await cloneStarted;
+    t.deepEqual(
+      cloneCredential,
+      harden({ kind: 'bearer', material: harden({ token: 'test-token' }) }),
+    );
+    t.false(cloneSignal?.aborted);
+    if (change === 'rotate') {
+      await E(credentialController).rotate({ token: 'new-token' });
+    } else {
+      await E(credentialController).revoke();
+    }
+    t.true(cloneSignal?.aborted);
+    cloneResolve('ok');
+
+    await t.throwsAsync(cloneP, { message: expected });
+    t.false(makeGitCalled);
+    t.false(makeRemoteCalled);
+  };
+
+  await exerciseChange('rotate', /changed during clone/);
+  await exerciseChange('revoke', /revoked during clone/);
+});
+
 test('GitRemoteController.revoke during in-flight pull aborts before local integration', async t => {
   /** @type {AbortSignal | undefined} */
   let fetchSignal;
@@ -589,7 +747,11 @@ test('GitRemoteController.revoke during in-flight pull aborts before local integ
       return 'merged';
     },
   });
-  const git = makeGit({ mount: Far('FakeMount', {}), backend, lineageOf });
+  const git = makeGit({
+    mount: makeFakeGitMount(),
+    backend,
+    lineageOf,
+  });
   const { remote, controller } = makeGitRemote({
     git,
     name: 'origin',
@@ -622,130 +784,206 @@ test('GitRemoteController.revoke during in-flight pull aborts before local integ
   t.like(audit[2], { type: 'pull', outcome: 'error' });
 });
 
-test('GitRemote fetch / pull / push use the bounded native data plane', async t => {
-  const { git, mount, root } = await provisionGitContext(t);
-  const remoteRoot = await provisionBareRemote(t, root);
+test('GitRemote push round-trips to an independent fetcher over file://', async t => {
+  t.timeout(2000);
+  // Producer worktree pushes a branch to a real file:// bare remote; a second,
+  // independent consumer worktree fetches that same branch back and recovers
+  // the full commit object.
+  const producer = await provisionGitContext(t);
+  const remoteRoot = await provisionBareRemote(t, producer.root);
   const remoteUrl = pathToFileURL(remoteRoot).href;
-  const remoteHead = await advanceRemoteMain(t, remoteRoot);
 
-  const { remote, controller } = makeGitRemote({
-    git,
+  const { remote: producerRemote } = makeGitRemote({
+    git: producer.git,
     name: 'origin',
     policy: {
       url: remoteUrl,
       allowLocalFileTransport: true,
-      allowedDirections: ['fetch', 'push'],
-      fetchRefspecs: ['+refs/heads/main:refs/remotes/origin/main'],
+      allowedDirections: ['push'],
+      fetchRefspecs: [],
       pushRefspecs: ['refs/heads/agent/*:refs/heads/agent/*'],
-      allowDelete: true,
     },
   });
 
-  const fetchResult = await E(remote).fetch({ prune: true });
-  const fetchUpdates = [...fetchResult.updatedRefs];
-  t.is(fetchUpdates.length, 1);
-  t.deepEqual(fetchUpdates[0], {
-    local: {
-      name: 'refs/remotes/origin/main',
-      kind: 'branch',
-      oid: remoteHead,
-    },
-    remote: 'refs/heads/main',
+  await E(producer.git).createBranch('agent/feature', {
+    switchAfterCreate: true,
+  });
+  const payload = 'feature-payload\n';
+  const entry = await E(producer.mount).entry(['feature.txt']);
+  await E(producer.mount).writeText(entry, payload);
+  await E(producer.git).add([entry]);
+  await E(producer.git).commit('test: feature commit to round-trip');
+
+  const pushResult = await E(producerRemote).push({
+    source: 'refs/heads/agent/feature',
+    destination: 'refs/heads/agent/feature',
+  });
+  const pushedRefs = [...pushResult.updatedRefs];
+  t.is(pushedRefs.length, 1);
+  const pushedOid = pushedRefs[0].local.oid;
+  t.regex(pushedOid, /^[0-9a-f]{40}$/u);
+  t.like(pushedRefs[0], {
+    remote: 'refs/heads/agent/feature',
     result: 'created',
   });
-  const fetched = await E(git).revParse('refs/remotes/origin/main');
-  t.is(fetched.oid, remoteHead);
 
-  const pullResult = await E(remote).pull({
-    branch: 'refs/remotes/origin/main',
-    strategy: 'ff-only',
+  // A second worktree, unrelated to the producer's repository, fetches the
+  // pushed branch from the same bare remote.
+  const consumer = await provisionGitContext(t);
+  const { remote: consumerRemote } = makeGitRemote({
+    git: consumer.git,
+    name: 'origin',
+    policy: {
+      url: remoteUrl,
+      allowLocalFileTransport: true,
+      allowedDirections: ['fetch'],
+      fetchRefspecs: ['+refs/heads/agent/*:refs/remotes/origin/agent/*'],
+      pushRefspecs: [],
+    },
   });
-  t.is(pullResult.integration, 'fast-forward');
+
+  const fetchResult = await E(consumerRemote).fetch();
   t.deepEqual(
-    [...pullResult.fetch.updatedRefs],
+    [...fetchResult.updatedRefs],
     [
       {
         local: {
-          name: 'refs/remotes/origin/main',
-          kind: 'branch',
-          oid: remoteHead,
-        },
-        remote: 'refs/heads/main',
-        result: 'up-to-date',
-      },
-    ],
-  );
-  t.is(await E(mount).readText(['upstream.txt']), 'upstream\n');
-
-  const upToDatePullResult = await E(remote).pull({
-    branch: 'refs/remotes/origin/main',
-    strategy: 'ff-only',
-  });
-  t.is(upToDatePullResult.integration, 'up-to-date');
-
-  await E(git).createBranch('agent/topic', { switchAfterCreate: true });
-  const note = await E(mount).entry(['agent.txt']);
-  await E(mount).writeText(note, 'agent\n');
-  await E(git).add([note]);
-  await E(git).commit('test: agent branch');
-  const pushResult = await E(remote).push({
-    source: 'refs/heads/agent/topic',
-    destination: 'refs/heads/agent/topic',
-    setUpstream: true,
-  });
-  const { stdout: pushedRef } = await execFileAsync(
-    'git',
-    ['show-ref', '--hash', 'refs/heads/agent/topic'],
-    { cwd: remoteRoot },
-  );
-  const pushedOid = pushedRef.trim();
-  t.regex(pushedOid, /^[0-9a-f]{40}$/u);
-  t.deepEqual(
-    [...pushResult.updatedRefs],
-    [
-      {
-        local: {
-          name: 'refs/heads/agent/topic',
+          name: 'refs/remotes/origin/agent/feature',
           kind: 'branch',
           oid: pushedOid,
         },
-        remote: 'refs/heads/agent/topic',
+        remote: 'refs/heads/agent/feature',
         result: 'created',
       },
     ],
   );
-  const { stdout: upstreamRemote } = await execFileAsync(
-    'git',
-    ['config', '--get', 'branch.agent/topic.remote'],
-    { cwd: root },
-  );
-  const { stdout: upstreamMerge } = await execFileAsync(
-    'git',
-    ['config', '--get', 'branch.agent/topic.merge'],
-    { cwd: root },
-  );
-  t.is(upstreamRemote.trim(), remoteUrl);
-  t.is(upstreamMerge.trim(), 'refs/heads/agent/topic');
 
-  const audit = await E(controller).audit();
-  t.deepEqual(
-    audit.map(event => event.type),
-    ['create', 'fetch', 'pull', 'pull', 'push'],
+  const fetched = await E(consumer.git).revParse(
+    'refs/remotes/origin/agent/feature',
   );
-  t.like(audit[1], { type: 'fetch', outcome: 'ok' });
-  t.like(audit[2], {
-    type: 'pull',
-    outcome: 'ok',
-    integration: 'fast-forward',
-  });
-  t.like(audit[3], {
-    type: 'pull',
-    outcome: 'ok',
-    integration: 'up-to-date',
-  });
-  t.like(audit[4], { type: 'push', outcome: 'ok' });
-  t.deepEqual([...audit[4].updatedRefs], [...pushResult.updatedRefs]);
+  t.is(fetched.oid, pushedOid);
+
+  // The commit and its blob must be materially present in the consumer's
+  // object store, not just a dangling ref. Inspect the consumer repo with
+  // raw git so the assertion is about observable git state, not the exo.
+  const { stdout: objectType } = await execFileAsync(
+    'git',
+    ['cat-file', '-t', pushedOid],
+    { cwd: consumer.root },
+  );
+  t.is(objectType.trim(), 'commit');
+  const { stdout: blob } = await execFileAsync(
+    'git',
+    ['cat-file', '-p', `${pushedOid}:feature.txt`],
+    { cwd: consumer.root },
+  );
+  t.is(blob, payload);
 });
+
+test.serial(
+  'EndoHost.provideGitClone clones file endpoint into a Git plus origin remote',
+  async t => {
+    const { root } = await provisionGitContext(t);
+    const remoteRoot = await provisionBareRemote(t, root);
+    const remoteUrl = pathToFileURL(remoteRoot).href;
+    const { host } = await provisionHostContext(t);
+
+    const destMount = await E(host).provideScratchMount('clone-destination');
+    await t.throwsAsync(
+      E(host).provideGitClone({
+        destMount: Far('NotMount', {}),
+        endpoint: { url: remoteUrl, allowLocalFileTransport: true },
+      }),
+      { message: /destMount must be a daemon-minted mount cap/ },
+    );
+    await t.throwsAsync(
+      E(host).provideGitClone({
+        destMount,
+        endpoint: /** @type {any} */ ({
+          url: remoteUrl,
+          allowLocalFileTransport: 'true',
+        }),
+      }),
+      { message: /endpoint\.allowLocalFileTransport must be a boolean/ },
+    );
+    await t.throwsAsync(
+      E(host).provideGitClone({
+        destMount,
+        endpoint: /** @type {any} */ ({
+          url: 1,
+          allowLocalFileTransport: true,
+        }),
+      }),
+      { message: /endpoint\.url must be a string/ },
+    );
+    const { git, remote } = await E(host).provideGitClone({
+      destMount,
+      endpoint: {
+        url: remoteUrl,
+        allowLocalFileTransport: true,
+      },
+    });
+
+    t.is((await E(git).currentBranch()).name, 'main');
+    t.deepEqual(await E(git).status(), []);
+    t.like(await E(remote).inspect(), {
+      allowedDirections: ['fetch', 'push'],
+      fetchRefspecs: ['+refs/heads/*:refs/remotes/origin/*'],
+      pushRefspecs: ['refs/heads/*:refs/heads/*'],
+    });
+
+    await E(destMount).writeText(['clone.txt'], 'clone wrote back\n');
+    const entry = await E(destMount).entry(['clone.txt']);
+    await E(git).add([entry]);
+    await E(git).commit('test: clone writeback');
+    const pushResult = await E(remote).push({
+      source: 'refs/heads/main',
+      destination: 'refs/heads/main',
+    });
+    t.like([...pushResult.updatedRefs][0], {
+      remote: 'refs/heads/main',
+      result: 'fast-forward',
+    });
+
+    const { stdout } = await execFileAsync('git', [
+      '--git-dir',
+      remoteRoot,
+      'show',
+      'main:clone.txt',
+    ]);
+    t.is(stdout, 'clone wrote back\n');
+  },
+);
+
+test.serial(
+  'EndoHost.provideGitClone rejects read-only destination without mutation',
+  async t => {
+    const { root } = await provisionGitContext(t);
+    const remoteRoot = await provisionBareRemote(t, root);
+    const remoteUrl = pathToFileURL(remoteRoot).href;
+    const { host } = await provisionHostContext(t);
+
+    const destMount = await E(host).provideScratchMount(
+      'read-only-clone-destination',
+      { readOnly: true },
+    );
+    const destPath = await E(host).provideHostPath(destMount);
+    t.deepEqual(await fs.promises.readdir(destPath), []);
+
+    await t.throwsAsync(
+      E(host).provideGitClone({
+        destMount,
+        endpoint: {
+          url: remoteUrl,
+          allowLocalFileTransport: true,
+        },
+      }),
+      { message: /destMount must be writable/ },
+    );
+
+    t.deepEqual(await fs.promises.readdir(destPath), []);
+  },
+);
 
 test('GitRemote enforces allowedDirections at the call boundary', async t => {
   const { git } = await provisionGitContext(t);

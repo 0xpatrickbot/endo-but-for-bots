@@ -1,21 +1,26 @@
 // @ts-check
+/** @import { EndoGit, WritableGitWorktree } from '@endo/exo-git' */
 /* eslint-disable no-await-in-loop */
-/* global clearTimeout, process, setTimeout */
+/* global clearTimeout, globalThis, process, setTimeout */
 
 import harden from '@endo/harden';
 import { makeExo } from '@endo/exo';
-import { E, Far } from '@endo/far';
+import { E } from '@endo/eventual-send';
+import { Far } from '@endo/pass-style';
 import { makeMarshal } from '@endo/marshal';
 import { makePromiseKit } from '@endo/promise-kit';
 import { makeError, q, X } from '@endo/errors';
 import { ZipWriter } from '@endo/zip/writer.js';
+import { encodeBase64 } from '@endo/base64';
+import { mapReader } from '@endo/stream';
 import { bytesFromText } from '@endo/bytes/from-string.js';
 import { bytesToText } from '@endo/bytes/to-string.js';
 import {
   checkinTree as platformCheckinTree,
   snapshotTreeMethods,
 } from '@endo/platform/fs/lite';
-import { makeNativeGitBackend } from '@endo/endo-git';
+import { toSafeNumber } from '@endo/platform/fs/extended/shared/helpers.js';
+import { makeNativeGitBackend } from '@endo/git';
 import {
   makeBasicCredential,
   makeBearerCredential,
@@ -23,8 +28,15 @@ import {
   makeGitRemote,
   makeUnavailableGitCredential,
 } from '@endo/exo-git';
-import { makeRefReader, makeRefIterator } from './ref-reader.js';
-import { makeIteratorRef, makeReaderRef } from './reader-ref.js';
+import { makeShell } from '@endo/exo-shell';
+import { makeHostSpawner } from '@endo/host-spawner';
+import { makeHttpClientAndControl } from '@endo/exo-http-client';
+import { iterateBytesReader } from '@endo/exo-stream/iterate-bytes-reader.js';
+import { iterateReader } from '@endo/exo-stream/iterate-reader.js';
+import { readerFromIterator } from '@endo/exo-stream/reader-from-iterator.js';
+import { bytesReaderFromIterator } from '@endo/exo-stream/bytes-reader-from-iterator.js';
+import { makeReaderPump } from '@endo/exo-stream/reader-pump.js';
+import { checkinTarTree } from './tar-checkin.js';
 import { makeDirectoryMaker } from './directory.js';
 import { makeDeferredTasks } from './deferred-tasks.js';
 import { assertMailboxStoreName, makeMailboxMaker } from './mail.js';
@@ -57,6 +69,7 @@ import {
 import { makeFormulaGraph } from './graph.js';
 import { makeChangeTopic } from './pubsub.js';
 import { makeRetentionAccumulator } from './retention-accumulator.js';
+import { makeRetentionPathAccumulator } from './retention-path-accumulator.js';
 import { makeResidenceTracker } from './residence.js';
 import { toHex, fromHex } from './hex.js';
 import { makeSerialJobs } from './serial-jobs.js';
@@ -72,7 +85,7 @@ import {
   makeHelp,
   readableTreeHelp,
 } from './help-text.js';
-import { getMountBacking, lineageOf, makeMount } from './mount.js';
+import { getMountBacking, lineageOf, makeRevocableMount } from './mount.js';
 
 // Sorted:
 import {
@@ -89,15 +102,130 @@ import {
   ReadableTreeInterface,
   EndoInterface,
 } from './interfaces.js';
+import { makeTraceAggregator } from './trace-aggregator.js';
+import { getUnredactedStackString } from './unredacted-stack.js';
 
 /** @import { Passable } from '@endo/pass-style' */
 /** @import { ERef, FarRef } from '@endo/eventual-send' */
 /** @import { PromiseKit } from '@endo/promise-kit' */
-/** @import { AgentDeferredTaskParams, Builtins, CapTpConnectionRegistrar, Context, Controller, DaemonCore, DaemonCoreExternal, DaemonicPowers, DeferredTasks, DirectoryFormula, EndoBootstrap, EndoDirectory, EndoFormula, EndoGateway, EndoGit, EndoGreeter, EndoGuest, EndoHost, EndoInspector, EndoMount, EndoNetwork, EndoPeer, EndoReadable, EndoWorker, EvalFormula, FarContext, Formula, FormulaIdentifier, FormulaNumber, FormulaMakerTable, FormulateResult, GuestFormula, HandleFormula, HostFormula, Invitation, InvitationDeferredTaskParams, InvitationFormula, KnownEndoInspectors, KnownPeersStore, LookupFormula, LoopbackNetworkFormula, MailboxStoreFormula, MailHubFormula, MakeArchiveFormula, MakeCapletDeferredTaskParams, MakeFromTreeFormula, MakeUnconfinedFormula, MarshalDeferredTaskParams, MessageFormula, Name, NameHub, NamePath, NameOrPath, NodeNumber, PetName, PeerFormula, PeerInfo, PetInspectorFormula, PetStore, PetStoreFormula, PromiseFormula, Provide, ReadableBlobFormula, ResolverFormula, Sha256, Specials, MarshalFormula, WeakMultimap, WorkerDaemonFacet, WorkerFormula, TimerFormula } from './types.js' */
+/** @import { SnapshotTree } from '@endo/platform/fs/lite/types' */
+/** @import { ArchiveTreeMethods } from './tar-checkin.js' */
+/** @import { AgentDeferredTaskParams, Builtins, CapTpConnectionRegistrar, Context, Controller, DaemonCore, DaemonCoreExternal, DaemonicPowers, DeferredTasks, DirectoryFormula, EndoBootstrap, EndoDirectory, EndoFormula, EndoGateway, EndoGreeter, EndoGuest, EndoHost, EndoInspector, EndoMount, EndoNetwork, EndoPeer, EndoReadable, EndoWorker, EvalFormula, FarContext, Formula, FormulaIdentifier, FormulaNumber, FormulaMakerTable, FormulateResult, GuestFormula, HandleFormula, HostFormula, Invitation, InvitationDeferredTaskParams, InvitationFormula, KnownEndoInspectors, KnownPeersStore, LogChunk, LookupFormula, LoopbackNetworkFormula, MailboxStoreFormula, MailHubFormula, MakeArchiveFormula, MakeCapletDeferredTaskParams, MakeFromTreeFormula, MakeUnconfinedFormula, MarshalDeferredTaskParams, MessageFormula, Name, NameHub, NamePath, NameOrPath, NodeNumber, PetName, PeerFormula, PeerInfo, PetInspectorFormula, PetStore, PetStoreFormula, PromiseFormula, Provide, ReadableBlobFormula, ResolverFormula, Sha256, Specials, MarshalFormula, WeakMultimap, WorkerDaemonFacet, WorkerFormula, TimerFormula } from './types.js' */
 
 /**
  * @typedef {{ kind: 'bearer', token: string } | { kind: 'basic', username: string, password: string }} GitCredentialMaterial
  */
+
+/**
+ * The daemon's content store always surfaces the optional `size` / `readRange`
+ * members of `ReadableBlob` (its backing is the on-disk sha256 store), so its
+ * `fetch` result can be treated as having them present — unlike the shared
+ * `ReadableBlob` type, where they are optional for stores that lack range I/O.
+ *
+ * @typedef {import('@endo/platform/fs/lite/types').ReadableBlob & {
+ *   size: () => Promise<bigint>,
+ *   readRange: (offset: number, length: number) => Promise<Uint8Array>,
+ * }} RangeReadableBlob
+ */
+
+/**
+ * Wrap a byte range as a `PassableBytesReader`, the CapTP-passable bytes
+ * stream `BlobRef.fetch` returns. Empty ranges yield a reader that is
+ * immediately done. Mirrors the extended layer's `makeBytesReaderFromBytes`.
+ *
+ * @param {Uint8Array} bytes
+ */
+const bytesFromRange = bytes => {
+  function* generator() {
+    if (bytes.length > 0) {
+      yield bytes;
+    }
+  }
+  return bytesReaderFromIterator(generator());
+};
+harden(bytesFromRange);
+
+/**
+ * @param {string | undefined} raw
+ * @param {number} fallback
+ */
+const parseTraceEnvironmentNumber = (raw, fallback) => {
+  if (raw === undefined || raw === '') return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return n;
+};
+
+/**
+ * Extract the wire-level errorId stamped onto a decoded error by
+ * `@endo/marshal`'s `decodeErrorCommon`. Falls back to scraping the
+ * SES error tag (the parenthesized form of `err.name`) for
+ * environments where the marshal patch is unavailable.
+ *
+ * @param {Error & { errorId?: string }} err
+ * @returns {string | undefined}
+ */
+const extractInboundErrorId = err => {
+  if (!err) return undefined;
+  if (typeof err.errorId === 'string') return err.errorId;
+  if (typeof err.name !== 'string') return undefined;
+  const m = /\(error:[^)]+\)/.exec(err.name);
+  if (m === null) return undefined;
+  return m[0].slice(1, -1);
+};
+
+/**
+ * Construct a `marshalSaveError` hook that the daemon installs on its
+ * outbound CapTP connections. On every outbound error the daemon
+ * forwards, the hook checks the WeakMap of worker-decoded errors and,
+ * if the error came from a worker, registers an alias from the
+ * outbound errorId to the worker-side `(workerId, errorId)` record.
+ * If the error came from the daemon itself, records a stub trace.
+ *
+ * @param {ReturnType<typeof makeTraceAggregator>} aggregator
+ * @param {WeakMap<Error, { workerId: string, errorId: string }>} inboundOrigin
+ */
+const makeOutboundMarshalSaveError =
+  (aggregator, inboundOrigin) =>
+  /**
+   * @param {Error} err
+   * @param {string} [outboundErrorId]
+   */
+  (err, outboundErrorId) => {
+    if (outboundErrorId === undefined) return;
+    const origin = inboundOrigin.get(err);
+    if (origin !== undefined) {
+      aggregator.alias({
+        workerId: origin.workerId,
+        errorId: origin.errorId,
+        aliasErrorId: outboundErrorId,
+      });
+      return;
+    }
+    const inboundErrorId = extractInboundErrorId(err);
+    if (inboundErrorId !== undefined) {
+      aggregator.aliasByErrorId(inboundErrorId, outboundErrorId);
+      return;
+    }
+    // Daemon-internal error with no preceding worker push. Record a
+    // stub so `lookup(outboundErrorId)` at least returns something
+    // with the daemon-side context. The daemon itself runs in the
+    // start compartment, so `getUnredactedStackString` taps SES's
+    // privileged unredaction hook (the same one `@endo/ses-ava` uses)
+    // and returns the full unredacted rendering rather than the
+    // redacted `err.stack` view.
+    aggregator.record('@daemon', {
+      errorId: outboundErrorId,
+      workerId: '@daemon',
+      name: typeof err.name === 'string' ? err.name : 'Error',
+      message: typeof err.message === 'string' ? err.message : `${err}`,
+      stack: getUnredactedStackString(err),
+      annotations: [],
+      causes: [],
+      t: Date.now(),
+      site: 'daemon',
+    });
+  };
 
 /**
  * Creates a delayed promise that can be cancelled.
@@ -332,6 +460,45 @@ const makeDaemonCore = async (
   const workerDaemonFacets = new WeakMap();
   /** @type {Map<string, (reason?: Error) => Promise<void>>} */
   const workerTerminationByNumber = new Map();
+  /**
+   * Side WeakMap that the daemon's per-worker CapTP populates via its
+   * `marshalLoadError` hook: each decoded error from a worker is
+   * stamped with `{ workerId, errorId }` so the daemon's outbound
+   * CLI-facing `marshalSaveError` can register an alias entry from
+   * the new daemon-minted errorId to the worker's already-aggregated
+   * record.
+   *
+   * @type {WeakMap<Error, { workerId: string, errorId: string }>}
+   */
+  const inboundErrorOrigin = new WeakMap();
+
+  /**
+   * In-process aggregator for error traces pushed by workers and
+   * minted by the daemon's outbound CapTP. Configurable via
+   * ENDO_TRACE_RECORDS, ENDO_TRACE_BYTES, ENDO_TRACE_WORKERS.
+   */
+  const traceAggregator = makeTraceAggregator({
+    // eslint-disable-next-line no-undef
+    maxRecordsPerWorker: parseTraceEnvironmentNumber(
+      // eslint-disable-next-line no-undef
+      typeof process !== 'undefined'
+        ? process.env.ENDO_TRACE_RECORDS
+        : undefined,
+      1024,
+    ),
+    maxBytes: parseTraceEnvironmentNumber(
+      // eslint-disable-next-line no-undef
+      typeof process !== 'undefined' ? process.env.ENDO_TRACE_BYTES : undefined,
+      8 * 1024 * 1024,
+    ),
+    maxWorkers: parseTraceEnvironmentNumber(
+      // eslint-disable-next-line no-undef
+      typeof process !== 'undefined'
+        ? process.env.ENDO_TRACE_WORKERS
+        : undefined,
+      64,
+    ),
+  });
   /**
    * Mutations of the formula graph must be serialized through this queue.
    * "Mutations" include:
@@ -620,6 +787,12 @@ const makeDaemonCore = async (
         return [];
       case 'git':
         return [['mount', formula.mountId]];
+      case 'shell':
+        return [['mount', formula.mountId]];
+      case 'http-client':
+        // The HTTP client is rooted in a host-owned `fetch` seam, not a mount
+        // or any other daemon-minted capability, so it has no formula deps.
+        return [];
       case 'git-credential':
         return [];
       case 'git-remote': {
@@ -977,6 +1150,16 @@ const makeDaemonCore = async (
   const agentIdForHandle = new WeakMap();
   /** @type {Map<FormulaIdentifier, GitCredentialMaterial>} */
   const gitCredentialMaterialForId = new Map();
+  // Host-private companion map from an `http-client` formula's use-facing
+  // `HttpClient` exo to its policy-bearing `HttpClientControl`, populated in the
+  // `http-client` maker on every (re)incarnation.  `host.getHttpClientControl`
+  // recovers the control from the client cap, mirroring `getGitRemoteController`
+  // — the guest holds only the client, the host retains the control.
+  /** @type {WeakMap<object, object>} */
+  const httpClientControlForClient = new WeakMap();
+  /** @param {unknown} client */
+  const getHttpClientControlForClient = client =>
+    httpClientControlForClient.get(/** @type {object} */ (client));
 
   /**
    * @param {FormulaIdentifier} id
@@ -1258,7 +1441,7 @@ const makeDaemonCore = async (
      * Subsequent deltas are batched over microtasks.
      *
      * @param {string} peerNodeNumber
-     * @returns {Promise<FarRef<AsyncIterableIterator<import('./retention-accumulator.js').RetentionDelta>>>}
+     * @returns {Promise<import('@endo/exo-stream').PassableReader<import('./retention-accumulator.js').RetentionDelta, undefined>>}
      */
     followRetentionSet: async peerNodeNumber => {
       const snapshot =
@@ -1280,7 +1463,9 @@ const makeDaemonCore = async (
         }
       })();
 
-      return makeIteratorRef(accumulator.subscribe());
+      return /** @type {any} */ (
+        readerFromIterator(/** @type {any} */ (accumulator.subscribe()))
+      );
     },
   });
 
@@ -1318,7 +1503,11 @@ const makeDaemonCore = async (
           : undefined;
 
         let isFirst = true;
-        for await (const delta of makeRefIterator(/** @type {any} */ (iter))) {
+        for await (const rawDelta of iterateReader(/** @type {any} */ (iter))) {
+          const delta =
+            /** @type {import('./retention-accumulator.js').RetentionDelta} */ (
+              /** @type {any} */ (rawDelta)
+            );
           if (isFirst) {
             // First delta is the full snapshot.
             persistencePowers.replaceRetention(remoteNodeId, delta.add);
@@ -1381,11 +1570,50 @@ const makeDaemonCore = async (
   /**
    * @param {string} workerId512
    */
-  const makeDaemonFacetForWorker = async workerId512 => {
+  const makeDaemonFacetForWorker = workerId512 => {
+    // The trace record's `workerId` must be a full formula identifier
+    // (`number:node`) so a UI can pass it straight to `lookupById` /
+    // `getFormula` (Show Value); `workerId512` alone is only the
+    // formula number and fails `parseId` with "Invalid formula
+    // identifier". Workers are always local, so the node is this
+    // daemon's node.
+    const workerFormulaId = formatId({
+      number: /** @type {FormulaNumber} */ (workerId512),
+      node: localNodeNumber,
+    });
     return makeExo(
       `Endo facet for worker ${workerId512}`,
       DaemonFacetForWorkerInterface,
-      {},
+      {
+        /**
+         * Push a trace record from the worker. The daemon stamps the
+         * authoritative workerId from the connection identity so a
+         * worker cannot forge entries under another worker's id.
+         *
+         * The guard accepts any record; `traceAggregator.record`
+         * performs structural validation and rejects malformed
+         * payloads, so the cast at the boundary is safe.
+         *
+         * @param {Record<string, any>} record
+         */
+        reportTrace: async record => {
+          try {
+            traceAggregator.record(
+              workerFormulaId,
+              /** @type {import('./trace-aggregator.js').TraceRecord} */ (
+                record
+              ),
+            );
+          } catch (err) {
+            // Never let a malformed worker push interfere with the
+            // worker's progress. Log and drop.
+            console.error(
+              `Endo trace push from worker ${workerId512} rejected:`,
+              /** @type {Error} */ (err).message,
+            );
+          }
+        },
+      },
     );
   };
 
@@ -1411,6 +1639,24 @@ const makeDaemonCore = async (
     const { promise: workerCancelled, reject: cancelWorker } =
       /** @type {PromiseKit<never>} */ (makePromiseKit());
 
+    /**
+     * Stamp every error we decode from this worker with its origin so
+     * the daemon's outbound CapTP hook can alias forwarded errorIds.
+     *
+     * @param {Error} err
+     * @param {string} [errorId]
+     */
+    const workerFormulaId = formatId({
+      number: /** @type {FormulaNumber} */ (workerId512),
+      node: localNodeNumber,
+    });
+    const recordInboundOrigin = (err, errorId) => {
+      if (errorId === undefined) return;
+      // Key by the full formula identifier so it matches the `workerId`
+      // that `reportTrace` records under (see `makeDaemonFacetForWorker`).
+      inboundErrorOrigin.set(err, { workerId: workerFormulaId, errorId });
+    };
+
     const { workerTerminated, workerDaemonFacet } =
       await controlPowers.makeWorker(
         workerId512,
@@ -1421,6 +1667,7 @@ const makeDaemonCore = async (
         trustedShims,
         label,
         kind,
+        recordInboundOrigin,
       );
 
     /** @param {Error} [_reason] */
@@ -1471,16 +1718,52 @@ const makeDaemonCore = async (
   /**
    * @param {string} sha256
    */
-  const makeReadableBlob = sha256 =>
-    makeExo(
+  const makeReadableBlob = sha256 => {
+    const { makeFileReader, text, json, size, readRange } =
+      /** @type {RangeReadableBlob} */ (contentStore.fetch(sha256));
+    return makeExo(
       `Readable file with SHA-256 ${sha256.slice(0, 8)}...`,
       BlobInterface,
       /** @type {any} */ ({
-        sha256: () => sha256,
-        ...contentStore.fetch(sha256),
+        /** @param {import('@endo/eventual-send').ERef<unknown>} synPromise */
+        streamBase64(synPromise) {
+          const pump = makeReaderPump(
+            mapReader(makeFileReader(), encodeBase64),
+          );
+          return pump(/** @type {any} */ (synPromise));
+        },
+        text,
+        json,
+        // Range-I/O surface (aligns with the extended `BlobRef`): the
+        // `{ algorithm, hash, size }` triple in one round-trip, then a
+        // windowed `fetch`. `hash` is base64 to match `BlobRef.getInfo`
+        // (this `EndoBlob` cap no longer carries a hex `sha256()` accessor;
+        // the hex spelling lives only in the internal content-store address).
+        async getInfo() {
+          return harden({
+            algorithm: 'sha256',
+            hash: encodeBase64(fromHex(sha256)),
+            size: await size(),
+          });
+        },
+        /**
+         * @param {bigint} offset
+         * @param {bigint} length
+         */
+        async fetch(offset, length) {
+          // Validate at the bigint→Number boundary (same `toSafeNumber`
+          // the extended `BlobRef.fetch` uses) so negative or out-of-range
+          // windows throw `EINVAL` rather than silently losing precision.
+          const bytes = await readRange(
+            toSafeNumber(offset, 'offset'),
+            toSafeNumber(length, 'length'),
+          );
+          return bytesFromRange(bytes);
+        },
         help: makeHelp(blobHelp),
       }),
     );
+  };
 
   /**
    * @param {string} sha256
@@ -1497,6 +1780,7 @@ const makeDaemonCore = async (
 
   /**
    * @param {object} tree
+   * @returns {Promise<SnapshotTree>}
    */
   const snapshotMountTree = async tree => {
     const { sha256 } = await platformCheckinTree(tree, contentStore);
@@ -1812,15 +2096,43 @@ const makeDaemonCore = async (
       digester.update(bytes);
       return digester.digestHex();
     })();
+    const info = harden({
+      algorithm: 'sha256',
+      hash: encodeBase64(fromHex(sha256Hex)),
+      size: BigInt(bytes.length),
+    });
     return makeExo(
       'TransientBlob',
       BlobInterface,
       /** @type {any} */ ({
         help: () => 'Transient in-memory blob',
-        sha256: () => sha256Hex,
-        streamBase64: () => makeReaderRef([bytes]),
+        /** @param {import('@endo/eventual-send').ERef<unknown>} synPromise */
+        streamBase64(synPromise) {
+          const pump = makeReaderPump(
+            mapReader(
+              /** @type {any} */ ([bytes][Symbol.iterator]()),
+              encodeBase64,
+            ),
+          );
+          return pump(/** @type {any} */ (synPromise));
+        },
         text: async () => bytesToText(bytes),
         json: async () => JSON.parse(bytesToText(bytes)),
+        getInfo: () => info,
+        /**
+         * @param {bigint} offset
+         * @param {bigint} length
+         */
+        fetch: async (offset, length) => {
+          const off = toSafeNumber(offset, 'offset');
+          const len = toSafeNumber(length, 'length');
+          const end = Math.min(off + len, bytes.length);
+          const slice =
+            off >= bytes.length || len <= 0
+              ? new Uint8Array(0)
+              : bytes.subarray(off, end);
+          return bytesFromRange(slice);
+        },
       }),
     );
   };
@@ -2257,12 +2569,12 @@ const makeDaemonCore = async (
             locate,
             reverseLocate,
             followLocatorNameChanges: locator =>
-              makeIteratorRef(followLocatorNameChanges(locator)),
+              readerFromIterator(followLocatorNameChanges(locator)),
             list,
             listIdentifiers,
             listLocators,
             followNameChanges: (...petNamePath) =>
-              makeIteratorRef(followNameChanges(...petNamePath)),
+              readerFromIterator(followNameChanges(...petNamePath)),
             lookup,
             maybeLookup,
             reverseLookup,
@@ -2634,12 +2946,12 @@ const makeDaemonCore = async (
             locate,
             reverseLocate,
             followLocatorNameChanges: locator =>
-              makeIteratorRef(followLocatorNameChanges(locator)),
+              readerFromIterator(followLocatorNameChanges(locator)),
             list,
             listIdentifiers,
             listLocators,
             followNameChanges: (...petNamePath) =>
-              makeIteratorRef(followNameChanges(...petNamePath)),
+              readerFromIterator(followNameChanges(...petNamePath)),
             lookup,
             maybeLookup,
             reverseLookup,
@@ -2670,7 +2982,7 @@ const makeDaemonCore = async (
       makeEval(worker, source, names, values, context),
     'readable-blob': ({ content }) => makeReadableBlob(content),
     'readable-tree': ({ content }) => makeReadableTree(content),
-    mount: async ({ path: mountPath, readOnly }) => {
+    mount: async ({ path: mountPath, readOnly, deniedSegments }, context) => {
       // Verify the mount path exists.
       const pathExists = await filePowers.exists(mountPath);
       if (!pathExists) {
@@ -2680,30 +2992,49 @@ const makeDaemonCore = async (
       if (!isDir) {
         throw new Error(`Mount path is not a directory: ${q(mountPath)}`);
       }
-      return makeMount({
+      const { mount, control } = makeRevocableMount({
         rootPath: mountPath,
         readOnly,
         filePowers,
         snapshotTree: snapshotMountTree,
         snapshotFile: snapshotMountFile,
+        deniedSegments,
       });
+      // Tie revocation to the mount formula's lifetime: when the formula is
+      // cancelled, the caretaker trips the shared liveness flag and every
+      // derived face begins throwing. The control stays captive in this
+      // closure — callers only ever receive `mount`.
+      context.onCancel(() => {
+        /** @type {{ revoke: () => void }} */ (control).revoke();
+      });
+      return mount;
     },
-    'scratch-mount': async ({ readOnly }, _context, _id, formulaNumber) => {
+    'scratch-mount': async (
+      { readOnly, deniedSegments },
+      context,
+      _id,
+      formulaNumber,
+    ) => {
       const rootPath = filePowers.joinPath(
         persistencePowers.statePath,
         'mounts',
         /** @type {string} */ (formulaNumber),
       );
       await filePowers.makePath(rootPath);
-      return makeMount({
+      const { mount, control } = makeRevocableMount({
         rootPath,
         readOnly,
         filePowers,
         snapshotTree: snapshotMountTree,
         snapshotFile: snapshotMountFile,
+        deniedSegments,
       });
+      context.onCancel(() => {
+        /** @type {{ revoke: () => void }} */ (control).revoke();
+      });
+      return mount;
     },
-    git: async ({ mountId }, context) => {
+    git: async ({ mountId, allowHistoryRewrite = false }, context) => {
       context.thisDiesIfThatDies(mountId);
       const mount = await provide(mountId);
       const backing = getMountBacking(mount);
@@ -2730,19 +3061,99 @@ const makeDaemonCore = async (
       }
       const backend = makeNativeGitBackend({
         repoRoot: backing.physicalRoot,
-        makeReaderRef,
       });
       await backend.assertRepositoryRoot();
-      return makeGit({
-        // `provide(mountId)` returns a union of cap types; the
-        // `getMountBacking` check above guarantees an `EndoMount`,
-        // but TS can't narrow through it.
-        // eslint-disable-next-line object-shorthand
-        mount: /** @type {object} */ (mount),
-        backend,
-        readOnly: backing.readOnly,
-        lineageOf,
+      return makeGit(
+        {
+          // `provide(mountId)` returns a union of cap types; the
+          // `getMountBacking` check above guarantees an `EndoMount`,
+          // but TS can't narrow through it.
+          // eslint-disable-next-line object-shorthand
+          mount: /** @type {WritableGitWorktree} */ (mount),
+          backend,
+          lineageOf,
+        },
+        { readOnly: backing.readOnly, allowHistoryRewrite },
+      );
+    },
+    shell: async ({ mountId, policy }, context) => {
+      context.thisDiesIfThatDies(mountId);
+      const mount = await provide(mountId);
+      const backing = getMountBacking(mount);
+      if (!backing) {
+        throw makeError(
+          X`Shell formula's mountId ${q(mountId)} does not name a daemon-minted mount`,
+        );
+      }
+      if (backing.kind !== 'physical') {
+        throw makeError(
+          X`Shell requires a physical mount, got ${q(backing.kind)}`,
+        );
+      }
+      // A child process holds OS-level write authority over its working tree;
+      // a read-only mount cannot bound that, so a "read-only shell" would
+      // misrepresent the authority actually granted.  Refuse it (design
+      // § Shell capability).  `provideShell` rejects earlier; this is the
+      // reincarnation-time defense so a persisted formula cannot smuggle one in.
+      if (backing.readOnly) {
+        throw makeError(
+          X`Shell requires a writable mount; refusing to construct a shell over a read-only mount`,
+        );
+      }
+      // PATH is policy-owned and baked at provideShell time.  A legacy formula
+      // without `searchPath` gets an empty path rather than reincarnating with
+      // ambient daemon process authority.
+      const searchPath =
+        typeof policy.searchPath === 'string' ? policy.searchPath : '';
+      const baseEnv = harden({ PATH: searchPath, LC_ALL: 'C' });
+      // `killProcessGroup` so the exo-shell timeout's SIGTERM→SIGKILL
+      // escalation reaps a child that traps the signal (and any descendant it
+      // forked holding the stdio pipes), rather than leaking it and hanging
+      // `exec` past the deadline.
+      const spawner = makeHostSpawner({
+        searchPath,
+        defaultEnv: baseEnv,
+        killProcessGroup: true,
       });
+      return makeShell({
+        cwd: backing.currentDir,
+        policy: harden({
+          allowedCommands: harden([...policy.allowedCommands]),
+          timeoutMs: policy.timeoutMs,
+          maxOutputBytes: policy.maxOutputBytes,
+          env: harden({ ...(policy.env || {}) }),
+        }),
+        spawner,
+        readOnly: false,
+      });
+    },
+    'http-client': ({ policy }) => {
+      // The Network (HTTP) tier is the deliberate exception to "everything
+      // derives from the mount": there is no filesystem to root it in, so its
+      // root authority is a host-owned `fetch` (and `now`) seam, injected here
+      // in the daemon (host) process exactly as the shell maker injects its
+      // host spawner.  The policy is formula-owned and baked at
+      // `provideHttpClient` time, so the capability reconstitutes across daemon
+      // restart with identical bounds.
+      const { client, control } = makeHttpClientAndControl({
+        // Native Node `fetch` is structurally a `FetchLike` (its `body` is
+        // `BodyInit` where `FetchLike` accepts `unknown`); cast at the seam as
+        // `@endo/exo-http-client` does for its own `globalThis.fetch` default.
+        fetch: /** @type {import('@endo/exo-http-client').FetchLike} */ (
+          globalThis.fetch
+        ),
+        now: Date.now,
+        allowedOrigins: harden([...policy.allowedOrigins]),
+        maxRequestsPerMinute: policy.maxRequestsPerMinute,
+        maxResponseBytes: policy.maxResponseBytes,
+        policyMode: policy.policyMode,
+      });
+      // Control / client split: only the use-facing `client` is returned (and
+      // bound into the guest petstore); the policy-bearing `control` is
+      // retained host-side, reachable via `host.getHttpClientControl(client)`.
+      // Re-registered on every reincarnation because the maker reruns.
+      httpClientControlForClient.set(client, control);
+      return client;
     },
     'git-credential': ({ kind, audience }, _context, id) => {
       const material = gitCredentialMaterialForId.get(id);
@@ -3016,6 +3427,270 @@ const makeDaemonCore = async (
       peers: peersId,
     }) => {
       const help = makeHelp(endoHelp);
+
+      // Size of each ranged read while streaming a log file. The
+      // reader yields one entry per non-empty chunk, so a larger
+      // window means fewer CapTP messages for big logs.
+      const logChunkBytes = 65_536;
+
+      // How long a `follow` stream waits between filesystem polls once a
+      // log has no new bytes. Short enough to feel live, long enough that
+      // an idle `follow` stream does not busy-poll the disk.
+      const followPollMs = 1000;
+
+      /**
+       * Enumerate the daemon's log files — the top-level `*.log` files
+       * (e.g. `endo.log`) plus each worker's `worker/<id>/worker.log` —
+       * paired with a stable display name and modification time, oldest
+       * first. Mirrors the discovery the `endo log --all` CLI command
+       * performs directly against the filesystem.
+       *
+       * @returns {Promise<Array<{ path: string, source: string, mtime: bigint }>>}
+       */
+      const listLogFiles = async () => {
+        const { statePath } = persistencePowers;
+        /** @type {Array<{ path: string, source: string, mtime: bigint }>} */
+        const logFiles = [];
+        /**
+         * @param {string} logPath
+         * @param {string} source
+         */
+        const consider = async (logPath, source) => {
+          const stat = await filePowers
+            .statPath(logPath)
+            .catch(() => undefined);
+          if (stat !== undefined && stat.kind === 'file') {
+            logFiles.push(harden({ path: logPath, source, mtime: stat.mtime }));
+          }
+        };
+        // Top-level *.log files.
+        const entries = await filePowers
+          .readDirectory(statePath)
+          .catch(() => []);
+        for (const entry of entries) {
+          if (entry.endsWith('.log')) {
+            await consider(filePowers.joinPath(statePath, entry), entry);
+          }
+        }
+        // Per-worker worker.log files. The display name uses a short id
+        // prefix for readability, but since `source` doubles as the
+        // `name` selector, fall back to the full id whenever two workers
+        // would share a prefix — otherwise selecting one would
+        // ambiguously match (and concatenate) both.
+        const workerDirectory = filePowers.joinPath(statePath, 'worker');
+        const workerIds = await filePowers
+          .readDirectory(workerDirectory)
+          .catch(() => []);
+        const prefixCounts = new Map();
+        for (const workerId of workerIds) {
+          const prefix = workerId.slice(0, 8);
+          prefixCounts.set(prefix, (prefixCounts.get(prefix) ?? 0) + 1);
+        }
+        for (const workerId of workerIds) {
+          const prefix = workerId.slice(0, 8);
+          const source =
+            prefixCounts.get(prefix) === 1
+              ? `worker/${prefix}`
+              : `worker/${workerId}`;
+          await consider(
+            filePowers.joinPath(workerDirectory, workerId, 'worker.log'),
+            source,
+          );
+        }
+        logFiles.sort((a, b) => {
+          if (a.mtime < b.mtime) return -1;
+          if (a.mtime > b.mtime) return 1;
+          // Tie-break on the display name so logs with identical mtimes
+          // (created together, or on a coarse-resolution filesystem) have
+          // a fully deterministic order rather than a filesystem-dependent
+          // one.
+          if (a.source < b.source) return -1;
+          if (a.source > b.source) return 1;
+          return 0;
+        });
+        return harden(logFiles);
+      };
+
+      /**
+       * Stream the daemon's logs as a sequence of `{ source, chunk }`
+       * records, where `source` is the log's display name and `chunk`
+       * is a run of newly read UTF-8 text. Each file is read in bounded
+       * windows so an arbitrarily large log never has to be buffered in
+       * memory or marshalled in a single message. A streaming decoder
+       * keeps multi-byte characters intact across window boundaries.
+       *
+       * When a content filter (`pattern`) is supplied, the stream
+       * switches to line granularity: the windows are split into lines
+       * and only matching lines are emitted (each as its own `chunk`,
+       * newline included), so the consumer still reconstructs a
+       * coherent — but filtered — log by concatenating chunks. A plain
+       * substring search is just an unanchored pattern, so no separate
+       * `includes` option is needed.
+       *
+       * @param {object} [options]
+       * @param {string} [options.name] Restrict the stream to the single
+       *   log whose display name matches exactly (e.g. `endo.log` or
+       *   `worker/<id8>`). When omitted, every log is streamed.
+       * @param {string} [options.pattern] Emit only lines that match this
+       *   regular expression, given as a `RegExp` *source string* (a
+       *   `RegExp` object is not passable, so it cannot cross CapTP). The
+       *   line's terminator (`\n` or `\r\n`) is excluded when matching,
+       *   so `$`-anchored patterns behave the same on LF and CRLF logs.
+       * @param {boolean} [options.follow] When false (the default), the
+       *   stream ends once the current extent of every selected log has
+       *   been read. When true, the stream stays open after reaching the
+       *   end and keeps emitting bytes as the logs grow — re-scanning on
+       *   each poll so newly created logs (e.g. a freshly spawned worker)
+       *   are picked up too — until the consumer closes the reader or the
+       *   daemon shuts down.
+       * @returns {AsyncGenerator<LogChunk, undefined, undefined>}
+       */
+      const readLogEntries = async function* readLogEntries(options = {}) {
+        const { name, pattern, follow = false } = options;
+        // Compile the caller's line predicate once. `pattern` arrives as
+        // a RegExp source string and is compiled here. A pathological
+        // pattern could backtrack catastrophically (ReDoS) while scanning
+        // a large log, but `readLog` is only reachable through the Endo
+        // bootstrap capability — a holder of which can already
+        // `terminate()` the daemon outright — so this adds no meaningful
+        // denial-of-service surface and is deliberately left unsanitised.
+        const regexp = pattern === undefined ? undefined : new RegExp(pattern);
+        const filtered = regexp !== undefined;
+        /** @param {string} line */
+        const matchesLine = line => regexp === undefined || regexp.test(line);
+
+        // Per-log streaming cursor. `follow` resumes each log where the
+        // previous poll left off, so the byte offset, the streaming
+        // decoder (mid multi-byte character) and the trailing partial
+        // line must all persist across polls.
+        /** @typedef {{ path: string, source: string, offset: number, decoder: TextDecoder, pending: string }} LogCursor */
+        /** @type {Map<string, LogCursor>} */
+        const cursors = new Map();
+
+        /**
+         * @param {{ path: string, source: string }} logFile
+         * @returns {LogCursor}
+         */
+        const cursorFor = ({ path: logPath, source }) => {
+          let cursor = cursors.get(logPath);
+          if (cursor === undefined) {
+            cursor = {
+              path: logPath,
+              source,
+              offset: 0,
+              decoder: new TextDecoder(),
+              pending: '',
+            };
+            cursors.set(logPath, cursor);
+          }
+          return cursor;
+        };
+
+        /**
+         * Yield every byte currently readable from one log, advancing its
+         * cursor and stopping at the present end of file. Partial
+         * multi-byte characters, and (when filtering) the trailing partial
+         * line, are retained on the cursor for the next call rather than
+         * emitted prematurely.
+         *
+         * @param {LogCursor} cursor
+         */
+        const drainCursor = async function* drainCursor(cursor) {
+          for (;;) {
+            const bytes = await filePowers.readFileRange(
+              cursor.path,
+              cursor.offset,
+              logChunkBytes,
+            );
+            if (bytes.length === 0) {
+              break;
+            }
+            cursor.offset += bytes.length;
+            const text = cursor.decoder.decode(bytes, { stream: true });
+            // An empty decode means the window ended mid multi-byte
+            // character; the decoder retains those bytes for the next read.
+            if (text.length !== 0 && !filtered) {
+              yield harden({ source: cursor.source, chunk: text });
+            } else if (text.length !== 0) {
+              cursor.pending += text;
+              let newlineIndex = cursor.pending.indexOf('\n');
+              while (newlineIndex !== -1) {
+                const line = cursor.pending.slice(0, newlineIndex);
+                cursor.pending = cursor.pending.slice(newlineIndex + 1);
+                // Match the content without its line terminator so a
+                // trailing `\r` (CRLF logs) doesn't defeat `$` anchors;
+                // re-emit the line with its original terminator intact.
+                const content = line.endsWith('\r') ? line.slice(0, -1) : line;
+                if (matchesLine(content)) {
+                  yield harden({ source: cursor.source, chunk: `${line}\n` });
+                }
+                newlineIndex = cursor.pending.indexOf('\n');
+              }
+            }
+          }
+        };
+
+        /**
+         * Flush the bytes the streaming decoder is holding plus the final
+         * unterminated line. Only used when a log is considered complete,
+         * i.e. never in `follow` mode, where more bytes may still arrive.
+         *
+         * @param {LogCursor} cursor
+         */
+        const flushCursor = async function* flushCursor(cursor) {
+          const tail = cursor.decoder.decode();
+          if (!filtered) {
+            if (tail.length > 0) {
+              yield harden({ source: cursor.source, chunk: tail });
+            }
+            return;
+          }
+          cursor.pending += tail;
+          const content = cursor.pending.endsWith('\r')
+            ? cursor.pending.slice(0, -1)
+            : cursor.pending;
+          if (content.length > 0 && matchesLine(content)) {
+            yield harden({ source: cursor.source, chunk: cursor.pending });
+          }
+          cursor.pending = '';
+        };
+
+        /** @param {Array<{ path: string, source: string }>} logFiles */
+        const select = logFiles =>
+          name === undefined
+            ? logFiles
+            : logFiles.filter(logFile => logFile.source === name);
+
+        if (!follow) {
+          for (const logFile of select(await listLogFiles())) {
+            const cursor = cursorFor(logFile);
+            yield* drainCursor(cursor);
+            yield* flushCursor(cursor);
+          }
+          return undefined;
+        }
+
+        // Follow mode: re-enumerate (to catch newly created logs), drain
+        // any new bytes from each, then wait and repeat — never flushing,
+        // since an unterminated tail may still be completed by later
+        // writes. The poll sleep is bounded by the daemon's grace-period
+        // promise so the loop and its timer cannot outlive the daemon;
+        // `delay` rejects when that promise rejects, which we treat as a
+        // clean end of stream. Early consumer close is handled by the
+        // reader pump calling this generator's `return()` at the yield
+        // point (see the `buffer: 0` note where `readLog` wraps this).
+        for (;;) {
+          for (const logFile of select(await listLogFiles())) {
+            yield* drainCursor(cursorFor(logFile));
+          }
+          try {
+            await delay(followPollMs, gracePeriodElapsed);
+          } catch {
+            break;
+          }
+        }
+        return undefined;
+      };
       const endoBootstrap = /** @type {FarRef<EndoBootstrap>} */ (
         /** @type {unknown} */ (
           makeExo(
@@ -3032,6 +3707,17 @@ const makeDaemonCore = async (
               greeter: async () => localGreeter,
               gateway: async () => localGateway,
               nodeId: () => localNodeNumber,
+              readLog: async (options = {}) => {
+                const settings = options ?? {};
+                // Bulk reads stay pipelined for throughput, but a `follow`
+                // stream uses no pre-buffer: the pump must park on the syn
+                // chain (not inside a pulled, sleeping `next()`) so an
+                // early `return()` from the consumer is observed promptly
+                // and tears the follow loop down instead of hanging.
+                return readerFromIterator(readLogEntries(settings), {
+                  buffer: settings.follow ? 0 : 64,
+                });
+              },
               sign: async hexBytes => toHex(signBytes(fromHex(hexBytes))),
               reviveNetworks: async () => {
                 const networksDirectory = await provide(
@@ -3189,6 +3875,7 @@ const makeDaemonCore = async (
             lookup: disallowedFn,
             maybeLookup: disallowedSyncFn,
             lookupById: disallowedFn,
+            lookupByLocator: disallowedFn,
             reverseLookup: disallowedFn,
             storeIdentifier: disallowedFn,
             storeLocator: disallowedFn,
@@ -3218,6 +3905,8 @@ const makeDaemonCore = async (
             submit: disallowedFn,
             sendValue: disallowedFn,
             deliver: disallowedSyncFn,
+            editMessage: disallowedFn,
+            messageHistory: disallowedFn,
           })
         )
       );
@@ -3282,10 +3971,10 @@ const makeDaemonCore = async (
         id,
         hostAgentId,
         hostHandleId,
-        /** @type {import('./types.js').PetName} */ (guestName),
+        /** @type {import('./types.js').NameOrPath} */ (guestName),
       ),
     timer: async ({ intervalMs, label: timerLabel }, context) => {
-      const interval = Number(intervalMs) || 60000;
+      const interval = Number(intervalMs) || 60_000;
       let tickCount = 0;
       /** @type {Array<{ callback: object, context: string }>} */
       const subscribers = [];
@@ -3569,7 +4258,13 @@ const makeDaemonCore = async (
           await randomHex256()
         );
         const contentSha256 = await contentStore.store(
-          makeRefReader(readerRef),
+          // Use a higher string length limit to accommodate large
+          // payloads like bundles. 10MB base64 ~= 7.5MB binary.
+          // `iterateBytesReader` returns the iterator synchronously; the
+          // store consumes it, so no `await` here.
+          iterateBytesReader(readerRef, {
+            stringLengthLimit: 10_000_000,
+          }),
         );
 
         await deferredTasks.execute({
@@ -3591,7 +4286,12 @@ const makeDaemonCore = async (
   };
 
   /** @type {DaemonCore['formulateMount']} */
-  const formulateMount = async (mountPath, readOnly, deferredTasks) => {
+  const formulateMount = async (
+    mountPath,
+    readOnly,
+    deferredTasks,
+    deniedSegments = undefined,
+  ) => {
     return /** @type {FormulateResult<EndoMount>} */ (
       withFormulaGraphLock(async () => {
         await null;
@@ -3606,11 +4306,17 @@ const makeDaemonCore = async (
           }),
         });
 
+        // The `deniedSegments` field is included only when overridden, so a
+        // default mount keeps its historical persisted formula shape (the
+        // on-disk record stays byte-identical to the pre-deny era). Formula
+        // numbers are random, not content-addressed, so this is about the
+        // record's shape and backward-compatibility, not formula identity.
         /** @type {import('./types.js').MountFormula} */
         const formula = harden({
           type: 'mount',
           path: mountPath,
           readOnly,
+          ...(deniedSegments !== undefined ? { deniedSegments } : {}),
         });
 
         return formulate(formulaNumber, formula);
@@ -3619,7 +4325,11 @@ const makeDaemonCore = async (
   };
 
   /** @type {DaemonCore['formulateScratchMount']} */
-  const formulateScratchMount = async (readOnly, deferredTasks) => {
+  const formulateScratchMount = async (
+    readOnly,
+    deferredTasks,
+    deniedSegments = undefined,
+  ) => {
     return /** @type {FormulateResult<EndoMount>} */ (
       withFormulaGraphLock(async () => {
         await null;
@@ -3638,6 +4348,7 @@ const makeDaemonCore = async (
         const formula = harden({
           type: 'scratch-mount',
           readOnly,
+          ...(deniedSegments !== undefined ? { deniedSegments } : {}),
         });
 
         return formulate(formulaNumber, formula);
@@ -3646,7 +4357,7 @@ const makeDaemonCore = async (
   };
 
   /** @type {DaemonCore['formulateGit']} */
-  const formulateGit = async (mountId, deferredTasks) => {
+  const formulateGit = async (mountId, allowHistoryRewrite, deferredTasks) => {
     return /** @type {FormulateResult<EndoGit>} */ (
       withFormulaGraphLock(async () => {
         await null;
@@ -3665,6 +4376,62 @@ const makeDaemonCore = async (
         const formula = harden({
           type: 'git',
           mountId,
+          ...(allowHistoryRewrite && { allowHistoryRewrite: true }),
+        });
+
+        return formulate(formulaNumber, formula);
+      })
+    );
+  };
+
+  /** @type {DaemonCore['formulateShell']} */
+  const formulateShell = async (mountId, policy, deferredTasks) => {
+    return /** @type {FormulateResult<import('./types.js').EndoShell>} */ (
+      withFormulaGraphLock(async () => {
+        await null;
+        const formulaNumber = /** @type {FormulaNumber} */ (
+          await randomHex256()
+        );
+
+        await deferredTasks.execute({
+          shellId: formatId({
+            number: formulaNumber,
+            node: localNodeNumber,
+          }),
+        });
+
+        /** @type {import('./types.js').ShellFormula} */
+        const formula = harden({
+          type: 'shell',
+          mountId,
+          policy,
+        });
+
+        return formulate(formulaNumber, formula);
+      })
+    );
+  };
+
+  /** @type {DaemonCore['formulateHttpClient']} */
+  const formulateHttpClient = async (policy, deferredTasks) => {
+    return /** @type {FormulateResult<import('@endo/exo-http-client').HttpClient>} */ (
+      withFormulaGraphLock(async () => {
+        await null;
+        const formulaNumber = /** @type {FormulaNumber} */ (
+          await randomHex256()
+        );
+
+        await deferredTasks.execute({
+          httpClientId: formatId({
+            number: formulaNumber,
+            node: localNodeNumber,
+          }),
+        });
+
+        /** @type {import('./types.js').HttpClientFormula} */
+        const formula = harden({
+          type: 'http-client',
+          policy,
         });
 
         return formulate(formulaNumber, formula);
@@ -3732,7 +4499,7 @@ const makeDaemonCore = async (
     policy,
     deferredTasks,
   ) => {
-    return /** @type {FormulateResult<unknown>} */ (
+    return /** @type {FormulateResult<import('@endo/exo-git').GitRemote>} */ (
       withFormulaGraphLock(async () => {
         await null;
         const formulaNumber = /** @type {FormulaNumber} */ (
@@ -3766,11 +4533,32 @@ const makeDaemonCore = async (
       withFormulaGraphLock(async () => {
         await null;
 
-        // Walk the remote tree and store all content via the platform adapter.
-        const { sha256: treeSha256 } = await platformCheckinTree(
-          remoteTree,
-          contentStore,
-        );
+        const archiveTree =
+          /** @type {import('@endo/eventual-send').ERef<ArchiveTreeMethods>} */ (
+            remoteTree
+          );
+        const methods =
+          // eslint-disable-next-line no-underscore-dangle
+          await E(archiveTree)
+            .__getMethodNames__()
+            .catch(() => /** @type {string[]} */ ([]));
+        // `git archive` is not a lossless tree source: it honors a
+        // committed `.gitattributes` `export-ignore` (omitting matching
+        // tracked files) and flattens gitlinks / submodule commits to
+        // empty directories. Take the fast archive path only when the
+        // tree reports itself archive-lossless; otherwise fall back to
+        // the per-entry `ls-tree`/`cat-file` walk, which mirrors the
+        // committed tree exactly and fails loudly on gitlinks.
+        const useArchive =
+          methods.includes('archiveTar') &&
+          (!methods.includes('archiveLossless') ||
+            (await E(archiveTree).archiveLossless()));
+        const treeSha256 = useArchive
+          ? await checkinTarTree(
+              await E(archiveTree).archiveTar(),
+              contentStore,
+            )
+          : (await platformCheckinTree(remoteTree, contentStore)).sha256;
 
         const formulaNumber = /** @type {FormulaNumber} */ (
           await randomHex256()
@@ -3797,7 +4585,7 @@ const makeDaemonCore = async (
   /**
    * @param {FormulaIdentifier} hostAgentId
    * @param {FormulaIdentifier} hostHandleId
-   * @param {PetName} guestName
+   * @param {NameOrPath} guestName
    * @param {DeferredTasks<InvitationDeferredTaskParams>} deferredTasks
    */
   const formulateInvitation = async (
@@ -5115,7 +5903,15 @@ const makeDaemonCore = async (
           console.log(
             `Endo daemon peer node ${nodeId.slice(0, 8)} connection disposed`,
           );
-          dropLiveValue(context.id);
+          // Cancel the peer formula's context so the formula-lifecycle
+          // machinery tears down and drops all dependent remote presences
+          // via thisDiesIfThatDies.  The next use of any remote presence
+          // reincarnates the peer formula and re-dials from scratch.
+          // dropLiveValue alone was insufficient: it removed the peer from
+          // the live-value cache but left the formula context alive, so
+          // dependent remote presences were not revoked and the stale
+          // currentGatewayP prevented re-dial on subsequent use.
+          context.cancel(new Error('peer connection lost'));
         },
       );
     };
@@ -5195,6 +5991,20 @@ const makeDaemonCore = async (
     // If crossed-hellos accept bias abandons our dial, retry once.
     // The state machine should now be in `accepted` state, and the
     // retry will return the already-accepted gateway without dialing.
+    //
+    // TODO(option-a-simplification): After the dispose-callback change
+    // to context.cancel (Option A), the peer formula's context is
+    // cancelled on any connection loss.  That means this formula
+    // instance is torn down before it could ever see a second
+    // connection.  The `isAbandonError` predicate and the resilient-dial
+    // retry inside `resilientDial` are therefore unreachable for any
+    // post-connect abandon.  They remain for the initial-dial crossed-
+    // hellos case (where the state machine rejects our outgoing dial
+    // while accepting an inbound one, producing an abandon error before
+    // the first successful connection).  A follow-up can simplify by
+    // removing the `isAbandonError` catch in `ResilientPeerGateway.
+    // provide` and collapsing `currentGatewayP` to a plain `dialAttempt`
+    // call.
     const isAbandonError = err =>
       err &&
       typeof err.message === 'string' &&
@@ -5219,12 +6029,14 @@ const makeDaemonCore = async (
       }
     };
 
-    // Return a facade gateway whose `provide` method consults the
-    // current state of the remote-control on each call.  If the
-    // current connection is lost mid-flight (e.g., due to crossed
-    // hellos accept bias switching to a different TCP), subsequent
-    // `provide` calls will go through whatever connection the
-    // remote-control currently holds.
+    // TODO(option-a-simplification): After the dispose-callback change,
+    // the peer formula is destroyed on any connection loss, so this
+    // formula instance never sees a post-connect re-dial.  The
+    // `currentGatewayP` one-shot promise is still used for the initial
+    // connection (including the retention-set follower below) but the
+    // re-dial path in `ResilientPeerGateway.provide` is now unreachable.
+    // A follow-up can drop the ResilientPeerGateway wrapper and inline
+    // the single `dialAttempt()` call directly.
     const currentGatewayP = resilientDial();
 
     // Follow retention set changes in the background once connected.
@@ -5238,7 +6050,11 @@ const makeDaemonCore = async (
           : undefined;
 
         let isFirst = true;
-        for await (const delta of makeRefIterator(/** @type {any} */ (iter))) {
+        for await (const rawDelta of iterateReader(/** @type {any} */ (iter))) {
+          const delta =
+            /** @type {import('./retention-accumulator.js').RetentionDelta} */ (
+              /** @type {any} */ (rawDelta)
+            );
           if (isFirst) {
             persistencePowers.replaceRetention(nodeId, delta.add);
             if (peerAgentIdStr !== undefined) {
@@ -5302,6 +6118,15 @@ const makeDaemonCore = async (
           // Try with the current gateway; on failure, re-dial and try
           // once more.  This handles the case where the initial dial
           // succeeded but the connection was later abandoned.
+          //
+          // TODO(option-a-simplification): The isAbandonError catch
+          // below is now unreachable for post-connect errors.  After
+          // the dispose-callback change (Option A), any connection loss
+          // cancels the peer formula's context, so this formula instance
+          // is torn down before `provide` could be called after a loss.
+          // The catch arm was the "retry within the existing formula
+          // instance" path; it is superseded by reincarnation.  A
+          // follow-up can remove the catch arm entirely.
           try {
             const gateway = await currentGatewayP;
             return await E(gateway).provide(requestedId);
@@ -5324,28 +6149,34 @@ const makeDaemonCore = async (
    * @param {FormulaIdentifier} id
    * @param {FormulaIdentifier} hostAgentId
    * @param {FormulaIdentifier} hostHandleId
-   * @param {import('./types.js').PetName} guestName
+   * @param {import('./types.js').NameOrPath} guestName
    */
   const makeInvitation = async (id, hostAgentId, hostHandleId, guestName) => {
     const hostAgent = /** @type {EndoHost} */ (await provide(hostAgentId));
+    // The invitation persists the name (or directory path) the redeemed
+    // guest should be stored under.  The durable mail-delivery name takes
+    // the full path; the pin and label use the leaf pet name.
+    const guestNamePath = namePathFrom(guestName);
+    const guestLeaf = guestNamePath[guestNamePath.length - 1];
 
     const locate = async () => {
       const { node, addresses } = await hostAgent.getPeerInfo();
       const { number: hostHandleNumber, node: hostHandleNode } =
         parseId(hostHandleId);
       const { number } = parseId(id);
-      const url = new URL('endo://');
-      url.hostname = node;
-      url.searchParams.set('id', number);
+      // Build path with `@`-delimited URL-encoded components: the first
+      // component is the invitation's formula number, and subsequent
+      // components are connection hints.
+      const invitationPath = [number, ...addresses]
+        .map(encodeURIComponent)
+        .join('@');
+      const url = new URL(`endo://${node}/${invitationPath}`);
       url.searchParams.set('type', 'invitation');
       url.searchParams.set('from', hostHandleNumber);
       // Include the handle's node if it differs from the daemon node
       // (i.e. it uses an agent key).
       if (hostHandleNode !== node) {
         url.searchParams.set('fromNode', hostHandleNode);
-      }
-      for (const address of addresses) {
-        url.searchParams.append('at', address);
       }
       return url.href;
     };
@@ -5357,8 +6188,13 @@ const makeDaemonCore = async (
      */
     const accept = async (guestHandleLocator, _hostNameFromGuest) => {
       const url = new URL(guestHandleLocator);
-      const guestHandleNumber = url.searchParams.get('id');
-      const addresses = url.searchParams.getAll('at');
+      // Path components are `@`-delimited and URL-encoded.  The first
+      // component is the handle's formula address; the rest are
+      // connection hints.
+      const [guestHandleNumber, ...addresses] = url.pathname
+        .replace(/^\//, '')
+        .split('@')
+        .map(decodeURIComponent);
       const guestDaemonNode = url.hostname;
       // The handle's node may differ from the daemon node when agent keys
       // are used as formula nodes.
@@ -5366,7 +6202,7 @@ const makeDaemonCore = async (
         url.searchParams.get('handleNode') || guestDaemonNode;
 
       if (!guestHandleNumber) {
-        throw makeError('Handle locator must have an "id" parameter');
+        throw makeError('Handle locator must include a formula number');
       }
       assertNodeNumber(guestDaemonNode);
       assertFormulaNumber(guestHandleNumber);
@@ -5404,7 +6240,7 @@ const makeDaemonCore = async (
         hostAgentId,
         hostHandleId,
         guestTasks,
-        `guest:${guestName}`,
+        `guest:${guestLeaf}`,
       );
 
       // Look up the local guest's handle from its formula so we can
@@ -5416,7 +6252,7 @@ const makeDaemonCore = async (
 
       // Name the guest handle inside @pins so it persists.
       await E(hostAgent).storeIdentifier(
-        /** @type {NamePath} */ (['@pins', `guest-${guestName}`]),
+        /** @type {NamePath} */ (['@pins', `guest-${guestLeaf}`]),
         localGuestFormula.handle,
       );
       await unpinTransient(localGuestFormula.handle);
@@ -5425,10 +6261,7 @@ const makeDaemonCore = async (
       // Use storeLocator so the directory properly internalizes the
       // remote formula identifier for peer resolution.
       const guestHandleLocatorStr = formatLocator(guestHandleId, 'remote');
-      await E(hostAgent).storeLocator(
-        /** @type {NamePath} */ ([guestName]),
-        guestHandleLocatorStr,
-      );
+      await E(hostAgent).storeLocator(guestNamePath, guestHandleLocatorStr);
 
       // Return the remote guest's public key for retention tracking.
       return harden({ guestPublicKey: guestDaemonNode });
@@ -5561,6 +6394,231 @@ const makeDaemonCore = async (
   };
 
   /**
+   * Build the host-shaped retention-path list for a target formula.
+   *
+   * Walks the labeled formula graph backward from `targetId` to a
+   * GC root and rewrites pet-store edges from the generic
+   * `'petName'` token into `pet:<name>` labels by resolving each
+   * referencing store's reverse-name table. Other labels (field
+   * names, `'retention'`, `'transient'`) pass through unchanged.
+   *
+   * The returned shape matches `designs/daemon-retention-paths.md`
+   * § Notation: paths and segments — the leaf segment is the
+   * target group, subsequent segments walk upstream toward a root,
+   * and the topmost segment carries `type: 'root'` when the path
+   * terminates at a GC root.
+   *
+   * @param {FormulaIdentifier} targetId
+   * @returns {Promise<import('./graph.js').RetentionPath[]>}
+   */
+  const listRetentionPaths = async targetId => {
+    const rawPaths = formulaGraph.listRetentionPaths(targetId);
+
+    /**
+     * Per-call cache of `(petStoreId, memberId) -> pet:<name> labels`,
+     * deliberately scoped to this `listRetentionPaths` invocation:
+     * pet-store contents change between calls and a process-wide
+     * cache would silently serve stale labels. The cache is
+     * discarded when the function returns.
+     *
+     * @type {Map<string, string[]>}
+     */
+    const labelCache = new Map();
+    /** @type {Set<FormulaIdentifier>} */
+    const storeIdsToResolve = new Set();
+    for (const path of rawPaths) {
+      for (const seg of path) {
+        if (seg.referencedBy !== undefined) {
+          const refFormula = formulaForId.get(seg.referencedBy);
+          if (
+            refFormula !== undefined &&
+            (refFormula.type === 'pet-store' ||
+              refFormula.type === 'mailbox-store' ||
+              refFormula.type === 'known-peers-store')
+          ) {
+            storeIdsToResolve.add(seg.referencedBy);
+          }
+        }
+      }
+    }
+    // Resolve store controllers in parallel; on multi-pet-store
+    // retention paths this is a real per-call speedup over the
+    // serial await loop. `provideStoreController` is cache-backed,
+    // so concurrent calls do not duplicate work for the same id.
+    /** @type {Map<FormulaIdentifier, import('./types.js').StoreController>} */
+    const storeControllers = new Map(
+      await Promise.all(
+        Array.from(
+          storeIdsToResolve,
+          async storeId =>
+            /** @type {[FormulaIdentifier, import('./types.js').StoreController]} */ ([
+              storeId,
+              await provideStoreController(storeId),
+            ]),
+        ),
+      ),
+    );
+
+    /**
+     * Resolve the formula type for each member of a segment's group.
+     * Returns `'unknown'` for ids the daemon does not have a formula
+     * record for (collected or never-formulated), matching the
+     * graph-snapshot convention at the same site.
+     *
+     * @param {import('./graph.js').RetentionPathSegment} seg
+     * @returns {string[]}
+     */
+    const formulaTypesFor = seg =>
+      seg.groupMembers.map(memberId => {
+        const formula = formulaForId.get(memberId);
+        return formula ? formula.type : 'unknown';
+      });
+
+    /** @type {import('./graph.js').RetentionPath[]} */
+    const shaped = [];
+    for (const path of rawPaths) {
+      /** @type {import('./graph.js').RetentionPath} */
+      const shapedPath = [];
+      for (const seg of path) {
+        const controller =
+          seg.referencedBy !== undefined
+            ? storeControllers.get(seg.referencedBy)
+            : undefined;
+        const segLabels = seg.labels;
+        const needsRename =
+          seg.referencedBy !== undefined &&
+          segLabels !== undefined &&
+          segLabels.length > 0 &&
+          controller !== undefined;
+        const formulaTypes = formulaTypesFor(seg);
+        if (!needsRename) {
+          shapedPath.push(harden({ ...seg, formulaTypes }));
+        } else {
+          /** @type {string[]} */
+          const newLabels = [];
+          for (const label of /** @type {string[]} */ (segLabels)) {
+            if (label === 'petName') {
+              // Resolve every pet name in the upstream store that
+              // points at any member of this group. The cache key
+              // is per (storeId, memberId) pair so a multi-member
+              // group fans out into multiple `pet:<name>` labels
+              // deterministically.
+              for (const memberId of seg.groupMembers) {
+                const cacheKey = `${seg.referencedBy} ${memberId}`;
+                let names = labelCache.get(cacheKey);
+                if (names === undefined) {
+                  const petNames =
+                    /** @type {import('./types.js').StoreController} */ (
+                      controller
+                    ).reverseIdentify(memberId);
+                  names = petNames.map(n => `pet:${n}`);
+                  labelCache.set(cacheKey, names);
+                }
+                for (const n of names) {
+                  newLabels.push(n);
+                }
+              }
+            } else {
+              newLabels.push(label);
+            }
+          }
+          shapedPath.push(
+            harden({
+              ...seg,
+              labels: newLabels,
+              formulaTypes,
+            }),
+          );
+        }
+      }
+      shaped.push(harden(shapedPath));
+    }
+    return harden(shaped);
+  };
+
+  /**
+   * Subscribe to retention-path changes for a target formula.
+   *
+   * Returns an async generator whose first delta is a full
+   * `{ snapshot }` of the paths at the time of subscription and
+   * whose subsequent deltas are `{ added, removed }` diffs over
+   * the path set. Updates are coalesced over a microtask window
+   * so a single `provideGuest` (which incarnates a chain of
+   * dependent formulas) yields one delta, not many.
+   *
+   * Drop the returned iterator (or `break` out of a for-await-of
+   * loop on it) to release the subscription: the underlying graph
+   * change subscription drains and the producer returns.
+   *
+   * @param {FormulaIdentifier} targetId
+   * @returns {AsyncGenerator<
+   *   import('./retention-path-accumulator.js').RetentionPathDelta
+   * >}
+   */
+  // eslint-disable-next-line no-use-before-define
+  const followRetentionPaths = async function* followRetentionPaths(targetId) {
+    // eslint-disable-next-line no-use-before-define
+    const accumulator = makeRetentionPathAccumulator({
+      compute: () => listRetentionPaths(targetId),
+      // Route structured failures through the lifecycle log per
+      // `packages/daemon/AGENTS.md` § Diagnostic Discipline in
+      // Formulas. The target's formula id correlates the line
+      // with other lifecycle events for the same formula.
+      onError: err => {
+        logLifecycle(
+          targetId,
+          'RETENTION_PATH_FLUSH_FAILED',
+          /** @type {Error} */ (err).message,
+        );
+      },
+    });
+
+    // Notify the accumulator whenever any formula in the graph
+    // changes. Phase 1 uses formulaChangeTopic as the coarse
+    // change signal; finer-grained edge-event topics are deferred
+    // to follow-up work per the design's *Known Gaps and TODOs*.
+    const subscription = formulaChangeTopic.subscribe();
+    let cancelled = false;
+    // Drive the iterator with a `.next().then(loop)` recursion so
+    // the change body never names a value to keep undefined,
+    // side-stepping the leading-underscore / no-unused-vars lint
+    // conflict documented in project root `AGENTS.md` § Lint-rule
+    // gotchas. The accumulator recomputes from scratch on every
+    // notify(), so the yielded change is a coarse "something
+    // happened" signal only and the value itself is discarded.
+    const pump = () =>
+      subscription.next().then(step => {
+        if (step.done || cancelled) return undefined;
+        accumulator.notify();
+        return pump();
+      });
+    pump().catch(err => {
+      // Route through the lifecycle log so retention-path subsystem
+      // failures correlate with other lifecycle events for the same
+      // formula. See `packages/daemon/AGENTS.md` § Diagnostic
+      // Discipline in Formulas.
+      logLifecycle(
+        targetId,
+        'RETENTION_PATH_PUMP_FAILED',
+        /** @type {Error} */ (err).message,
+      );
+    });
+
+    try {
+      yield* accumulator.subscribe();
+    } finally {
+      cancelled = true;
+      // Best-effort: closing the iterator on the next
+      // formulaChangeTopic emission lets the inner loop fall out.
+      try {
+        await subscription.return?.(undefined);
+      } catch (_e) {
+        // Ignore close errors; the iterator is already terminating.
+      }
+    }
+  };
+
+  /**
    * Return the on-disk filesystem path for a `mount` or `scratch-mount`
    * formula.  Privileged host-paths surface the daemon does **not**
    * place on Mount's public interface — only callers that hold the
@@ -5645,6 +6703,9 @@ const makeDaemonCore = async (
     formulateMount,
     formulateScratchMount,
     formulateGit,
+    formulateShell,
+    formulateHttpClient,
+    getHttpClientControlForClient,
     formulateGitCredential,
     formulateGitRemote,
     formulateInvitation,
@@ -5663,10 +6724,13 @@ const makeDaemonCore = async (
     pinTransient,
     unpinTransient,
     getFormulaGraphSnapshot,
+    listRetentionPaths,
+    followRetentionPaths,
     getScratchMountPath,
     getMountHostPath,
     getIdForRef,
     writeRemoteAgentKey: persistencePowers.writeRemoteAgentKey,
+    traceAggregator,
   });
 
   /**
@@ -5828,6 +6892,8 @@ const makeDaemonCore = async (
     provide,
     nodeNumber: localNodeNumber,
     capTpConnectionRegistrar,
+    traceAggregator,
+    inboundErrorOrigin,
   };
 };
 
@@ -5852,8 +6918,15 @@ const makeDaemonCore = async (
  * @param {Specials} args.specials - Special formula generators.
  * @param {boolean} [args.gcEnabled] - Enable garbage collection.
  * @param {'locked' | 'node'} [args.defaultWorkerKind] - Default kind for newly formulated workers.
- * @returns {Promise<{ endoBootstrap: FarRef<EndoBootstrap>, capTpConnectionRegistrar: CapTpConnectionRegistrar }>}
- *         An object containing the endo bootstrap and CapTP connection registrar.
+ * @returns {Promise<{
+ *   endoBootstrap: FarRef<EndoBootstrap>,
+ *   capTpConnectionRegistrar: CapTpConnectionRegistrar,
+ *   traceAggregator: ReturnType<typeof makeTraceAggregator>,
+ *   marshalSaveError: (err: Error, errorId?: string) => void,
+ * }>}
+ *   An object containing the endo bootstrap, CapTP connection
+ *   registrar, the in-process trace aggregator, and a
+ *   marshalSaveError ready to install on outbound CapTP connections.
  *
  * @example
  * ```js
@@ -5894,7 +6967,12 @@ const provideEndoBootstrap = async (
     gcEnabled,
     defaultWorkerKind,
   });
-  const { capTpConnectionRegistrar } = daemonCore;
+  const { capTpConnectionRegistrar, traceAggregator, inboundErrorOrigin } =
+    daemonCore;
+  const marshalSaveError = makeOutboundMarshalSaveError(
+    traceAggregator,
+    inboundErrorOrigin,
+  );
   const isInitialized = !isNewlyCreated;
   if (isInitialized) {
     const endoId = formatId({
@@ -5904,11 +6982,21 @@ const provideEndoBootstrap = async (
     const endoBootstrap = /** @type {FarRef<EndoBootstrap>} */ (
       await daemonCore.provide(endoId)
     );
-    return { endoBootstrap, capTpConnectionRegistrar };
+    return {
+      endoBootstrap,
+      capTpConnectionRegistrar,
+      traceAggregator,
+      marshalSaveError,
+    };
   } else {
     const { value: endoBootstrap } =
       await daemonCore.formulateEndo(endoFormulaNumber);
-    return { endoBootstrap, capTpConnectionRegistrar };
+    return {
+      endoBootstrap,
+      capTpConnectionRegistrar,
+      traceAggregator,
+      marshalSaveError,
+    };
   }
 };
 
@@ -5969,20 +7057,30 @@ export const makeDaemon = async (
     throw error;
   });
 
-  const { endoBootstrap, capTpConnectionRegistrar } =
-    await provideEndoBootstrap(powers, {
-      cancel,
-      gracePeriodMs,
-      gracePeriodElapsed,
-      specials,
-      gcEnabled,
-      defaultWorkerKind,
-    });
+  const {
+    endoBootstrap,
+    capTpConnectionRegistrar,
+    traceAggregator,
+    marshalSaveError,
+  } = await provideEndoBootstrap(powers, {
+    cancel,
+    gracePeriodMs,
+    gracePeriodElapsed,
+    specials,
+    gcEnabled,
+    defaultWorkerKind,
+  });
 
   await Promise.allSettled([
     E(endoBootstrap).reviveNetworks(),
     E(endoBootstrap).revivePins(),
   ]);
 
-  return { endoBootstrap, cancelGracePeriod, capTpConnectionRegistrar };
+  return {
+    endoBootstrap,
+    cancelGracePeriod,
+    capTpConnectionRegistrar,
+    traceAggregator,
+    marshalSaveError,
+  };
 };

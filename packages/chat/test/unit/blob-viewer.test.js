@@ -1,20 +1,20 @@
 // @ts-check
 
-/** @import { ERef } from '@endo/far' */
+/** @import { ERef } from '@endo/eventual-send' */
 /** @import { EndoHost } from '@endo/daemon' */
 
 import '@endo/init/debug.js';
 
 import test from 'ava';
-import { Far } from '@endo/far';
+import { Far } from '@endo/pass-style';
+import { inferLanguage } from '@endo/spaces-util/language-detect.js';
 import {
   COMMANDS,
   getCommand,
   filterCommands,
   getCommandsByCategory,
-} from '../../command-registry.js';
-import { createCommandExecutor } from '../../command-executor.js';
-import { inferLanguage } from '../../language-detect.js';
+} from '@endo/spaces-util/command-registry.js';
+import { createCommandExecutor } from '@endo/spaces-util/command-executor.js';
 
 // ============ LANGUAGE INFERENCE TESTS ============
 

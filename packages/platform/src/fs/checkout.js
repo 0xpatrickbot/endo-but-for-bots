@@ -2,9 +2,8 @@
 /* eslint-disable no-await-in-loop */
 
 import harden from '@endo/harden';
-import { E } from '@endo/far';
-
-import { makeRefReader } from './ref-reader.js';
+import { E } from '@endo/eventual-send';
+import { iterateBytesReader } from '@endo/exo-stream/iterate-bytes-reader.js';
 
 /** @import { TreeWriter, SnapshotTree } from './types.js' */
 
@@ -39,8 +38,7 @@ export const checkoutTree = async (tree, writer, options = {}) => {
         await walk(child, childPath);
       } else {
         // It's a readable-blob. Stream its content through the writer.
-        const readerRef = E(child).streamBase64();
-        const readable = makeRefReader(/** @type {any} */ (readerRef));
+        const readable = iterateBytesReader(/** @type {any} */ (child));
         await writer.writeBlob(childPath, readable);
         if (onFile) onFile();
       }

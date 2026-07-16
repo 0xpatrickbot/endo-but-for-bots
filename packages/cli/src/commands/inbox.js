@@ -2,8 +2,8 @@
 /* eslint-disable no-continue */
 
 import os from 'os';
-import { E } from '@endo/far';
-import { makeRefIterator } from '@endo/daemon';
+import { E } from '@endo/eventual-send';
+import { iterateReader } from '@endo/exo-stream/iterate-reader.js';
 import { withEndoAgent } from '../context.js';
 import { formatMessage } from '../message-format.js';
 
@@ -13,7 +13,7 @@ export const inbox = async ({ follow, agentNames }) =>
   withEndoAgent(agentNames, { os, process }, async ({ agent }) => {
     const selfLocator = await E(agent).locate('@self');
     const messages = follow
-      ? makeRefIterator(E(agent).followMessages())
+      ? iterateReader(E(agent).followMessages())
       : await E(agent).listMessages();
     const messageNumberById = new Map();
     if (!follow) {

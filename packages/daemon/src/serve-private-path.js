@@ -8,13 +8,17 @@ import { makeNetstringCapTP } from './connection.js';
 
 /**
  * @param {string} sockPath
- * @param {import('@endo/far').FarRef<unknown>} endoBootstrap
+ * @param {import('@endo/eventual-send').FarRef<unknown>} endoBootstrap
  * @param {object} opts
  * @param {Function} opts.servePath
  * @param {Iterator<number>} opts.connectionNumbers
  * @param {Promise<never>} opts.cancelled
  * @param {(error: Error) => void} opts.exitWithError
  * @param {CapTpConnectionRegistrar} [opts.capTpConnectionRegistrar]
+ * @param {(err: Error, errorId?: string) => void} [opts.marshalSaveError]
+ * Forwarded to the per-connection CapTP. Called for every outbound
+ * error this CapTP serializes, with the just-minted errorId so the
+ * caller can register an alias entry against a trace aggregator.
  */
 export const servePrivatePath = (
   sockPath,
@@ -25,6 +29,7 @@ export const servePrivatePath = (
     cancelled,
     exitWithError,
     capTpConnectionRegistrar = undefined,
+    marshalSaveError = undefined,
   },
 ) => {
   const connectionsP = servePath({ path: sockPath, cancelled });
@@ -62,7 +67,7 @@ export const servePrivatePath = (
           reader,
           cancelled,
           endoBootstrap,
-          undefined,
+          { marshalSaveError },
           capTpConnectionRegistrar,
         );
 

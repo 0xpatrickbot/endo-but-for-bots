@@ -13,8 +13,8 @@ import path from 'path';
 import popen from 'child_process';
 import url from 'url';
 
-import { E } from '@endo/far';
-import { makePromiseKit } from '@endo/promise-kit';
+import { E } from '@endo/eventual-send';
+import { makeCancelKit } from '@endo/cancel';
 import { makeDaemon } from './daemon.js';
 import {
   makeFilePowers,
@@ -26,7 +26,6 @@ import { startWsGateway } from './ws-gateway.js';
 
 const fsp = { access: fs.promises.access };
 
-/** @import { PromiseKit } from '@endo/promise-kit' */
 /** @import { Config } from './types.js' */
 
 const args = process.argv.slice(2);
@@ -52,8 +51,7 @@ const config = {
 
 const { pid, kill } = process;
 
-const { promise: cancelled, reject: cancel } =
-  /** @type {PromiseKit<never>} */ (makePromiseKit());
+const { cancelled, cancel } = makeCancelKit();
 
 const networkPowers = makeNetworkPowers({ net, fsp });
 const filePowers = makeFilePowers({ fs, path });
@@ -145,8 +143,19 @@ const main = async () => {
   await daemonicPersistencePowers.initializePersistence();
   await killStaleWorkers();
 
-  const { endoBootstrap, cancelGracePeriod, capTpConnectionRegistrar } =
-    await makeDaemon(powers, daemonLabel, cancel, cancelled, {}, { gcEnabled });
+  const {
+    endoBootstrap,
+    cancelGracePeriod,
+    capTpConnectionRegistrar,
+    marshalSaveError,
+  } = await makeDaemon(
+    powers,
+    daemonLabel,
+    cancel,
+    cancelled,
+    {},
+    { gcEnabled },
+  );
 
   /** @param {Error} error */
   const exitWithError = error => {
@@ -161,6 +170,7 @@ const main = async () => {
     cancelled,
     exitWithError,
     capTpConnectionRegistrar,
+    marshalSaveError,
   );
   // Start WebSocket gateway for browser clients (Chat app).
   const addrUrl = new URL(
@@ -173,6 +183,7 @@ const main = async () => {
     host: gatewayHost,
     port: gatewayPort,
     cancelled,
+    marshalSaveError,
   });
 
   const services = [privatePathService, wsGateway];

@@ -61,21 +61,20 @@ import { makeError, q, X } from '@endo/errors';
 import { E } from '@endo/eventual-send';
 import { make as makeSandboxFactoryFromPowers } from '@endo/sandbox';
 /** @import { RootfsSpec, SandboxHandle } from '@endo/sandbox/types.js' */
-import { registerBuiltInApiProviders } from '@mariozechner/pi-ai';
-/** @import { Api, Model } from '@mariozechner/pi-ai' */
-/** @import { Agent as PiAgent } from '@mariozechner/pi-agent-core' */
+import { registerBuiltInApiProviders } from '@earendil-works/pi-ai/compat';
+/** @import { Api, Model } from '@earendil-works/pi-ai' */
+/** @import { Agent as PiAgent } from '@earendil-works/pi-agent-core' */
 
+import { DEFAULT_MODEL_STRING, runAgentRound } from './src/agent/index.js';
+import { makeGenieAgents } from './src/loop/agents.js';
 import {
-  buildGenieTools,
   BUILTIN_HELP_DESCRIPTIONS,
-  DEFAULT_MODEL_STRING,
   formatHelpLines,
   makeBuiltinSpecials,
-  makeGenieAgents,
-  makeSpecialsDispatcher,
-  runAgentRound,
-  runGenieLoop,
-} from './src/index.js';
+} from './src/loop/builtin-specials.js';
+import { runGenieLoop } from './src/loop/run.js';
+import { makeSpecialsDispatcher } from './src/loop/specials.js';
+import { buildGenieTools } from './src/tools/registry.js';
 
 /** @import { SpecialsIO } from './src/loop/builtin-specials.js' */
 /** @import { SpecialHandler } from './src/loop/specials.js' */

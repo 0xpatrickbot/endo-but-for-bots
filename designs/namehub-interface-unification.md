@@ -187,7 +187,7 @@ contract.
    make sense after the unification design picks an answer for
    what a "locator for a mount entry" is.
 
-5. **`packages/whylip`, `packages/lal`, `packages/jaine`,
+5. **`packages/space-whylip`, `packages/lal`, `packages/jaine`,
    `packages/fae`, `packages/genie`** (numerous):
    these are agent setup and routing modules.
    They use `identify` / `locate` / `reverseLocate` against the
@@ -261,7 +261,7 @@ This split has three benefits:
 - **The CapTP-introspection contract is preserved.**
   `__getMethodNames__()` still returns a list of methods.
   `makeExo` provides the method names automatically (per
-  `CLAUDE.md`'s "CapTP introspection" guidance).
+  `AGENTS.md`'s "CapTP introspection" guidance).
   No new introspection surface is required; the consumer that
   cares about `identify` checks for `identify` by name.
 

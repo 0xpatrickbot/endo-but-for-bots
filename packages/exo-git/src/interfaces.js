@@ -4,7 +4,6 @@ import { M } from '@endo/patterns';
 
 // #region Shape primitives
 
-const RefArgShape = M.or(M.string(), M.recordOf(M.string(), M.any()));
 const GitDirectionShape = M.or(M.eq('fetch'), M.eq('push'));
 
 const GitIndexStatusShape = M.or(
@@ -28,7 +27,7 @@ const GitWorktreeStatusShape = M.or(
 
 const GitStatusEntryShape = M.splitRecord(
   {
-    entry: M.remotable('EndoMountEntry'),
+    entry: M.remotable(),
     path: M.string(),
     index: GitIndexStatusShape,
     worktree: GitWorktreeStatusShape,
@@ -50,6 +49,7 @@ const GitRefShape = M.splitRecord(
     oid: M.string(),
   },
 );
+const RefArgShape = M.or(M.string(), GitRefShape);
 
 const GitCommitShape = M.splitRecord(
   {
@@ -62,6 +62,14 @@ const GitCommitShape = M.splitRecord(
   },
 );
 
+const GitCommitOptionsShape = M.splitRecord(
+  {},
+  {
+    amend: M.boolean(),
+  },
+  harden({}),
+);
+
 // #endregion
 
 export const GitInterface = M.interface('Git', {
@@ -69,7 +77,7 @@ export const GitInterface = M.interface('Git', {
   // through `mount.readOnly()` (which yields a promise of the
   // structural read-only view) before the return shape is matched; a
   // writable Git returns its mount synchronously and is unaffected.
-  worktree: M.callWhen().returns(M.remotable('EndoMount')),
+  worktree: M.callWhen().returns(M.remotable()),
   status: M.callWhen().returns(M.arrayOf(GitStatusEntryShape)),
   diff: M.callWhen()
     .optional(M.recordOf(M.string(), M.any()))
@@ -83,7 +91,10 @@ export const GitInterface = M.interface('Git', {
   restore: M.callWhen(M.arrayOf(M.remotable()))
     .optional(M.recordOf(M.string(), M.any()))
     .returns(M.undefined()),
-  commit: M.callWhen(M.string()).returns(GitCommitShape),
+  commit: M.callWhen(M.string())
+    .optional(GitCommitOptionsShape)
+    .returns(GitCommitShape),
+  reword: M.callWhen(RefArgShape, M.string()).returns(GitCommitShape),
   currentBranch: M.callWhen().returns(M.or(GitRefShape, M.undefined())),
   branches: M.callWhen().returns(M.arrayOf(GitRefShape)),
   createBranch: M.callWhen(M.string())
@@ -108,9 +119,21 @@ export const GitInterface = M.interface('Git', {
   stashApply: M.callWhen().optional(M.number()).returns(M.undefined()),
   stashPop: M.callWhen().optional(M.number()).returns(M.undefined()),
   stashDrop: M.callWhen().optional(M.number()).returns(M.undefined()),
-  tree: M.callWhen(RefArgShape).returns(M.remotable('EndoReadableTree')),
+  tree: M.callWhen(RefArgShape).returns(M.remotable()),
   filesystemAt: M.callWhen(RefArgShape).returns(M.remotable('Filesystem')),
   readOnly: M.call().returns(M.remotable('Git')),
+});
+
+export const GitTreeInterface = M.interface('EndoGitTree', {
+  archiveTar: M.call().returns(M.remotable()),
+  // `callWhen` so the settled value (not the promise) is guarded against
+  // the return shape, matching the GitInterface convention above.
+  archiveLossless: M.callWhen().returns(M.boolean()),
+  has: M.callWhen().rest(M.arrayOf(M.string())).returns(M.boolean()),
+  list: M.callWhen().rest(M.arrayOf(M.string())).returns(M.arrayOf(M.string())),
+  lookup: M.callWhen(M.or(M.string(), M.arrayOf(M.string()))).returns(
+    M.remotable(),
+  ),
 });
 
 export const GitRemoteInterface = M.interface('GitRemote', {

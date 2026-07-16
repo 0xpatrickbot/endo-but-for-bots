@@ -14,6 +14,7 @@ const formulaTypes = new Set([
   'guest',
   'handle',
   'host',
+  'http-client',
   'invitation',
   'known-peers-store',
   'least-authority',
@@ -35,6 +36,7 @@ const formulaTypes = new Set([
   'readable-tree',
   'resolver',
   'scratch-mount',
+  'shell',
   'timer',
   'worker',
 ]);

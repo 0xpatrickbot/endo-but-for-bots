@@ -385,10 +385,18 @@ export const main = async rawArgs => {
     .option('-f,--follow', 'Follow updates')
     .option('-j,--json', 'JSON format output')
     .option('-v,--verbose', 'Provide more detailed output')
+    .option(
+      '-g,--grouped',
+      'Group output by formula type (handles, directories, values, capabilities, agents, personas)',
+    )
+    .option(
+      '-t,--type <formulaType>',
+      'Show only names whose formula type matches (e.g. handle, eval, readable-blob)',
+    )
     .action(async (directory, cmd) => {
-      const { follow, json, verbose } = cmd.opts();
+      const { follow, json, verbose, grouped, type } = cmd.opts();
       const { list } = await import('./commands/list.js');
-      return list({ directory, follow, json, verbose });
+      return list({ directory, follow, json, verbose, grouped, type });
     });
 
   program
@@ -442,6 +450,70 @@ export const main = async rawArgs => {
       const { as: agentNames } = cmd.opts();
       const { locate } = await import('./commands/locate.js');
       return locate({ name, agentNames });
+    });
+
+  program
+    .command('inspect <name-or-identifier>')
+    .description(
+      "prints the formula record (type and per-property literals and references) for a name or local formula identifier; per the 'pop the bonnet' design",
+    )
+    .option(
+      '-i,--identifier',
+      'interpret the argument as a formula identifier rather than a pet name path',
+    )
+    .option('--json', 'emit the raw FormulaRecord as JSON for scripting')
+    .action(async (nameOrIdentifier, cmd) => {
+      const { identifier: asIdentifier, json: asJson } = cmd.opts();
+      const { inspect } = await import('./commands/inspect.js');
+      return inspect({
+        nameOrIdentifier,
+        asIdentifier: Boolean(asIdentifier),
+        asJson: Boolean(asJson),
+      });
+    });
+
+  program
+    .command('paths <name-or-locator>')
+    .description(
+      'prints every retention path from a GC root to the named value',
+    )
+    .option(...commonOptions.as)
+    .option(
+      '--locator',
+      'interpret <name-or-locator> as an endo:// locator rather than a pet name',
+    )
+    .option('--json', 'emit raw RetentionPath[] as JSON instead of prose')
+    .action(async (name, cmd) => {
+      const { as: agentNames, locator = false, json = false } = cmd.opts();
+      const { paths } = await import('./commands/paths.js');
+      return paths({ name, agentNames, locator, json });
+    });
+
+  program
+    .command('trace [errorId]')
+    .description(
+      'fetches an error trace from the daemon (use --recent for a list, --stats for aggregator stats)',
+    )
+    .option('--recent', 'list recent error traces instead of looking up one')
+    .option('--worker <id>', 'restrict --recent to a single worker id')
+    .option(
+      '--limit <n>',
+      'cap on the number of recent records returned',
+      val => Number(val),
+    )
+    .option('--stats', 'print aggregator stats only')
+    .option('--json', 'emit JSON instead of formatted text')
+    .action(async (errorId, cmd) => {
+      const opts = cmd.opts();
+      const { trace } = await import('./commands/trace.js');
+      return trace({
+        errorId,
+        recent: Boolean(opts.recent),
+        workerId: opts.worker,
+        limit: opts.limit,
+        json: Boolean(opts.json),
+        statsOnly: Boolean(opts.stats),
+      });
     });
 
   program
@@ -908,6 +980,7 @@ export const main = async rawArgs => {
         'mount',
         'mktmp',
         'locate',
+        'paths',
         'remove',
         'move',
         'copy',

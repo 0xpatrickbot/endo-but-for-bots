@@ -1,13 +1,21 @@
 // @ts-check
 
 export {
-  AsyncIteratorInterface,
+  readableBlobMethodGuards,
+  readableTreeMethodGuards,
+  readableNameHubMethodGuards,
+  directoryFileMethodGuards,
+  pathEntryMethodGuards,
+  pathEntryIssuerMethodGuards,
+  getInfoMethodGuard,
+  rangeReadMethodGuards,
+  PathEntryInterface,
+  PathEntryIssuerInterface,
   ReadableBlobInterface,
+  ReadableBlobRangeInterface,
   SnapshotBlobInterface,
   ReadableTreeInterface,
   SnapshotTreeInterface,
-  ContentStoreInterface,
-  SnapshotStoreInterface,
   TreeWriterInterface,
   FileInterface,
   DirectoryInterface,
@@ -18,5 +26,16 @@ export { snapshotTreeMethods } from './snapshot-tree.js';
 export { makeSnapshotStore } from './snapshot-store.js';
 export { checkinTree } from './checkin.js';
 export { checkoutTree } from './checkout.js';
-export { makeRefReader, makeRefIterator } from './ref-reader.js';
-export { makeReaderRef, makeIteratorRef, asyncIterate } from './reader-ref.js';
+
+export {
+  makeSearch,
+  provideSearch,
+  compileGlobSegment,
+  parseGlobPattern,
+  DEFAULT_BATCH_SIZE,
+  MAX_BATCH_SIZE,
+  GLOB_MAX_RESULTS,
+  GREP_MAX_RESULTS,
+} from './search.js';
+
+export { makeMaybeRealPath, isPathWithin } from './confinement.js';

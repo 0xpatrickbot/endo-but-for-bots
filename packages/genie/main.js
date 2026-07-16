@@ -32,20 +32,21 @@ import { makeExo } from '@endo/exo';
 import { M } from '@endo/patterns';
 import { E } from '@endo/eventual-send';
 import { makePromiseKit } from '@endo/promise-kit';
-import { makeRefIterator } from '@endo/daemon/ref-reader.js';
-import { registerBuiltInApiProviders } from '@mariozechner/pi-ai';
+import { iterateReader } from '@endo/exo-stream/iterate-reader.js';
+import { registerBuiltInApiProviders } from '@earendil-works/pi-ai/compat';
 
-// eslint-disable-next-line import/no-unresolved
+import { runAgentRound } from './src/agent/index.js';
+import { makeGenieAgents } from './src/loop/agents.js';
 import {
-  buildGenieTools,
   formatHelpLines,
   makeBuiltinSpecials,
-  makeGenieAgents,
-  makeSpecialsDispatcher,
+} from './src/loop/builtin-specials.js';
+import { runGenieLoop } from './src/loop/run.js';
+import { makeSpecialsDispatcher } from './src/loop/specials.js';
+import {
+  buildGenieTools,
   PLUGIN_DEFAULT_INCLUDE,
-  runAgentRound,
-  runGenieLoop,
-} from './src/index.js';
+} from './src/tools/registry.js';
 
 /** @import { Observer } from './src/observer/index.js' */
 /** @import { Reflector } from './src/reflector/index.js' */
@@ -55,7 +56,7 @@ import {
 /** @import { GenieIO, InboundPrompt, InboundPromptKind } from './src/loop/io.js' */
 
 import { runHeartbeat, HeartbeatStatus } from './src/heartbeat/index.js';
-import { makeIntervalScheduler } from './src/interval/index.js';
+import { makeIntervalScheduler } from './src/interval/scheduler.js';
 import {
   ALLOWED_BACKENDS as SLICE_ALLOWED_BACKENDS,
   ALLOWED_NETWORK_PROFILES as SLICE_ALLOWED_NETWORK_PROFILES,
@@ -97,7 +98,7 @@ async function* collectIt(have, it) {
 const DEFAULT_AGENT_DIRECTORY = 'genie';
 
 /** Default heartbeat period: 30 minutes. */
-const DEFAULT_HEARTBEAT_PERIOD_MS = 30 * 60 * 1_000;
+const DEFAULT_HEARTBEAT_PERIOD_MS = 30 * 60 * 1000;
 
 /**
  * Re-export the slice-config surface from the helper module.  Tests
@@ -681,7 +682,7 @@ export const make = (guestPowers, _context) => {
     genieTools,
   }) => {
     const selfId = await E(agentPowers).locate('@self');
-    const messageIterator = makeRefIterator(E(agentPowers).followMessages());
+    const messageIterator = iterateReader(E(agentPowers).followMessages());
 
     // ── Specials dispatcher ────────────────────────────────────────
     // The `/observe`, `/reflect`, `/help`, `/tools`, `/clear`, and
@@ -1578,7 +1579,7 @@ export const make = (guestPowers, _context) => {
     // Accept form submissions and spawn agent guests
     // -----------------------------------------------------------------------
 
-    for await (const msg of makeRefIterator(E(powers).followMessages())) {
+    for await (const msg of iterateReader(E(powers).followMessages())) {
       // Capture the form's messageId from our own outbound message.
       if (msg.from === selfId && msg.type === 'form') {
         formMessageId = msg.messageId;

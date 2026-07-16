@@ -4,15 +4,18 @@
 import { q } from '@endo/errors';
 import { E } from '@endo/eventual-send';
 import { makeExo } from '@endo/exo';
-import { readOnly as readOnlyFs, wrapBackend } from '@endo/endo-fs';
+import {
+  readOnly as readOnlyFs,
+  wrapBackend,
+} from '@endo/platform/fs/extended';
 
 import { makeGitFsBackend } from './git-filesystem.js';
 import { GitInterface } from './interfaces.js';
 
 /**
  * @import {
- *   EndoGit,
  *   GitCommit,
+ *   GitCommitOptions,
  *   GitCreateBranchOptions,
  *   GitDeleteBranchOptions,
  *   GitDiffOptions,
@@ -21,10 +24,18 @@ import { GitInterface } from './interfaces.js';
  *   GitMergeOptions,
  *   GitRebaseInput,
  *   GitRef,
+ *   GitRemoteCredential,
+ *   PathEntry,
+ *   ReadableTree,
  *   GitRestoreOptions,
  *   GitStashPushOptions,
  *   GitStatusEntry,
+ *   GitStatusNode,
  *   GitWorktreeStatus,
+ *   ReadOnlyEndoGit,
+ *   ReadOnlyGitWorktree,
+ *   WritableEndoGit,
+ *   WritableGitWorktree,
  * } from './types.js'
  */
 
@@ -36,6 +47,8 @@ import { GitInterface } from './interfaces.js';
  * @type {WeakMap<object, boolean>}
  */
 const gitReadOnly = new WeakMap();
+/** @type {WeakMap<object, boolean>} */
+const gitHistoryRewrite = new WeakMap();
 /** @type {WeakMap<object, GitBackend>} */
 const gitBackends = new WeakMap();
 
@@ -51,6 +64,17 @@ export const isGitReadOnly = git =>
 harden(isGitReadOnly);
 
 /**
+ * Host-private accessor: returns whether a daemon-minted Git exo has
+ * history-rewrite authority, or undefined for fakes / remotes not minted here.
+ *
+ * @param {unknown} git
+ * @returns {boolean | undefined}
+ */
+export const isGitHistoryRewrite = git =>
+  gitHistoryRewrite.get(/** @type {object} */ (git));
+harden(isGitHistoryRewrite);
+
+/**
  * Host-private accessor for adjacent daemon providers such as GitRemote.
  * Returns undefined for fakes or Git caps not minted in this vat.
  *
@@ -64,7 +88,7 @@ harden(getGitBackend);
 /**
  * Backend-facing row produced by `GitBackend.status`.  The public Git exo
  * wraps each `BackendStatusEntry` into a `GitStatusEntry` by minting an
- * `EndoMountEntry` for the path; the public type lives in `types.d.ts`.
+ * `PathEntry` for the path; the public type lives in `types.d.ts`.
  *
  * @typedef {object} BackendStatusEntry
  * @property {string} path
@@ -75,7 +99,7 @@ harden(getGitBackend);
 
 /**
  * Backend-facing diff options.  The public Git exo collapses `GitRef`
- * values to strings and `entries` (EndoMountEntry[]) to repo-relative
+ * values to strings and `entries` (PathEntry[]) to repo-relative
  * `paths` before calling the backend.
  *
  * @typedef {object} GitBackendDiffOptions
@@ -112,7 +136,7 @@ harden(getGitBackend);
  * operations into their implementation-specific calls.  All path-bearing
  * inputs are pre-resolved to host-absolute strings by the public Git exo
  * before reaching the backend, so a backend never sees an unauthenticated
- * relative path or an unresolved `EndoMountEntry`.
+ * relative path or an unresolved `PathEntry`.
  *
  * Phase 1 declares the contract; later phases implement the methods.
  *
@@ -130,7 +154,8 @@ harden(getGitBackend);
  * @property {(ref: string) => Promise<GitRef>} revParse
  * @property {(paths: string[]) => Promise<void>} add
  * @property {(paths: string[], opts?: GitRestoreOptions) => Promise<void>} restore
- * @property {(message: string) => Promise<GitCommit>} commit
+ * @property {(message: string, opts?: GitCommitOptions) => Promise<GitCommit>} commit
+ * @property {(ref: string, message: string) => Promise<GitCommit>} reword
  * @property {() => Promise<GitRef | undefined>} currentBranch
  * @property {() => Promise<GitRef[]>} branches
  * @property {(name: string, opts?: GitCreateBranchOptions) => Promise<GitRef>} createBranch
@@ -147,15 +172,15 @@ harden(getGitBackend);
  * @property {(index?: number) => Promise<void>} stashApply
  * @property {(index?: number) => Promise<void>} stashPop
  * @property {(index?: number) => Promise<void>} stashDrop
- * @property {(ref: string) => Promise<unknown>} tree  Returns a
+ * @property {(ref: string) => Promise<ReadableTree>} tree  Returns a
  *   `ReadableTree` exo for the given tree-ish; blobs implement
  *   `ReadableBlob`.
- * @property {(input: { url?: unknown, refspecs?: unknown, prune?: boolean, tags?: boolean, credential?: unknown, signal?: AbortSignal }) => Promise<object>} remoteFetch
+ * @property {(input: { url?: unknown, refspecs?: unknown, prune?: boolean, tags?: boolean, credential?: GitRemoteCredential, signal?: AbortSignal }) => Promise<object>} remoteFetch
  *   Fetch from a policy-bound remote URL.  The caller has already
  *   validated the URL and the refspecs against `GitRemote`'s policy;
  *   this method runs the underlying `git fetch` invocation through the
  *   sanitized environment.
- * @property {(input: { url?: unknown, refspecs?: unknown, setUpstream?: boolean, credential?: unknown, signal?: AbortSignal }) => Promise<object>} remotePush
+ * @property {(input: { url?: unknown, refspecs?: unknown, setUpstream?: boolean, credential?: GitRemoteCredential, signal?: AbortSignal }) => Promise<object>} remotePush
  *   Push to a policy-bound remote URL with the same policy
  *   pre-validation contract as `remoteFetch`.
  * @property {(ref: string) => Promise<{ treeOid: string, commitOid?: string }>} resolveTree
@@ -191,6 +216,30 @@ harden(getGitBackend);
  */
 
 /**
+ * @typedef {object} GitPowers
+ * @property {WritableGitWorktree} mount The writable worktree authority.
+ * @property {GitBackend} backend
+ * @property {(value: unknown) => object | undefined} lineageOf
+ *   Returns the mount-lineage sentinel for daemon-minted `EndoMount` /
+ *   `EndoMountEntry` values; `undefined` for foreign caps.
+ *   The daemon
+ *   binds its `mount.js#lineageOf`; in-process unit tests can pass a
+ *   stub.
+ *   Two entries with the same returned sentinel are guaranteed
+ *   to belong to the same mount root.
+ */
+
+/**
+ * The implementation object has one runtime method table for both
+ * mutability postures.
+ *
+ * @typedef {Omit<WritableEndoGit, 'worktree' | 'readOnly'> & {
+ *   worktree: () => Promise<WritableGitWorktree | ReadOnlyGitWorktree>;
+ *   readOnly: () => WritableEndoGit | ReadOnlyEndoGit;
+ * }} GitImplementation
+ */
+
+/**
  * Construct the public Git capability exo.  Phase 1: methods are wired
  * to a backend but every backend method throws "not yet implemented"
  * until Phases 2-5 land them.  This commit establishes only the shape
@@ -198,22 +247,39 @@ harden(getGitBackend);
  * authority; the host-private backing grant the formula instantiator
  * used to derive this capability is not part of the public surface).
  *
- * @param {object} args
- * @param {object} args.mount  The `EndoMount` that carries the public
- *   worktree authority.  Returned by `worktree()`.
- * @param {GitBackend} args.backend
- * @param {boolean} [args.readOnly]  True when this Git cap is attenuated
- *   or was derived from a read-only mount.  Mutation methods throw before
- *   the backend can touch the worktree.
- * @param {(value: unknown) => object | undefined} args.lineageOf
- *   Returns the mount-lineage sentinel for daemon-minted `EndoMount` /
- *   `EndoMountEntry` values; `undefined` for foreign caps.  The daemon
- *   binds its `mount.js#lineageOf`; in-process unit tests can pass a
- *   stub.  Two entries with the same returned sentinel are guaranteed
- *   to belong to the same mount root.
- * @returns {EndoGit}
+ * @overload
+ * @param {GitPowers} powers
+ * @param {{readOnly: true, allowHistoryRewrite?: false}} opts
+ * @returns {ReadOnlyEndoGit}
  */
-export const makeGit = ({ mount, backend, readOnly = false, lineageOf }) => {
+/**
+ * @overload
+ * @param {GitPowers} powers
+ * @param {{readOnly?: false, allowHistoryRewrite?: boolean}} [opts]
+ * @returns {WritableEndoGit}
+ */
+/**
+ * @overload
+ * @param {GitPowers} powers
+ * @param {{readOnly: boolean, allowHistoryRewrite?: boolean}} opts
+ * @returns {WritableEndoGit | ReadOnlyEndoGit}
+ */
+/**
+ * @param {GitPowers} powers
+ * @param {object} [opts]
+ * @param {boolean} [opts.readOnly]  True when this Git cap is attenuated
+ *   or was derived from a read-only mount.
+ *   Mutation methods throw before
+ *   the backend can touch the worktree.
+ * @param {boolean} [opts.allowHistoryRewrite]  True when this Git cap may
+ *   amend or reword existing commits.
+ *   Defaults to false.
+ * @returns {WritableEndoGit | ReadOnlyEndoGit}
+ */
+export const makeGit = (
+  { mount, backend, lineageOf },
+  { readOnly = false, allowHistoryRewrite = false } = {},
+) => {
   // The mount's lineage sentinel — used to verify that every entry
   // passed to a path-bearing Git method was minted by this Git's bound
   // mount, not by some other mount this guest may also hold.
@@ -222,7 +288,7 @@ export const makeGit = ({ mount, backend, readOnly = false, lineageOf }) => {
   // Memoize `filesystemAt(ref)` on the canonical tree OID so repeated
   // calls within one Git instance return the same Filesystem cap (same
   // brand).  Brand identity matters for `compose` cycle detection in
-  // `@endo/endo-fs`; without memoization, two `filesystemAt('HEAD')`
+  // `@endo/platform/fs/extended`; without memoization, two `filesystemAt('HEAD')`
   // calls would compose as distinct participants even when HEAD has
   // not moved.  See `designs/endo-fs-from-git.md` § Brands.
   /** @type {Map<string, object>} */
@@ -238,8 +304,9 @@ export const makeGit = ({ mount, backend, readOnly = false, lineageOf }) => {
   // through it but no write method survives the attenuation.  Resolved
   // lazily because `readOnly()` is a synchronous attenuation method and
   // the read-only view is only needed once a read flows through it.
-  /** @type {Promise<object> | undefined} */
+  /** @type {Promise<ReadOnlyGitWorktree> | undefined} */
   let readOnlyWorktreeP;
+  /** @returns {WritableGitWorktree | Promise<ReadOnlyGitWorktree>} */
   const worktreeAuthority = () => {
     if (!readOnly) {
       return mount;
@@ -251,7 +318,7 @@ export const makeGit = ({ mount, backend, readOnly = false, lineageOf }) => {
   };
 
   /**
-   * Translate an array of EndoMountEntry caps into the repo-relative
+   * Translate an array of PathEntry caps into the repo-relative
    * path strings that the backend (and the underlying git binary)
    * accept.  Entries from a different mount lineage are rejected
    * before any path is exposed to git.
@@ -261,15 +328,15 @@ export const makeGit = ({ mount, backend, readOnly = false, lineageOf }) => {
    */
   const entriesToRepoPaths = async entries => {
     if (!Array.isArray(entries) || entries.length === 0) {
-      throw new Error(
-        'entries must be a non-empty array of EndoMountEntry values',
-      );
+      throw new Error('entries must be a non-empty array of PathEntry values');
     }
     const paths = [];
     for (const entry of entries) {
       const otherLineage = lineageOf(/** @type {object} */ (entry));
       if (otherLineage === undefined) {
-        throw new Error('entry is not an EndoMountEntry minted by this daemon');
+        throw new Error(
+          'entry is not a PathEntry minted for this Git worktree',
+        );
       }
       if (otherLineage !== mountLineage) {
         throw new Error(
@@ -291,6 +358,14 @@ export const makeGit = ({ mount, backend, readOnly = false, lineageOf }) => {
     }
   };
 
+  const assertHistoryRewrite = methodName => {
+    if (!allowHistoryRewrite) {
+      throw new Error(
+        `Git.${methodName} is not permitted on a Git capability without history-rewrite authority`,
+      );
+    }
+  };
+
   /**
    * @param {unknown} ref
    * @returns {string}
@@ -298,11 +373,12 @@ export const makeGit = ({ mount, backend, readOnly = false, lineageOf }) => {
   const refName = ref =>
     typeof ref === 'string' ? ref : /** @type {{ name: string }} */ (ref).name;
 
-  /** @type {EndoGit} */
+  /** @type {WritableEndoGit | ReadOnlyEndoGit} */
   let selfExo;
 
-  const exo = makeExo('Git', GitInterface, {
-    worktree() {
+  /** @type {GitImplementation} */
+  const gitMethods = {
+    async worktree() {
       return worktreeAuthority();
     },
 
@@ -310,7 +386,7 @@ export const makeGit = ({ mount, backend, readOnly = false, lineageOf }) => {
       const raw = await backend.status();
       // Wrap each raw record into a GitStatusEntry.  The backend
       // produced repo-relative path strings; here we mint the
-      // authority-bearing EndoMountEntry through the bound mount so
+      // authority-bearing PathEntry through the bound mount so
       // a caller can hold a path-bearing reference that's confined
       // to this worktree.  The `entry` descriptor is inert (it carries
       // no I/O authority of its own), so it is always minted from the
@@ -329,10 +405,12 @@ export const makeGit = ({ mount, backend, readOnly = false, lineageOf }) => {
             // Resolve the node by repo-relative segments rather than by
             // the `entry` descriptor: the read-only worktree view exposes
             // the structural `ReadableTree` surface whose `lookup` accepts
-            // only string / string[] paths (not an EndoMountEntry).
+            // only string / string[] paths (not a PathEntry).
             // Segments are equivalent and work for both the writable mount
             // and the read-only view.
-            node = await E(worktree).lookup(segments);
+            node = /** @type {GitStatusNode} */ (
+              await E(worktree).lookup(segments)
+            );
           } catch (lookupError) {
             node = undefined;
             // A deleted path (in either the index or the worktree)
@@ -370,7 +448,7 @@ export const makeGit = ({ mount, backend, readOnly = false, lineageOf }) => {
       // Translate caller-supplied options to the backend shape:
       // - `base` and `head` accept GitRef-or-string; collapse to a
       //   string name the backend forwards to git unchanged.
-      // - `entries` (EndoMountEntry[]) get resolved to repo-relative
+      // - `entries` (PathEntry[]) get resolved to repo-relative
       //   paths with the same lineage check `add` uses.  `paths`
       //   (string[]) passes through (callers can use either).
       const opts =
@@ -401,7 +479,10 @@ export const makeGit = ({ mount, backend, readOnly = false, lineageOf }) => {
     },
 
     async log(options = {}) {
-      return backend.log(options);
+      const { ref, ...rest } = /** @type {GitLogOptions} */ (options);
+      const resolved = /** @type {GitBackendLogOptions} */ ({ ...rest });
+      if (ref !== undefined) resolved.ref = refName(ref);
+      return backend.log(resolved);
     },
 
     async show(ref) {
@@ -424,9 +505,18 @@ export const makeGit = ({ mount, backend, readOnly = false, lineageOf }) => {
       return backend.restore(paths, options);
     },
 
-    async commit(message) {
+    async commit(message, options = {}) {
       assertWritable('commit');
-      return backend.commit(message);
+      if (options.amend) {
+        assertHistoryRewrite('commit');
+      }
+      return backend.commit(message, options);
+    },
+
+    async reword(ref, message) {
+      assertWritable('reword');
+      assertHistoryRewrite('reword');
+      return backend.reword(refName(ref), message);
     },
 
     async currentBranch() {
@@ -548,12 +638,18 @@ export const makeGit = ({ mount, backend, readOnly = false, lineageOf }) => {
       if (readOnly) {
         return selfExo;
       }
-      return makeGit({ mount, backend, readOnly: true, lineageOf });
+      return makeGit(
+        { mount, backend, lineageOf },
+        { readOnly: true, allowHistoryRewrite: false },
+      );
     },
-  });
+  };
 
-  const typed = /** @type {EndoGit} */ (/** @type {unknown} */ (exo));
+  const exo = makeExo('Git', GitInterface, gitMethods);
+
+  const typed = /** @type {WritableEndoGit | ReadOnlyEndoGit} */ (exo);
   gitReadOnly.set(typed, readOnly);
+  gitHistoryRewrite.set(typed, allowHistoryRewrite);
   gitBackends.set(typed, backend);
   selfExo = typed;
   return typed;
@@ -584,6 +680,7 @@ export const makeNotYetImplementedBackend = () => {
     add: async () => fail('add'),
     restore: async () => fail('restore'),
     commit: async () => fail('commit'),
+    reword: async () => fail('reword'),
     currentBranch: async () => fail('currentBranch'),
     branches: async () => fail('branches'),
     createBranch: async () => fail('createBranch'),

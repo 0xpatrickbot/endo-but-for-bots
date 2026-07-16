@@ -1,9 +1,13 @@
 // @ts-check
 
-/** @import { ERef } from '@endo/far' */
+/** @import { ERef } from '@endo/eventual-send' */
 /** @import { EndoHost } from '@endo/daemon' */
+/** @import { PassableReader } from '@endo/exo-stream' */
 
-import { Far } from '@endo/far';
+import { Far } from '@endo/pass-style';
+import { makeExo } from '@endo/exo';
+import { M } from '@endo/patterns';
+import { readerFromIterator } from '@endo/exo-stream/reader-from-iterator.js';
 import { makePromiseKit } from '@endo/promise-kit';
 
 /**
@@ -11,15 +15,39 @@ import { makePromiseKit } from '@endo/promise-kit';
  * @property {string[]} [names] - Initial pet names
  * @property {Map<string, unknown>} [values] - Pet name to value mapping
  * @property {Map<string, string>} [ids] - Pet name to id mapping
+ * @property {Map<string, string>} [locators] - Pet name to locator URL mapping
+ *   (e.g. "endo://?type=directory&number=...").
+ *   inventoryComponent calls locate() to probe formula type for type badges
+ *   and hub-gating; absent entries return undefined (immutable / non-locatable).
+ * @property {Error} [evaluateError] - When set, `evaluate()` rejects with this
+ *   error, modelling a worker throw so the `/js` failure path can be exercised.
+ * @property {Map<string, { message?: string, stack?: string, workerId?: string }>} [traceReports] -
+ *   errorId to daemon-side trace report, returned by
+ *   `diagnostics().traces().lookup(errorId)` so `resolveErrorTrace` can resolve a
+ *   stack + authoritative worker id.
+ * @property {Map<string, unknown>} [workersById] - Worker formula id to the live
+ *   worker value returned by `lookupById(id)` (the error worker-chip's Show Value
+ *   reverse lookup); a missing id rejects, driving the anonymous fallback.
+ * @property {number} [traceReportMisses] - Model the trace race: the first N
+ *   `diagnostics().traces().lookup(errorId)` calls return `undefined` (the
+ *   record has not yet reached the aggregator) before subsequent calls serve
+ *   `traceReports`. Exercises the client-side `watchErrorTrace` retry.
  */
 
 /**
  * @typedef {object} MockPowersResult
  * @property {ERef<EndoHost>} powers - The mock powers object (cast via unknown)
- * @property {(name: string) => void} addName - Add a pet name
+ * @property {(name: string) => void} addName - Add a pet name (no type in event)
+ * @property {(name: string, formulaType: string) => void} addNameWithType
+ *   - Add a pet name emitting `{ add: name, type: formulaType }` in the
+ *   `followNameChanges` event, simulating the daemon's type-enrichment path.
  * @property {(name: string) => void} removeName - Remove a pet name
  * @property {(name: string, value: unknown, id?: string) => void} setValue
  * @property {Array<{ to: string, strings: string[], edgeNames: string[], petNames: string[] }>} sentMessages
+ * @property {Array<{ method: string, args: unknown[] }>} calls - Record of
+ *   every method invocation on the mock; the inventory-component tests assert
+ *   on the shape of cancel / copy / move calls to pin the path-argument
+ *   contract.
  */
 
 /**
@@ -33,27 +61,39 @@ export const makeMockPowers = ({
   names: initialNames = [],
   values = new Map(),
   ids = new Map(),
+  locators = new Map(),
+  evaluateError = undefined,
+  traceReports = new Map(),
+  workersById = new Map(),
+  traceReportMisses = 0,
 } = {}) => {
   // Make a mutable copy of names
   const names = [...initialNames];
 
-  /** @type {Array<(value: { add: string } | { remove: string }) => void>} */
+  // Countdown of initial trace lookups that miss (record still in flight),
+  // modelling the worker-push / lookup-round-trip race.
+  let remainingTraceMisses = traceReportMisses;
+
+  /** @type {Array<(value: { add: string, type?: string } | { remove: string }) => void>} */
   const nameChangeResolvers = [];
 
   /** @type {Array<{ to: string, strings: string[], edgeNames: string[], petNames: string[] }>} */
   const sentMessages = [];
 
+  /** @type {Array<{ method: string, args: unknown[] }>} */
+  const calls = [];
+
   /**
    * Create an async iterator that yields initial names then waits for changes.
-   * @returns {AsyncIterator<{ add: string } | { remove: string }>}
+   * @returns {AsyncIterator<{ add: string, type?: string } | { remove: string }>}
    */
   const makeNameChangesIterator = () => {
     let initialIndex = 0;
-    /** @type {import('@endo/promise-kit').PromiseKit<{ add: string } | { remove: string }> | null} */
+    /** @type {import('@endo/promise-kit').PromiseKit<{ add: string, type?: string } | { remove: string }> | null} */
     let pendingKit = null;
 
     const iterator = Far('NameChangesIterator', {
-      /** @returns {Promise<IteratorResult<{ add: string } | { remove: string }>>} */
+      /** @returns {Promise<IteratorResult<{ add: string, type?: string } | { remove: string }>>} */
       async next() {
         // First yield all initial names
         if (initialIndex < names.length) {
@@ -121,6 +161,7 @@ export const makeMockPowers = ({
       } else {
         throw new Error(`Invalid path: ${pathOrFirst}`);
       }
+      calls.push({ method: 'lookup', args: [path] });
       const key = path.join('/');
       if (!values.has(key)) {
         throw new Error(`Not found: ${key}`);
@@ -134,16 +175,105 @@ export const makeMockPowers = ({
      * @returns {string | undefined}
      */
     identify(...path) {
+      calls.push({ method: 'identify', args: path });
       const key = path.join('/');
       return ids.get(key);
     },
 
     /**
-     * Follow name changes as an async iterator.
-     * @returns {AsyncIterator<{ add: string } | { remove: string }>}
+     * Get the locator URL for a pet name path. inventoryComponent uses the
+     * locator's `type` query parameter to decide whether to show a type
+     * badge and whether the item is a drop-accepting hub.
+     * @param  {...string} path
+     * @returns {string | undefined}
+     */
+    locate(...path) {
+      calls.push({ method: 'locate', args: path });
+      const key = path.join('/');
+      return locators.get(key);
+    },
+
+    /**
+     * Cancel an incarnation by pet name or path. The real EndoHost.cancel
+     * takes a single name-or-path argument plus an optional Error reason.
+     * @param {string | string[]} petNameOrPath
+     * @param {Error} [reason]
+     */
+    cancel(petNameOrPath, reason) {
+      calls.push({ method: 'cancel', args: [petNameOrPath, reason] });
+    },
+
+    /**
+     * Copy (alias) an item from one path to another. Real shape is
+     * copy(fromPath, toPath).
+     * @param {string[]} from
+     * @param {string[]} to
+     */
+    copy(from, to) {
+      calls.push({ method: 'copy', args: [from, to] });
+    },
+
+    /**
+     * Atomically move an item from one path to another. Real shape is
+     * move(fromPath, toPath).
+     * @param {string[]} from
+     * @param {string[]} to
+     */
+    move(from, to) {
+      calls.push({ method: 'move', args: [from, to] });
+    },
+
+    /**
+     * Remove a pet name from this host. inventoryComponent calls this via
+     * its $remove button.
+     * @param  {...string} path
+     */
+    remove(...path) {
+      calls.push({ method: 'remove', args: path });
+      const key = path.join('/');
+      values.delete(key);
+      const idx = names.indexOf(key);
+      if (idx !== -1) {
+        names.splice(idx, 1);
+        for (const resolve of nameChangeResolvers) {
+          resolve({ remove: key });
+        }
+      }
+    },
+
+    /**
+     * Report the method names this mock supports. inventoryComponent uses
+     * __getMethodNames__ during expansion to decide whether a target is a
+     * NameHub (followNameChanges present) or a static tree (list present).
+     * @returns {string[]}
+     */
+    // eslint-disable-next-line no-underscore-dangle
+    __getMethodNames__() {
+      return [
+        'list',
+        'lookup',
+        'identify',
+        'locate',
+        'cancel',
+        'copy',
+        'move',
+        'remove',
+        'followNameChanges',
+        'send',
+        'storeValue',
+        'reverseIdentify',
+        '__getMethodNames__',
+      ];
+    },
+
+    /**
+     * Follow name changes as a passable reader stream. `readerFromIterator`
+     * returns a `PassableReader` (the async-iterable/reader wire shape), not a
+     * bare `AsyncIterator`, so annotate the return as the reader type.
+     * @returns {PassableReader<{ add: string } | { remove: string }>}
      */
     followNameChanges() {
-      return makeNameChangesIterator();
+      return readerFromIterator(makeNameChangesIterator());
     },
 
     /**
@@ -188,6 +318,77 @@ export const makeMockPowers = ({
       }
       return result;
     },
+
+    /**
+     * Evaluate JavaScript in a worker. When `evaluateError` was supplied the
+     * mock rejects with it, modelling a worker throw whose decoded CapTP error
+     * carries a wire errorId; otherwise it records the call and resolves.
+     * @param {string} workerName
+     * @param {string} source
+     * @param {string[]} codeNames
+     * @param {string[][]} petNamePaths
+     * @param {string[]} [resultPath]
+     */
+    evaluate(workerName, source, codeNames, petNamePaths, resultPath) {
+      calls.push({
+        method: 'evaluate',
+        args: [workerName, source, codeNames, petNamePaths, resultPath],
+      });
+      if (evaluateError !== undefined) {
+        throw evaluateError;
+      }
+      return undefined;
+    },
+
+    /**
+     * The privileged diagnostics facet holding the trace aggregator. Mirrors the
+     * real `host.diagnostics().traces().lookup(errorId)` shape used by
+     * `resolveErrorTrace`.
+     */
+    diagnostics() {
+      return makeExo(
+        'MockDiagnostics',
+        M.interface('MockDiagnostics', {}, { defaultGuards: 'passable' }),
+        {
+          traces() {
+            return makeExo(
+              'MockTraces',
+              M.interface('MockTraces', {}, { defaultGuards: 'passable' }),
+              {
+                /**
+                 * @param {string} errorId
+                 * @returns {{ message?: string, stack?: string, workerId?: string } | undefined}
+                 */
+                lookup(errorId) {
+                  calls.push({ method: 'traces.lookup', args: [errorId] });
+                  // Model the race: the first `traceReportMisses` lookups miss
+                  // (record still propagating) before the aggregator serves it.
+                  if (remainingTraceMisses > 0) {
+                    remainingTraceMisses -= 1;
+                    return undefined;
+                  }
+                  return traceReports.get(errorId);
+                },
+              },
+            );
+          },
+        },
+      );
+    },
+
+    /**
+     * Resolve a live worker value by its formula id (the error worker-chip's
+     * Show Value reverse lookup). A missing id rejects, driving the chat bar's
+     * anonymous-fallback Show Value.
+     * @param {string} id
+     */
+    lookupById(id) {
+      calls.push({ method: 'lookupById', args: [id] });
+      if (!workersById.has(id)) {
+        throw new Error(`No retained path for worker ${id}`);
+      }
+      return workersById.get(id);
+    },
   });
 
   const typedPowers = /** @type {ERef<EndoHost>} */ (
@@ -198,12 +399,22 @@ export const makeMockPowers = ({
     // Cast via unknown since mock doesn't implement full EndoHost interface
     powers: typedPowers,
     sentMessages,
+    calls,
 
     addName(name) {
       if (!names.includes(name)) {
         names.push(name);
         for (const resolve of nameChangeResolvers) {
           resolve({ add: name });
+        }
+      }
+    },
+
+    addNameWithType(name, formulaType) {
+      if (!names.includes(name)) {
+        names.push(name);
+        for (const resolve of nameChangeResolvers) {
+          resolve({ add: name, type: formulaType });
         }
       }
     },

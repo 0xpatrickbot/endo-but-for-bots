@@ -47,7 +47,7 @@ import fsSync from 'node:fs';
 import path from 'node:path';
 import url from 'node:url';
 
-import { E } from '@endo/far';
+import { E } from '@endo/eventual-send';
 import { makePromiseKit } from '@endo/promise-kit';
 import { start, stop, purge, makeEndoClient } from '@endo/daemon';
 
@@ -361,7 +361,12 @@ const extractFormulaId = fromUrl => {
   if (typeof fromUrl !== 'string') return undefined;
   try {
     const parsed = new URL(fromUrl);
-    const number = parsed.searchParams.get('id');
+    // The formula address is the first `@`-delimited, URL-encoded path
+    // component; any connection hints follow it.
+    const [number] = parsed.pathname
+      .replace(/^\//, '')
+      .split('@')
+      .map(decodeURIComponent);
     const node = parsed.host;
     if (!number || !node) return undefined;
     return `${number}:${node}`;

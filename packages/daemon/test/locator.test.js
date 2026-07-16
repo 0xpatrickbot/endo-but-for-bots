@@ -6,6 +6,8 @@ import {
   assertValidLocator,
   formatLocator,
   formatLocatorForSharing,
+  formatLocatorWithHints,
+  hintsFromLocator,
   idFromLocator,
   parseLocator,
   externalizeId,
@@ -23,28 +25,23 @@ const validId = /** @type {FormulaNumber} */ (
 );
 const validType = 'eval';
 
+/**
+ * Build a locator string for testing using the `@`-delimited URL-encoded
+ * path-component format:
+ *   endo://{host}/{number}?type={type}
+ */
 const makeLocator = (components = {}) => {
   const {
     protocol = 'endo://',
     host = validNode,
-    param1 = `id=${validId}`,
-    param2 = `type=${validType}`,
+    number = validId,
+    type = validType,
   } = components;
-  return `${protocol}${host}/?${param1}&${param2}`;
+  return `${protocol}${host}/${number}?type=${type}`;
 };
 
 test('assertValidLocator - valid', t => {
   t.notThrows(() => assertValidLocator(makeLocator()));
-
-  // Reverse search param order
-  t.notThrows(() =>
-    assertValidLocator(
-      makeLocator({
-        param1: `type=${validType}`,
-        param2: `id=${validId}`,
-      }),
-    ),
-  );
 });
 
 test('assertValidLocator - invalid', t => {
@@ -57,11 +54,13 @@ test('assertValidLocator - invalid', t => {
     [{}, /Invalid URL.$/u],
     [makeLocator({ protocol: 'foobar://' }), /Invalid protocol.$/u],
     [makeLocator({ host: 'foobar' }), /Invalid node identifier.$/u],
-    [makeLocator({ param1: 'foo=bar' }), /Invalid search params.$/u],
-    [makeLocator({ param2: 'foo=bar' }), /Invalid search params.$/u],
-    [`${makeLocator()}&foo=bar`, /Invalid search params.$/u],
-    [makeLocator({ param1: 'id=foobar' }), /Invalid id.$/u],
-    [makeLocator({ param2: 'type=foobar' }), /Invalid type.$/u],
+    [`endo://${validNode}/?type=${validType}`, /Missing formula number.$/u],
+    [
+      `endo://${validNode}/${validId}?type=${validType}&foo=bar`,
+      /Invalid search params.$/u,
+    ],
+    [makeLocator({ number: 'foobar' }), /Invalid id.$/u],
+    [makeLocator({ type: 'foobar' }), /Invalid type.$/u],
   ];
   for (const [locator, reason] of cases) {
     t.throws(() => assertValidLocator(locator), { message: reason });
@@ -73,6 +72,7 @@ test('parseLocator', t => {
     number: validId,
     node: validNode,
     formulaType: validType,
+    hints: [],
   });
 });
 
@@ -90,36 +90,88 @@ test('idFromLocator', t => {
   );
 });
 
-test('parseLocator - tolerates at= connection hints', t => {
-  const locator = `${makeLocator()}&at=libp2p%2Bcaptp0%3A%2F%2Fpeer1&at=libp2p%2Bcaptp0%3A%2F%2Fpeer2`;
+// --- Connection hints in `@`-delimited path components ---
+
+test('parseLocator - single connection hint', t => {
+  const hint = 'tcp+netstring+json+captp0://127.0.0.1:54321';
+  const locator = `endo://${validNode}/${validId}@${encodeURIComponent(hint)}?type=${validType}`;
   const parsed = parseLocator(locator);
   t.is(parsed.number, validId);
   t.is(parsed.node, validNode);
   t.is(parsed.formulaType, validType);
+  t.deepEqual(parsed.hints, [hint]);
 });
 
-test('formatLocatorForSharing', t => {
+test('parseLocator - multiple connection hints (ws + libp2p + tor)', t => {
+  const hints = [
+    'ws-relay+captp0://example.com:8920',
+    'libp2p+captp0:///peer1',
+    'tor:abc123def456.onion:443',
+  ];
+  const path = [validId, ...hints].map(encodeURIComponent).join('@');
+  const locator = `endo://${validNode}/${path}?type=${validType}`;
+  const parsed = parseLocator(locator);
+  t.deepEqual(parsed.hints, hints);
+});
+
+test('parseLocator - hint containing `@` round-trips via URL-encoding', t => {
+  // A hostname that contains an `@` sign (e.g., user@host) must be
+  // URL-encoded inside the path component so it does not split the path.
+  const hint = 'tcp:user@example.com:8920';
+  const path = [validId, hint].map(encodeURIComponent).join('@');
+  const locator = `endo://${validNode}/${path}?type=${validType}`;
+  const parsed = parseLocator(locator);
+  t.deepEqual(parsed.hints, [hint]);
+});
+
+test('parseLocator - hint containing `/` and `?` round-trips', t => {
+  const hint = 'libp2p+captp0:///peer/with?slashes';
+  const path = [validId, hint].map(encodeURIComponent).join('@');
+  const locator = `endo://${validNode}/${path}?type=${validType}`;
+  const parsed = parseLocator(locator);
+  t.deepEqual(parsed.hints, [hint]);
+});
+
+test('formatLocatorWithHints', t => {
   const id = formatId({ number: validId, node: validNode });
-  const addresses = ['libp2p+captp0:///peer1', 'tcp+captp0://127.0.0.1:8940'];
-  const locator = formatLocatorForSharing(id, validType, addresses);
+  const hints = ['iroh+captp0:///peer1', 'tcp+captp0://127.0.0.1:8940'];
+  const locator = formatLocatorWithHints(id, validType, hints);
   t.true(locator.startsWith('endo://'));
   const parsed = parseLocator(locator);
   t.is(parsed.number, validId);
   t.is(parsed.node, validNode);
   t.is(parsed.formulaType, validType);
-  const extractedAddresses = addressesFromLocator(locator);
-  t.deepEqual(extractedAddresses, addresses);
+  t.deepEqual(parsed.hints, hints);
+  const extractedHints = hintsFromLocator(locator);
+  t.deepEqual(extractedHints, hints);
 });
 
-test('formatLocatorForSharing - no addresses', t => {
+test('formatLocatorWithHints - no hints', t => {
   const id = formatId({ number: validId, node: validNode });
-  const locator = formatLocatorForSharing(id, validType, []);
+  const locator = formatLocatorWithHints(id, validType, []);
   t.is(locator, formatLocator(id, validType));
-  t.deepEqual(addressesFromLocator(locator), []);
+  t.deepEqual(hintsFromLocator(locator), []);
 });
 
-test('addressesFromLocator - plain locator returns empty', t => {
-  t.deepEqual(addressesFromLocator(makeLocator()), []);
+test('formatLocatorWithHints - hint with `@` round-trips', t => {
+  const id = formatId({ number: validId, node: validNode });
+  const hints = ['tcp:user@example.com:8920'];
+  const locator = formatLocatorWithHints(id, validType, hints);
+  // The `@` inside the hint is URL-encoded so it does not split the path.
+  t.true(locator.includes('user%40example.com'));
+  t.deepEqual(hintsFromLocator(locator), hints);
+});
+
+test('hintsFromLocator - plain locator returns empty', t => {
+  t.deepEqual(hintsFromLocator(makeLocator()), []);
+});
+
+test('previous connection-hint helper names remain aliases', t => {
+  const id = formatId({ number: validId, node: validNode });
+  const hints = ['tcp:user@example.com:8920'];
+  const locator = formatLocatorForSharing(id, validType, hints);
+  t.is(locator, formatLocatorWithHints(id, validType, hints));
+  t.deepEqual(addressesFromLocator(locator), hintsFromLocator(locator));
 });
 
 // --- externalizeId, internalizeLocator ---
@@ -191,8 +243,44 @@ test('externalizeId / internalizeLocator round-trip preserves remote node', t =>
 
 test('internalizeLocator extracts connection hints', t => {
   const id = formatId({ number: validId, node: validNode });
-  const addresses = ['tcp://127.0.0.1:8940', 'ws://example.com'];
-  const locator = formatLocatorForSharing(id, validType, addresses);
+  const hints = ['tcp://127.0.0.1:8940', 'ws://example.com'];
+  const locator = formatLocatorWithHints(id, validType, hints);
   const result = internalizeLocator(locator);
-  t.deepEqual(result.addresses, addresses);
+  t.deepEqual(result.hints, hints);
+  t.deepEqual(result.addresses, hints);
+});
+
+// --- Format verification ---
+
+test('formatLocator produces path-based format', t => {
+  const fmtId = formatId({ number: validId, node: validNode });
+  const locator = formatLocator(fmtId, validType);
+  // Formula number in path, no `?id=` query parameter.
+  t.true(locator.includes(`/${validId}`));
+  t.false(locator.includes('id='));
+  t.true(locator.includes(`type=${validType}`));
+});
+
+test('formatLocator round-trips through parseLocator', t => {
+  const fmtId = formatId({ number: validId, node: validNode });
+  const locator = formatLocator(fmtId, validType);
+  const parsed = parseLocator(locator);
+  t.is(parsed.number, validId);
+  t.is(parsed.node, validNode);
+  t.is(parsed.formulaType, validType);
+  t.deepEqual(parsed.hints, []);
+});
+
+test('parseLocator - rejects locator with no formula number', t => {
+  const badLocator = `endo://${validNode}/?type=${validType}`;
+  t.throws(() => parseLocator(badLocator), {
+    message: /Missing formula number/,
+  });
+});
+
+test('parseLocator - rejects unrecognized search params', t => {
+  const badLocator = `endo://${validNode}/${validId}?type=${validType}&bad=param`;
+  t.throws(() => parseLocator(badLocator), {
+    message: /Invalid search params/,
+  });
 });

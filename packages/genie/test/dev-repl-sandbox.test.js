@@ -69,12 +69,15 @@ const DEV_REPL = resolve(PACKAGE_DIR, 'dev-repl.js');
 // The faux script module lives in a tmpdir outside the genie package
 // (so a teardown can `rm -rf` the entire tree without surprising the
 // workspace cleanup).  Node's bare-specifier resolution would fail
-// for `@mariozechner/pi-ai` from a path outside any node_modules
+// for `@earendil-works/pi-ai` from a path outside any node_modules
 // hierarchy, so we resolve the package's entry point to an absolute
 // `file://…` URL up front via `import.meta.resolve` (which respects
 // the ESM `exports` field, unlike `require.resolve`) and embed the
-// URL in the generated script.
-const PI_AI_URL = import.meta.resolve('@mariozechner/pi-ai');
+// URL in the generated script.  As of pi-ai 0.80, the faux-provider
+// registration API (`registerFauxProvider`) lives on the `/compat`
+// entrypoint; it re-exports the root surface too, so `fauxAssistantMessage`
+// and `fauxToolCall` still resolve from the same URL.
+const PI_AI_URL = import.meta.resolve('@earendil-works/pi-ai/compat');
 
 // ---------------------------------------------------------------------------
 // Skip probes — only bwrap / userns, no LLM-reachability probes
@@ -211,7 +214,7 @@ const runDevRepl = async ({ args, cwd, extraEnv = {}, timeoutMs = 30_000 }) => {
     killed = true;
     proc.kill('SIGTERM');
     // Hard kill after a 5s grace if SIGTERM is ignored.
-    setTimeout(() => proc.kill('SIGKILL'), 5_000).unref();
+    setTimeout(() => proc.kill('SIGKILL'), 5000).unref();
   }, timeoutMs);
 
   /** @type {{ code: number | null; signal: NodeJS.Signals | null }} */

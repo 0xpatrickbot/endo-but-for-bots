@@ -19,8 +19,8 @@ const repoRoot = path.resolve(dirname, '../..');
 const tcpNetstringUrl = pathToFileURL(
   path.join(repoRoot, 'packages/daemon/src/networks/tcp-netstring.js'),
 ).href;
-const libp2pUrl = pathToFileURL(
-  path.join(repoRoot, 'packages/daemon/src/networks/libp2p.js'),
+const irohUrl = pathToFileURL(
+  path.join(repoRoot, 'packages/daemon/src/networks/iroh.js'),
 ).href;
 const wsRelayUrl = pathToFileURL(
   path.join(repoRoot, 'packages/daemon/src/networks/ws-relay.js'),
@@ -43,14 +43,17 @@ const jaineSetupUrl = pathToFileURL(
 // would later fail with "No corresponding formula for (an
 // object)"); the daemon has to formulate them via the module
 // recipe so they're durable in the inventory.
+//
+// `@endo/endo-fs` was retired into `@endo/platform/fs/extended`, so these
+// resolve to the platform package's caplet modules.
 const endoFsInMemoryUrl = pathToFileURL(
-  path.join(repoRoot, 'packages/endo-fs/src/in-memory-module.js'),
+  path.join(repoRoot, 'packages/platform/src/fs/extended/in-memory-module.js'),
 ).href;
 const endoFsReadonlyUrl = pathToFileURL(
-  path.join(repoRoot, 'packages/endo-fs/src/readonly-module.js'),
+  path.join(repoRoot, 'packages/platform/src/fs/extended/readonly-module.js'),
 ).href;
 const endoFsLayerUrl = pathToFileURL(
-  path.join(repoRoot, 'packages/endo-fs/src/layer-module.js'),
+  path.join(repoRoot, 'packages/platform/src/fs/extended/layer-module.js'),
 ).href;
 
 // Path to the endo CLI in this repo
@@ -82,14 +85,14 @@ const loadDotenv = () => {
  * @param {string[]} args
  * @param {number} timeoutMs
  */
-const runEndoCli = (args, timeoutMs = 1_500) =>
+const runEndoCli = (args, timeoutMs = 1500) =>
   systemCapture(endoCliPath, args, timeoutMs);
 
 // Set to 0 to disable thrashing when developing daemon
-const DAEMON_POLL_INTERVAL_MS = 5_000;
+const DAEMON_POLL_INTERVAL_MS = 5000;
 
-// The daemon may need to reincarnate network modules (libp2p DHT bootstrapping
-// can take ~30s), so allow up to 90s.
+// The daemon may need to reincarnate network modules (transport discovery
+// and relay setup can take ~30s), so allow up to 90s.
 const DAEMON_START_MAX_WAIT = 90_000;
 
 /**
@@ -262,7 +265,7 @@ export const makeEndoPlugin = () => {
           'import.meta.env.ENDO_GATEWAY': JSON.stringify(''),
           'import.meta.env.ENDO_AGENT': JSON.stringify(''),
           'import.meta.env.TCP_NETSTRING_PATH': JSON.stringify(tcpNetstringUrl),
-          'import.meta.env.LIBP2P_PATH': JSON.stringify(libp2pUrl),
+          'import.meta.env.IROH_PATH': JSON.stringify(irohUrl),
           'import.meta.env.WS_RELAY_PATH': JSON.stringify(wsRelayUrl),
           'import.meta.env.ENDO_FS_IN_MEMORY_PATH':
             JSON.stringify(endoFsInMemoryUrl),

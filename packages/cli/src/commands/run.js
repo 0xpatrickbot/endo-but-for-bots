@@ -5,13 +5,14 @@ import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 import harden from '@endo/harden';
-import { E, Far } from '@endo/far';
+import { E } from '@endo/eventual-send';
+import { Far } from '@endo/pass-style';
 import { makeExo } from '@endo/exo';
 import { M } from '@endo/patterns';
 import { makeArchive as makeCompartmentArchive } from '@endo/compartment-mapper';
 import { makeReadPowers } from '@endo/compartment-mapper/node-powers.js';
 import { defaultParserForLanguage as sourceParserForLanguage } from '@endo/compartment-mapper/import-parsers.js';
-import { makeRefReader } from '@endo/daemon';
+import { iterateBytesReader } from '@endo/exo-stream/iterate-bytes-reader.js';
 
 import { withEndoAgent } from '../context.js';
 import { parsePetNamePath } from '../pet-name.js';
@@ -94,7 +95,10 @@ export const run = async ({
       } else if (powersName === '@endo') {
         powersP = bootstrap;
       } else {
-        powersP = E(agent).provideGuest(powersName);
+        // A slash-delimited powers name references a guest nested in a
+        // directory; the parent directory must already exist (as with
+        // `mkdir`, `store`, and `mv`).
+        powersP = E(agent).provideGuest(parsePetNamePath(powersName));
       }
 
       if (importPath !== undefined) {
@@ -125,9 +129,7 @@ export const run = async ({
         /** @type {Uint8Array[]} */
         const chunks = [];
         let total = 0;
-        for await (const chunk of makeRefReader(
-          /** @type {any} */ (await E(readableP).streamBase64()),
-        )) {
+        for await (const chunk of iterateBytesReader(readableP)) {
           chunks.push(chunk);
           total += chunk.byteLength;
         }
