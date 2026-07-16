@@ -120,6 +120,22 @@ test('git declarations expand the reachable platform filesystem contracts', t =>
   }
 });
 
+test('git blob declarations expose Exo methods without CAS backing helpers', t => {
+  const { aux } = gitCodeModeTypeDeclarations.git;
+  for (const shape of [
+    'streamBase64: (synPromise: unknown) => Promise<unknown>;',
+    'type GitReadableBlobRange = GitLiteReadableBlob & {',
+    'getInfo: () => Promise<GitBlobInfo>;',
+    'fetch: (offset: bigint, length: bigint) => Promise<unknown>;',
+  ]) {
+    t.true(aux.includes(shape), `missing public blob shape: ${shape}`);
+  }
+  const leaked = aux.match(
+    /\b(?:makeFileReader|readRange|rangeRead|rangeReadText)\??:/,
+  );
+  t.is(leaked, null, `leaked non-Git blob method: ${leaked?.[0]}`);
+});
+
 test('combined Git and workspace declarations have unique alias names', t => {
   const combined = [
     fsCodeModeTypeDeclarations.workspace.aux,

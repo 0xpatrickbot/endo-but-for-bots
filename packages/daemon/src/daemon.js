@@ -117,15 +117,16 @@ import { getUnredactedStackString } from './unredacted-stack.js';
  */
 
 /**
- * The daemon's content store always surfaces the optional `size` / `readRange`
- * members of `ReadableBlob` (its backing is the on-disk sha256 store), so its
- * `fetch` result can be treated as having them present — unlike the shared
- * `ReadableBlob` type, where they are optional for stores that lack range I/O.
+ * The daemon's filesystem content store always surfaces the optional `size` /
+ * `readRange` members of the host-side `ContentStoreBlob`, so its `fetch`
+ * result can be narrowed to require them.
+ * This backing value is consumed here
+ * to implement the public `EndoBlob` Exo; it is never exposed over CapTP.
  *
- * @typedef {import('@endo/platform/fs/lite/types').ReadableBlob & {
+ * @typedef {import('@endo/platform/fs/lite/types').ContentStoreBlob & {
  *   size: () => Promise<bigint>,
  *   readRange: (offset: number, length: number) => Promise<Uint8Array>,
- * }} RangeReadableBlob
+ * }} DaemonContentStoreBlob
  */
 
 /**
@@ -1720,7 +1721,7 @@ const makeDaemonCore = async (
    */
   const makeReadableBlob = sha256 => {
     const { makeFileReader, text, json, size, readRange } =
-      /** @type {RangeReadableBlob} */ (contentStore.fetch(sha256));
+      /** @type {DaemonContentStoreBlob} */ (contentStore.fetch(sha256));
     return makeExo(
       `Readable file with SHA-256 ${sha256.slice(0, 8)}...`,
       BlobInterface,

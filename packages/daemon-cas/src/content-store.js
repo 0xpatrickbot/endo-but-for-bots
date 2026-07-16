@@ -15,8 +15,8 @@ import harden from '@endo/harden';
  * `packages/daemon/src/daemon.js`.
  *
  * This store stands on `@endo/platform` for both halves of its model:
- * the CAS interface it produces (`ContentStore`, whose `fetch()`
- * returns a platform `ReadableBlob`) and the injected dependencies it
+ * the CAS interface it produces (`ContentStore`, whose `fetch()` returns a
+ * host-side `ContentStoreBlob` backing value) and the injected dependencies it
  * consumes (`ContentStoreFilePowers` for the filesystem seam,
  * `ContentStoreCryptoPowers` for content addressing), all defined in
  * `@endo/platform/fs/lite/types`.
