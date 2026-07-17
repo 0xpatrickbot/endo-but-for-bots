@@ -29,6 +29,23 @@ const declaredTypeNames = aux =>
     ([, name]) => name,
   );
 
+/**
+ * @param {string} aux
+ * @param {string} typeName
+ * @returns {string[]}
+ */
+const declaredTypeMembers = (aux, typeName) => {
+  const declaration = aux.match(
+    new RegExp(`type ${typeName} = [^\\n]*\\{([\\s\\S]*?)\\n\\};`),
+  );
+  if (declaration === null) {
+    return [];
+  }
+  return [
+    ...declaration[1].matchAll(/^\s+([A-Za-z_$][0-9A-Za-z_$]*)\s*:/gm),
+  ].map(([, name]) => name);
+};
+
 // Freshness gate (git): the checked-in git artifact must equal a fresh
 // extraction, so a change to the exo-git types.d.ts or to a renderer cannot
 // land without regenerating and committing the declarations.
@@ -122,14 +139,17 @@ test('git declarations expand the reachable platform filesystem contracts', t =>
 
 test('git blob declarations expose Exo methods without CAS backing helpers', t => {
   const { aux } = gitCodeModeTypeDeclarations.git;
-  for (const shape of [
-    'streamBase64: (synPromise: unknown) => Promise<unknown>;',
-    'type GitReadableBlobRange = GitLiteReadableBlob & {',
-    'getInfo: () => Promise<GitBlobInfo>;',
-    'fetch: (offset: bigint, length: bigint) => Promise<unknown>;',
-  ]) {
-    t.true(aux.includes(shape), `missing public blob shape: ${shape}`);
-  }
+  t.deepEqual(declaredTypeMembers(aux, 'GitLiteReadableBlob'), [
+    'streamBase64',
+    'text',
+    'json',
+    'help',
+  ]);
+  t.deepEqual(declaredTypeMembers(aux, 'GitReadableBlobRange'), [
+    'getInfo',
+    'fetch',
+  ]);
+  t.true(aux.includes('type GitReadableBlob = GitReadableBlobRange;'));
   const leaked = aux.match(
     /\b(?:makeFileReader|readRange|rangeRead|rangeReadText)\??:/,
   );

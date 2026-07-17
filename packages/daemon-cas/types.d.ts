@@ -20,18 +20,16 @@
 
 /**
  * Byte reader handed back by `fetch().makeFileReader`.
- * This is the
- * `@endo/stream` `Reader<Uint8Array>` used by the host-side content-store
- * backing; aliased here so the rest of this declaration file reads in
- * package-local terms.
+ * This is the `@endo/stream` `Reader<Uint8Array>` used by the host-side
+ * content-store backing; aliased here so the rest of this declaration file
+ * reads in package-local terms.
  */
 export type ContentStoreReader = import('@endo/stream').Reader<Uint8Array>;
 
 /**
  * The host-side blob backing `fetch()` returns.
- * Re-exported from
- * `@endo/platform` so callers see the shared CAS seam without confusing it
- * with the public ReadableBlob Exo surface.
+ * Re-exported from `@endo/platform` so callers see the shared CAS seam without
+ * confusing it with the public ReadableBlob Exo surface.
  */
 export type ContentStoreBlob =
   import('@endo/platform/fs/lite/types.js').ContentStoreBlob;

@@ -120,8 +120,8 @@ import { getUnredactedStackString } from './unredacted-stack.js';
  * The daemon's filesystem content store always surfaces the optional `size` /
  * `readRange` members of the host-side `ContentStoreBlob`, so its `fetch`
  * result can be narrowed to require them.
- * This backing value is consumed here
- * to implement the public `EndoBlob` Exo; it is never exposed over CapTP.
+ * This backing value is consumed here to implement the public `EndoBlob` Exo;
+ * it is never exposed over CapTP.
  *
  * @typedef {import('@endo/platform/fs/lite/types').ContentStoreBlob & {
  *   size: () => Promise<bigint>,
