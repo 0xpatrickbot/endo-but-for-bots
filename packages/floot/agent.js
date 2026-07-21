@@ -1,4 +1,4 @@
-// @ts-nocheck - E() generics don't work well with JSDoc types for remote objects
+// @ts-check
 /* eslint-disable no-await-in-loop */
 
 // Floot — a streaming agent harness for the Endo daemon.
@@ -413,6 +413,32 @@ const provisionPresetObjects = async (
  */
 
 /**
+ * The subset of the daemon's stamped mail (StampedMessage in @endo/daemon's
+ * types) that the inbox loop reads. `strings` and `names` are present on
+ * package-type mail.
+ *
+ * @typedef {object} InboxMessage
+ * @property {string} from
+ * @property {bigint} number
+ * @property {string} [type]
+ * @property {string[]} [strings]
+ * @property {string[]} [names]
+ */
+
+/**
+ * A conversation-tree ChatMessage plus the optional `meta` rider floot
+ * attaches to user turns (runTurn stores it on the user node; providers
+ * ignore unknown fields).
+ *
+ * @typedef {object} MetaChatMessage
+ * @property {'system' | 'user' | 'assistant' | 'tool'} role
+ * @property {string} content
+ * @property {object[]} [tool_calls]
+ * @property {string} [tool_call_id]
+ * @property {Record<string, unknown>} [meta]
+ */
+
+/**
  * Build a streaming agent over a guest's powers. The returned object exposes
  * `converse(input, writer)`, which appends to the conversation tree, streams the
  * model's reply through `writer` (src/stream.js), and persists the assistant
@@ -444,12 +470,13 @@ export const makeStreamingAgent = async (
   systemPrompt,
 ) => {
   const provider =
-    providerConfig.provider ||
-    createStreamingProvider({
-      LAL_HOST: providerConfig.host,
-      LAL_MODEL: providerConfig.model,
-      LAL_AUTH_TOKEN: providerConfig.authToken,
-    });
+    'provider' in providerConfig
+      ? providerConfig.provider
+      : createStreamingProvider({
+          LAL_HOST: providerConfig.host,
+          LAL_MODEL: providerConfig.model,
+          LAL_AUTH_TOKEN: providerConfig.authToken,
+        });
 
   const effectivePrompt = systemPrompt || defaultSystemPrompt;
   const tree = makeConversationTree(makeEndoPetstoreBackend(powers));
@@ -696,6 +723,7 @@ export const makeStreamingAgent = async (
       // call id so the UI can pair an out-of-order result with its call.
       const runOne = async tc => {
         const name = tc.function?.name;
+        /** @type {Record<string, unknown>} */
         let args = {};
         let parseError;
         try {
@@ -822,7 +850,13 @@ export const makeStreamingAgent = async (
       for (;;) {
         const { value: message, done } = await messages.next();
         if (done) break;
-        const { from: fromId, number, type, strings, names } = message;
+        const {
+          from: fromId,
+          number,
+          type,
+          strings,
+          names,
+        } = /** @type {InboxMessage} */ (message);
         if (!handled.has(number)) {
           handled.add(number);
           // Skip our own outbound messages echoed back into the inbox.
@@ -891,7 +925,7 @@ export const makeStreamingAgent = async (
   // a refresh. The system prompt (root) is omitted.
   const getHistory = async () => {
     const leafId = await getOrCreateLeaf();
-    const path = await tree.getPath(leafId);
+    const path = /** @type {MetaChatMessage[]} */ (await tree.getPath(leafId));
     // Index tool outputs by call id so each assistant tool_call can carry its
     // result. The raw 'tool' messages are model-wire records; the UI wants the
     // call and its result joined.
