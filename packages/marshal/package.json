@@ -19,7 +19,7 @@
     "build": "exit 0",
     "test": "ses-ava",
     "test:c8": "c8 ${C8_OPTIONS:-} ses-ava",
-    "test:types": "node ../../scripts/run-tsd.mjs --typings index.d.ts --files 'src/*.test-d.ts'",
+    "test:types": "tsc --project tsconfig.test-types.json",
     "test:xs": "exit 0",
     "pretty-fix": "prettier --write '**/*.js'",
     "pretty-check": "prettier --check '**/*.js'",
@@ -64,8 +64,8 @@
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-eslint-comments": "^3.2.0",
     "eslint-plugin-import": "catalog:dev",
+    "expect-type": "^1.4.0",
     "ses": "workspace:^",
-    "tsd": "^0.33.0",
     "typescript": "catalog:dev"
   },
   "files": [

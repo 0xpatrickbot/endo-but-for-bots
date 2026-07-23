@@ -1,22 +1,22 @@
 // eslint-disable-next-line import/no-extraneous-dependencies
-import { expectAssignable, expectType } from 'tsd';
+import { expectTypeOf } from 'expect-type';
 
 import { Far, type AtomStyle, type RemotableObject } from '@endo/pass-style';
 import { makeMarshal } from './marshal.js';
 
-expectAssignable<AtomStyle>('string');
-expectAssignable<AtomStyle>('number');
+expectTypeOf('string' as const).toExtend<AtomStyle>();
+expectTypeOf('number' as const).toExtend<AtomStyle>();
 // @ts-expect-error
-expectType<AtomStyle>(1);
+expectTypeOf(1).toEqualTypeOf<AtomStyle>();
 // @ts-expect-error
-expectType<AtomStyle>('str');
+expectTypeOf('str').toEqualTypeOf<AtomStyle>();
 
 type KCap = RemotableObject & { getKref: () => string; iface: () => string };
 const valToSlot = (s: KCap) => s.getKref();
 const slotToVal = (s: string) => null as unknown as KCap;
 const marshal = makeMarshal(valToSlot, slotToVal);
 const cycled = marshal.fromCapData(marshal.toCapData(null as unknown as KCap));
-expectType<unknown>(cycled);
+expectTypeOf(cycled).toEqualTypeOf<unknown>();
 
 const m = makeMarshal();
 const foo1 = Far('foo', { getBoardId: () => 'board1' });

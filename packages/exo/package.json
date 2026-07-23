@@ -30,7 +30,7 @@
     "lint:types": "tsc",
     "test": "ses-ava",
     "test:c8": "c8 ${C8_OPTIONS:-} ses-ava",
-    "test:types": "node ../../scripts/run-tsd.mjs --typings index.d.ts --files 'test/*.test-d.ts'"
+    "test:types": "tsc --project tsconfig.test-types.json"
   },
   "dependencies": {
     "@endo/common": "workspace:^",
@@ -54,9 +54,9 @@
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-eslint-comments": "^3.2.0",
     "eslint-plugin-import": "catalog:dev",
+    "expect-type": "^1.4.0",
     "prettier": "^3.5.3",
     "ses": "workspace:^",
-    "tsd": "catalog:dev",
     "typescript": "catalog:dev"
   },
   "files": [
