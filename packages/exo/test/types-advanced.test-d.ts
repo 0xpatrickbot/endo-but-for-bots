@@ -72,10 +72,10 @@ import { makeExo, defineExoClass, defineExoClassKit } from '../index.js';
 {
   const mg = M.call(M.nat()).rest(M.string()).returns(M.boolean());
   type Fn = TypeFromMethodGuard<typeof mg>;
-  expectTypeOf(
+  type BadFn = (n: bigint, goodRest: string, badRest: boolean) => boolean;
+  expectTypeOf(null as unknown as Fn)
     // @ts-expect-error -- third positional must be string (from rest), not boolean
-    null as unknown as Fn,
-  ).toEqualTypeOf<(n: bigint, goodRest: string, badRest: boolean) => boolean>();
+    .toEqualTypeOf<BadFn>();
 }
 
 // ===== M.callWhen: async method guards =====
