@@ -5,6 +5,14 @@
     "skipLibCheck": false,
     "strict": true
   },
-  "files": ["index.d.ts"],
+  "files": [
+    "index.d.ts",
+    "test/types-advanced.test-d.ts",
+    "test/types-plain-guarded.test-d.ts",
+    "test/types-plain-unguarded.test-d.ts",
+    "test/types-typed-guarded.test-d.ts",
+    "test/types-typed-unguarded.test-d.ts",
+    "test/vstorage.test-d.ts"
+  ],
   "include": ["test/*.test-d.ts"]
 }

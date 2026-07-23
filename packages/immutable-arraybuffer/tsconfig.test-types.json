@@ -5,6 +5,9 @@
     "skipLibCheck": false,
     "strict": true
   },
-  "files": ["shim.types.d.ts"],
+  "files": [
+    "shim.types.d.ts",
+    "test/shim.types.test-d.ts"
+  ],
   "include": ["test/*.test-d.ts"]
 }

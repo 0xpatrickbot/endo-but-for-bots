@@ -5,6 +5,9 @@
     "skipLibCheck": false,
     "strict": true
   },
-  "files": ["../eventual-send/src/no-shim.d.ts"],
+  "files": [
+    "../eventual-send/src/no-shim.d.ts",
+    "test/exports.test-d.ts"
+  ],
   "include": ["test/*.test-d.ts"]
 }
