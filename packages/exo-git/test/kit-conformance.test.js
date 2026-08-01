@@ -16,11 +16,7 @@ import test from '@endo/ses-ava/prepare-endo.js';
 import { E } from '@endo/eventual-send';
 import { makeExo } from '@endo/exo';
 
-import {
-  isGitHistoryRewrite,
-  isGitReadOnly,
-  makeGitKit,
-} from '../src/git.js';
+import { isGitHistoryRewrite, isGitReadOnly, makeGitKit } from '../src/git.js';
 import {
   GIT_READER_METHODS,
   GIT_REWRITER_METHODS,
@@ -101,7 +97,13 @@ const makeFakeBackend = () =>
     async lsTree(treeOid) {
       if (treeOid !== TREE_OID) return [];
       return harden([
-        { mode: '100644', type: 'blob', oid: BLOB_OID, size: FILE_BYTES.length, name: FILE_NAME },
+        {
+          mode: '100644',
+          type: 'blob',
+          oid: BLOB_OID,
+          size: FILE_BYTES.length,
+          name: FILE_NAME,
+        },
       ]);
     },
     async readBlobBytes(blobOid) {
@@ -284,7 +286,11 @@ test('worktree(): the reader facet hands back a structural read-only view, never
   const { reader, writer, rewriter } = makeGitKit(powers);
 
   const writable = /** @type {any} */ (await E(writer).worktree());
-  t.is(writable, powers.mount, 'writer.worktree() passes the writable mount through unchanged');
+  t.is(
+    writable,
+    powers.mount,
+    'writer.worktree() passes the writable mount through unchanged',
+  );
   t.true(
     typeof writable.writeText === 'function',
     'the writable mount carries write authority',
@@ -320,7 +326,10 @@ test('filesystemAt(): the memo is per instance, and the returned Filesystem reje
 
   const root = /** @type {any} */ (await E(fsFromWriter).root());
   const file = /** @type {any} */ (await E(root).lookup(FILE_NAME));
-  t.truthy(file, 'the fake tree\'s one file resolves through the real fs/extended pipeline');
+  t.truthy(
+    file,
+    "the fake tree's one file resolves through the real fs/extended pipeline",
+  );
 
   // Transitive mutator probe: a Filesystem obtained through the *writer*
   // facet — which itself has full worktree write authority — must still

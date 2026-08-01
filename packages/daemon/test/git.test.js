@@ -193,7 +193,10 @@ test('Git exo advertises the writer facet, cumulative up to the rewriter facet',
     );
   }
   for (const name of ['reword', 'cherryPick', 'rebase']) {
-    t.true(rewriterMethods.includes(name), `Git rewriter should advertise ${name}`);
+    t.true(
+      rewriterMethods.includes(name),
+      `Git rewriter should advertise ${name}`,
+    );
   }
   // `scope` on the rewriter facet reaches every posture in its own kit
   // instance, and repeated calls return the identical pre-existing

@@ -152,9 +152,7 @@ export const GIT_METHOD_GUARDS = harden({
   filesystemAt: M.callWhen(RefArgShape).returns(M.remotable('Filesystem')),
   scopeReader: M.call(GitReaderScopeNameShape).returns(M.remotable('Git')),
   scopeWriter: M.call(GitWriterScopeNameShape).returns(M.remotable('Git')),
-  scopeRewriter: M.call(GitRewriterScopeNameShape).returns(
-    M.remotable('Git'),
-  ),
+  scopeRewriter: M.call(GitRewriterScopeNameShape).returns(M.remotable('Git')),
   readOnly: M.call().returns(M.remotable('Git')),
 
   add: M.callWhen(M.arrayOf(M.remotable())).returns(M.undefined()),
