@@ -288,6 +288,15 @@ export type ReadOnlyEndoGit = {
   tree: (ref: GitRef | string) => Promise<ReadableTree>;
   filesystemAt: (ref: GitRef | string) => Promise<Filesystem>;
   readOnly: () => ReadOnlyEndoGit;
+  /**
+   * Downscope to a pre-existing sibling facet of the same Git instance.
+   * Repeated calls with the same `name` return the identical facet
+   * reference. The vocabulary is closed and strictly non-escalating: the
+   * read-only posture can only select itself — `ReadWriteEndoGit` and
+   * `HistoryRewriteEndoGit` widen the accepted names (and result) as they
+   * add authority.
+   */
+  scope: (name: 'reader') => ReadOnlyEndoGit;
 };
 
 /** The ordinary read-write capability surface. */
@@ -317,10 +326,12 @@ export type ReadWriteEndoGit = ReadOnlyEndoGit & {
   stashPop: (index?: number) => Promise<void>;
   stashDrop: (index?: number) => Promise<void>;
   readOnly: () => ReadOnlyEndoGit;
+  scope: (name: 'reader' | 'writer') => ReadOnlyEndoGit | ReadWriteEndoGit;
 };
 
 /** The elevated read-write surface that may rewrite existing history. */
 export type HistoryRewriteEndoGit = ReadWriteEndoGit & {
+  scope: (name: 'reader' | 'writer' | 'rewriter') => EndoGit;
   commit: (message: string, options?: GitCommitOptions) => Promise<GitCommit>;
   reword: (ref: GitRef | string, message: string) => Promise<GitCommit>;
   cherryPick: (
