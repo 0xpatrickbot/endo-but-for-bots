@@ -13,8 +13,9 @@ import {
 import { encodeSwissnum } from '../src/client/util.js';
 
 /** @import { ERef } from '@endo/eventual-send' */
+/** @import { Ocapn } from '../src/client/ocapn.js' */
 
-/** @typedef {Record<string, unknown>} TestRecord */
+/** @typedef {{ foo: string }} TestRecord */
 /** @typedef {() => ERef<TestRecord>} TestRecordProvider */
 /** @typedef {() => ERef<unknown[]>} TestArrayProvider */
 /** @typedef {{ getRecord: () => ERef<{ items: string[] }> }} TestDataProvider */
@@ -36,7 +37,8 @@ import { encodeSwissnum } from '../src/client/util.js';
 /**
  * Creates a message recorder that subscribes to messages on an ocapn instance.
  * Records all messages in order with the sender's debugLabel.
- * @param {import('../src/client/ocapn.js').Ocapn} ocapn
+ * @template Bootstrap
+ * @param {Ocapn<Bootstrap>} ocapn
  * @param {string} self - debugLabel for this client (e.g., 'A')
  * @param {string} peer - debugLabel for the peer client (e.g., 'B')
  * @returns {{ transcript: TranscriptEntry[], unsubscribe: () => void }}

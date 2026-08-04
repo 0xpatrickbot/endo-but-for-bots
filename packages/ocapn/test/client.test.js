@@ -23,13 +23,17 @@ const { makeOcapnKeyPair, signLocation } = makeCryptography(syrupCodec);
 
 /** @import { ERef } from '@endo/eventual-send' */
 
-/** @typedef {Record<string, (...args: unknown[]) => unknown> & ((...args: unknown[]) => unknown)} TestRemoteObject */
-/** @typedef {Record<string, unknown>} TestRecord */
+/** @typedef {(...args: unknown[]) => unknown} TestCallableObject */
+/** @typedef {{ xyz: (...args: unknown[]) => unknown, getValue: (...args: unknown[]) => unknown }} TestRemoteObject */
+/** @typedef {{ foo: string, baz: number, nested: { value: string }, delayed: string, count: number }} TestRecord */
+/** @typedef {{ foo: string, baz: number, nonExistent: unknown }} TestMissingFieldRecord */
+/** @typedef {{ someField: unknown }} TestRemotableObject */
+/** @typedef {{ someField: unknown }} TestRejectedRecord */
 /** @typedef {() => ERef<Promise<unknown>[]>} TestPromisesProvider */
 /** @typedef {() => ERef<(...args: unknown[]) => unknown>} TestCallableProvider */
 /** @typedef {{ echo: (...args: unknown[]) => ERef<TestRemoteObject> }} TestEchoObject */
 /** @typedef {{ slowMethod: () => ERef<TestRemoteObject> }} TestSlowObject */
-/** @typedef {{ getSturdyRef: (...args: unknown[]) => ERef<TestRemoteObject> }} TestSturdyRefReturner */
+/** @typedef {{ getSturdyRef: (...args: unknown[]) => ERef<TestCallableObject> }} TestSturdyRefReturner */
 /** @typedef {() => ERef<TestRecord>} TestRecordProvider */
 /** @typedef {() => ERef<TestRemoteObject>} TestRemoteObjectProvider */
 /** @typedef {{ slowMethod: () => ERef<unknown>, fastMethod: () => ERef<unknown> }} TestSlowResponder */
@@ -817,9 +821,10 @@ test('op:get with missing field rejects', async t => {
     } = await establishSession();
     const bootstrapB = ocapnA.getRemoteBootstrap();
 
-    const recordProvider = /** @type {ERef<TestRecordProvider>} */ (
-      fetchRemote(bootstrapB, encodeSwissnum('Record Provider'))
-    );
+    const recordProvider =
+      /** @type {ERef<() => ERef<TestMissingFieldRecord>>} */ (
+        fetchRemote(bootstrapB, encodeSwissnum('Record Provider'))
+      );
     const record = E(recordProvider)();
 
     // Try to get a non-existent field
@@ -859,9 +864,10 @@ test('op:get rejects non-copyRecord', async t => {
     } = await establishSession();
     const bootstrapB = ocapnA.getRemoteBootstrap();
 
-    const remotableProvider = /** @type {ERef<TestRemoteObjectProvider>} */ (
-      fetchRemote(bootstrapB, encodeSwissnum('Remotable Provider'))
-    );
+    const remotableProvider =
+      /** @type {ERef<() => ERef<TestRemotableObject>>} */ (
+        fetchRemote(bootstrapB, encodeSwissnum('Remotable Provider'))
+      );
     const remotable = E(remotableProvider)();
 
     // Try to get a field from a remotable (should fail)
@@ -938,9 +944,10 @@ test('op:get with rejected promise', async t => {
     } = await establishSession();
     const bootstrapB = ocapnA.getRemoteBootstrap();
 
-    const rejectingProvider = /** @type {ERef<TestRecordProvider>} */ (
-      fetchRemote(bootstrapB, encodeSwissnum('Rejecting Provider'))
-    );
+    const rejectingProvider =
+      /** @type {ERef<() => ERef<TestRejectedRecord>>} */ (
+        fetchRemote(bootstrapB, encodeSwissnum('Rejecting Provider'))
+      );
     const rejectedPromise = E(rejectingProvider)();
 
     // Try to get a field from a rejected promise

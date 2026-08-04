@@ -2,11 +2,13 @@
 
 /**
  * @import { OcapnLocation, OcapnSignature } from '../codecs/components.js'
+ * @import { HandoffReceiveSigEnvelope } from '../codecs/descriptors.js'
  * @import { OcapnKeyPair, OcapnPublicKey } from '../cryptography.js'
  * @import { GrantTracker } from './grant-tracker.js'
  * @import { SturdyRef, SturdyRefTracker } from './sturdyrefs.js'
  * @import { Ocapn } from './ocapn.js'
- * @import { FarRef } from '@endo/eventual-send'
+ * @import { ERef, FarRef } from '@endo/eventual-send'
+ * @import { RemotableObject } from '@endo/pass-style'
  */
 
 /**
@@ -25,6 +27,16 @@
  *
  * @template [Primary=any]
  * @typedef {FarRef<Primary>} RemotePresence
+ */
+
+/**
+ * The OCapN-specified bootstrap interface implemented by each client.
+ *
+ * @typedef {{
+ *   fetch: (swissnum: SwissNum) => ERef<unknown>,
+ *   'deposit-gift': (giftId: ArrayBufferLike, gift: RemotableObject) => ERef<undefined>,
+ *   'withdraw-gift': (signedHandoffReceive: HandoffReceiveSigEnvelope) => ERef<RemotableObject>,
+ * }} OcapnBootstrap
  */
 
 /**
@@ -145,7 +157,7 @@
 /**
  * Minimal public session interface.
  * For full session access (testing/debugging), use debug.provideInternalSession().
- * @template [Bootstrap=any]
+ * @template [Bootstrap=OcapnBootstrap]
  * @typedef {object} Session
  * @property {() => RemotePresence<Bootstrap>} getBootstrap - Get the remote bootstrap object
  * @property {(reason?: Error) => void} abort - Abort the session
@@ -153,7 +165,7 @@
 
 /**
  * Full internal session with all properties for internal use and testing.
- * @template [Bootstrap=any]
+ * @template [Bootstrap=OcapnBootstrap]
  * @typedef {object} InternalSession
  * @property {SessionId} id
  * @property {object} peer
@@ -289,7 +301,7 @@
 /**
  * Debug/testing interface exposing internal APIs.
  * Only available when client is created with `debugMode: true`.
- * @template [Bootstrap=any]
+ * @template [Bootstrap=OcapnBootstrap]
  * @typedef {object} ClientDebug
  * @property {Logger} logger
  * @property {string} debugLabel
@@ -321,7 +333,7 @@
 /**
  * The session-manager instance returned by `makeOcapn`.
  *
- * @template [Bootstrap=any]
+ * @template [Bootstrap=OcapnBootstrap]
  * @typedef {object} Client
  * @property {(location: OcapnLocation) => Promise<Session<Bootstrap>>} provideSession
  *   Open (or reuse) a CapTP session to the peer at `location`.

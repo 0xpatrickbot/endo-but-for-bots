@@ -11,7 +11,7 @@
  * @import { OcapnReader } from '../codec-interface.js'
  * @import { OcapnCodec } from '../codec-interface.js'
  * @import { SturdyRefTracker } from './sturdyrefs.js'
- * @import { Connection, InternalSession, LocationId, Logger, RemoteImport, RemotePresence, SessionId, SwissNum } from './types.js'
+ * @import { Connection, InternalSession, LocationId, Logger, OcapnBootstrap, RemoteImport, RemotePresence, SessionId, SwissNum } from './types.js'
  * @import { OcapnPublicKey, Cryptography } from '../cryptography.js'
  */
 
@@ -671,7 +671,7 @@ const makeBootstrapObject = (
  */
 
 /**
- * @template [Bootstrap=any]
+ * @template [Bootstrap=OcapnBootstrap]
  * @typedef {object} Ocapn
  * @property {((reason?: Error) => void)} abort
  * @property {((data: Uint8Array) => void)} dispatchMessageData
