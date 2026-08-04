@@ -8,8 +8,18 @@ import {
   makeTestClientPair,
   makeTestClient,
   getOcapnDebug,
+  fetchRemote,
 } from './_util.js';
 import { encodeSwissnum } from '../src/client/util.js';
+
+/** @import { ERef } from '@endo/eventual-send' */
+
+/** @typedef {Record<string, unknown>} TestRecord */
+/** @typedef {() => ERef<TestRecord>} TestRecordProvider */
+/** @typedef {() => ERef<unknown[]>} TestArrayProvider */
+/** @typedef {{ getRecord: () => ERef<{ items: string[] }> }} TestDataProvider */
+/** @typedef {{ increment: (value: number) => ERef<number>, double: (value: number) => ERef<number> }} TestCounter */
+/** @typedef {{ getCounter: () => ERef<TestCounter> }} TestBroker */
 
 /**
  * @typedef {object} TranscriptEntry
@@ -224,8 +234,8 @@ test('pipeline: op:get field access transcript', async t => {
     const bootstrapB = ocapnA.getRemoteBootstrap();
 
     // Pipelined: fetch provider, call it, then get field
-    const recordProvider = E(bootstrapB).fetch(
-      encodeSwissnum('Record Provider'),
+    const recordProvider = /** @type {ERef<TestRecordProvider>} */ (
+      fetchRemote(bootstrapB, encodeSwissnum('Record Provider'))
     );
     const recordPromise = E(recordProvider)();
     const fooValue = await E.get(recordPromise).foo;
@@ -370,7 +380,9 @@ test('pipeline: complex nested access transcript', async t => {
     const bootstrapB = ocapnA.getRemoteBootstrap();
 
     // Complex pipeline: fetch -> call method -> get field -> index
-    const dataProvider = E(bootstrapB).fetch(encodeSwissnum('Data Provider'));
+    const dataProvider = /** @type {ERef<TestDataProvider>} */ (
+      fetchRemote(bootstrapB, encodeSwissnum('Data Provider'))
+    );
     const recordPromise = E(dataProvider).getRecord();
     const itemsPromise = E.get(recordPromise).items;
     const secondItem = await E.get(itemsPromise)[1];
@@ -654,7 +666,9 @@ test('pipeline: three-party handoff shows B forwarding to C on behalf of A', asy
     const bootstrapBfromA = sessionAtoB.ocapn.getRemoteBootstrap();
 
     // A fetches the Broker from B
-    const broker = E(bootstrapBfromA).fetch(encodeSwissnum('Broker'));
+    const broker = /** @type {ERef<TestBroker>} */ (
+      fetchRemote(bootstrapBfromA, encodeSwissnum('Broker'))
+    );
 
     // A calls getCounter (pipelined) - this causes B to enliven the sturdyref to C
     const counter = E(broker).getCounter();

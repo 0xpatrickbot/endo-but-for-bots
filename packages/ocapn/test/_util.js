@@ -3,19 +3,47 @@ import harden from '@endo/harden';
 
 /** @typedef {import('@endo/ses-ava/prepare-endo.js').default} Test */
 
+/** @import { ERef } from '@endo/eventual-send' */
 /**
- * @import { Client, ClientDebug, Connection, InternalSession, LocationId, NonceLocator, Session } from '../src/client/types.js'
+ * @import { Client, ClientDebug, Connection, InternalSession, LocationId, NonceLocator, RemotePresence, SwissNum } from '../src/client/types.js'
  * @import { OcapnLocation } from '../src/codecs/components.js'
  * @import { TcpTestOnlyNetLayer } from '../src/netlayers/tcp-test-only.js'
  * @import { Ocapn, OcapnDebug } from '../src/client/ocapn.js'
  */
 
 import baseTest from '@endo/ses-ava/test.js';
+import { E } from '@endo/eventual-send';
 import { netListenAllowed } from './_net-permission.js';
 import { makeTcpNetLayer } from '../src/netlayers/tcp-test-only.js';
 import { makeOcapn } from '../src/client/index.js';
 import { syrupCodec } from '../src/syrup/index.js';
 import { locationToLocationId } from '../src/client/util.js';
+
+/**
+ * The test object table contains several unrelated remotables, and the tests
+ * deliberately exercise both method and function presences returned by it.
+ * This index-shaped interface records that fixture contract without hiding
+ * the bootstrap's own `fetch` method behind `any`.
+ *
+ * @typedef {Record<string, (...args: unknown[]) => unknown> & ((...args: unknown[]) => unknown)} TestRemoteObject
+ * @typedef {object} TestBootstrap
+ * @property {(swissnum: SwissNum) => ERef<TestRemoteObject>} fetch
+ */
+
+/**
+ * Fetch a test capability with the interface for the fixture that owns it.
+ * The assertion is kept at this fixture boundary, before any eventual send.
+ *
+ * @template T
+ * @param {RemotePresence<TestBootstrap>} bootstrap
+ * @param {SwissNum} swissnum
+ * @returns {ERef<T>}
+ */
+export const fetchRemote = (bootstrap, swissnum) =>
+  /** @type {ERef<T>} */ (
+    /** @type {unknown} */ (E(bootstrap).fetch(swissnum))
+  );
+harden(fetchRemote);
 
 export const test = netListenAllowed ? baseTest : baseTest.skip;
 const testOnly = netListenAllowed ? baseTest.only : baseTest.skip;
@@ -23,9 +51,19 @@ const testOnly = netListenAllowed ? baseTest.only : baseTest.skip;
 const strictTextDecoder = new TextDecoder('utf-8', { fatal: true });
 
 /**
+ * @param {Parameters<typeof makeOcapn>[0]} options
+ * @returns {Promise<Client<TestBootstrap>>}
+ */
+export const makeTestOcapn = options =>
+  makeOcapn(options).then(client =>
+    /** @type {Client<TestBootstrap>} */ (/** @type {unknown} */ (client)),
+  );
+harden(makeTestOcapn);
+
+/**
  * Get the debug object from an Ocapn instance, asserting it is present.
  * Requires the client to have been created with `debugMode: true`.
- * @param {Ocapn} ocapn
+ * @param {Ocapn<TestBootstrap>} ocapn
  * @returns {OcapnDebug}
  */
 export const getOcapnDebug = ocapn => {
@@ -158,8 +196,8 @@ export const waitUntilTrue = async (fn, timeoutMs = 10_000, delayMs = 20) => {
 
 /**
  * @typedef {object} ClientKit
- * @property {Client} client
- * @property {ClientDebug} debug - Debug object (always present in test clients)
+ * @property {Client<TestBootstrap>} client
+ * @property {ClientDebug<TestBootstrap>} debug - Debug object (always present in test clients)
  * @property {TcpTestOnlyNetLayer} netlayer
  * @property {OcapnLocation} location
  * @property {LocationId} locationId
@@ -189,7 +227,7 @@ export const makeTestClient = async ({
   const locator = makeDefaultSwissnumTable
     ? makeDefaultSwissnumTable()
     : new Map();
-  const client = await makeOcapn({
+  const client = await makeTestOcapn({
     codec: syrupCodec,
     debugLabel,
     locator,
@@ -230,7 +268,7 @@ export const makeTestClient = async ({
  * @returns {Promise<{
  *   clientKitA: ClientKit,
  *   clientKitB: ClientKit,
- *   establishSession: () => Promise<{ sessionA: InternalSession, sessionB: InternalSession }>,
+ *   establishSession: () => Promise<{ sessionA: InternalSession<TestBootstrap>, sessionB: InternalSession<TestBootstrap> }>,
  *   shutdownBoth: () => void,
  *   getConnectionAtoB: () => Connection | undefined,
  *   getConnectionBtoA: () => Connection | undefined,
