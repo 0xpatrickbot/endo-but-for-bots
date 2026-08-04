@@ -9,15 +9,15 @@ import { makeOcapn } from '@endo/ocapn';
 /**
  * The worker and hub fixtures expose several capabilities with different
  * method sets.
- * `fetch` and `evaluate` are the common capability-producing methods;
- * the open method index covers the fixture-specific methods used by tests.
+ * `fetch`, `evaluate`, and `getGift` are the capability-producing methods
+ * shared by the worker and hub fixtures.
  *
  * @template [MethodResult=any]
- * @typedef {Record<string, (...args: unknown[]) => MethodResult> & {
- *   fetch: (swissnum: ArrayBufferLike) => ERef<ThixotropeRemote>,
- *   evaluate: (source: string, endowments?: Record<string, unknown>) => ERef<MethodResult>,
- *   getGift: () => ERef<{ gift: Promise<unknown> }>,
- * }} ThixotropeRemote
+ * @typedef {object} ThixotropeRemote
+ * @property {(swissnum: ArrayBufferLike) => ERef<ThixotropeRemote>} fetch
+ * @property {(source: string, endowments?: Record<string, unknown>) => ERef<MethodResult>} evaluate
+ * @property {() => ERef<{ gift: Promise<unknown> }>} getGift
+ *
  * @typedef {object} ThixotropeBootstrap
  * @property {(swissnum: ArrayBufferLike) => ERef<ThixotropeRemote>} fetch
  */
@@ -30,7 +30,10 @@ import { makeOcapn } from '@endo/ocapn';
  * @returns {Promise<Client<ThixotropeBootstrap>>}
  */
 export const makeTestOcapn = options =>
-  makeOcapn(options).then(client =>
-    /** @type {Client<ThixotropeBootstrap>} */ (/** @type {unknown} */ (client)),
+  makeOcapn(options).then(
+    client =>
+      /** @type {Client<ThixotropeBootstrap>} */ (
+        /** @type {unknown} */ (client)
+      ),
   );
 harden(makeTestOcapn);

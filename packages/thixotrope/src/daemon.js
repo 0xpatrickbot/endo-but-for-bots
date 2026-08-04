@@ -6,6 +6,7 @@ import { bytesToImmutable } from '@endo/bytes/to-immutable.js';
 import { Fail, q } from '@endo/errors';
 import { E, Far } from '@endo/far';
 import { makeOcapn } from '@endo/ocapn';
+import { encodeSwissnum, swissnumFromBytes } from '@endo/ocapn/client/util';
 import { makeOcapnHub } from '@endo/ocapn/hub';
 import { makeCryptography, makeSessionId } from '@endo/ocapn/cryptography';
 import {
@@ -632,8 +633,8 @@ export const makeThixotropeDaemon = async ({
     const session = await endpointSessionP;
     const bytes =
       typeof secret === 'string'
-        ? bytesToImmutable(textEncoder.encode(secret))
-        : bytesToImmutable(secret);
+        ? encodeSwissnum(secret)
+        : swissnumFromBytes(secret);
     return E(session.getBootstrap()).fetch(bytes);
   };
 
