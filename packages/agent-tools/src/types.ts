@@ -10,6 +10,15 @@ import type {
 import type { EndoShell } from '@endo/exo-shell';
 import type { HttpClient, HttpResponse } from '@endo/exo-http-client';
 import type { Pattern } from '@endo/patterns';
+import type {
+  PackageManagerToolCapability,
+  PackageManagerToolsOptions,
+} from './json-tools/package-manager.js';
+
+export type {
+  PackageManagerToolCapability,
+  PackageManagerToolsOptions,
+} from './json-tools/package-manager.js';
 
 /**
  * The read, branch-navigation, and additive-commit slice of `WritableEndoGit` that
@@ -278,12 +287,23 @@ export interface WorkspaceGrants {
   remote?: ERef<GitRemoteToolCapability>;
   /** Command layer: the granted `Shell`. */
   shell?: ERef<ShellToolCapability>;
+  /**
+   * Confined JS package-manager capability: install declared dependencies and
+   * run named package.json scripts. Peer grant next to git/fs/shell; not a
+   * general shell substitute and not a polyglot toolchain.
+   */
+  packageManager?: ERef<PackageManagerToolCapability>;
   /** Drop the file-tool write slice; forwarded to `makeMountFsTools`. */
   readOnly?: boolean;
   /** Read-tool truncation limit; forwarded to `makeMountFsTools`. */
   maxChars?: number;
   /** Advisory shell-tool veto policy; forwarded to `makeShellTool`. */
   shellOptions?: ShellToolOptions;
+  /**
+   * Package-manager tool options (mount issuer for cwd strings,
+   * includeReadTools); forwarded to `makePackageManagerTools`.
+   */
+  packageManagerOptions?: PackageManagerToolsOptions;
 }
 
 export declare function makeWorkspaceTools(

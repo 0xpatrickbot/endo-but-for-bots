@@ -6,6 +6,7 @@ import '@endo/init/debug.js';
 
 import test from 'ava';
 import { Far } from '@endo/pass-style';
+import { makePackageManager } from '@endo/exo-package-manager';
 
 import {
   makeWorkspaceTools,
@@ -13,11 +14,14 @@ import {
 } from '../src/workspace.js';
 
 /**
- * The provisioning adapter composes its catalog purely from the tool makers'
- * static schemas and interface guards — a maker never calls the granted cap at
- * construction time — so an inert `Far` remotable is a sufficient stand-in for
- * every grant these composition-semantics tests exercise. The live-capability
- * behavior is proved end to end in `git-worked-loop.test.js`.
+ * The provisioning adapter composes its catalog from tool makers' static
+ * schemas. Most makers never call the granted cap at construction time, so an
+ * inert `Far` remotable is a sufficient stand-in for composition-semantics
+ * tests. Exception: `makePackageManagerTools` consults
+ * `isPackageManagerReadOnly` (WeakMap identity) at construction, so read-only
+ * package-manager composition needs a real `makePackageManager` exo. The
+ * live-capability behavior is proved end to end in `git-worked-loop.test.js`
+ * and `package-manager-tool.test.js`.
  *
  * @param {string} label
  * @returns {any} an inert stand-in for any workspace grant; typed `any` so a
@@ -27,6 +31,53 @@ const grant = label => Far(label, {});
 
 /** @param {{ name: string }[]} records */
 const nameSet = records => new Set(records.map(record => record.name));
+
+const PM_TOOL_NAMES = harden([
+  'detectPackageManager',
+  'listPackageScripts',
+  'installDependencies',
+  'runPackageScript',
+]);
+
+/**
+ * Real package-manager exo with an inert backend (composition only; methods are
+ * never invoked by these tests).
+ *
+ * @param {{ readOnly?: boolean }} [opts]
+ */
+const realPackageManager = ({ readOnly = false } = {}) => {
+  const mount = Far('EndoMount', {
+    entry: async segments =>
+      Far('EndoMountEntry', {
+        segments: async () => segments,
+      }),
+  });
+  const backend = {
+    async inspectWorkspace() {
+      return harden({
+        markers: {},
+        scriptNames: [],
+        packageName: 'fixture',
+        displayPath: '.',
+      });
+    },
+    async install() {
+      throw new Error('backend.install not used in composition tests');
+    },
+    async run() {
+      throw new Error('backend.run not used in composition tests');
+    },
+    async cancel() {
+      return false;
+    },
+  };
+  const pm = makePackageManager({
+    mount,
+    backend,
+    lineageOf: () => harden({}),
+  });
+  return readOnly ? pm.readOnly() : pm;
+};
 
 test('no grants compose an empty catalog', t => {
   t.deepEqual(makeWorkspaceTools(), []);
@@ -128,4 +179,98 @@ test('provisionWorkspaceTools passes an explicit filesystem straight through', a
 test('provisionWorkspaceTools with no grants derives nothing', async t => {
   const catalog = await provisionWorkspaceTools();
   t.deepEqual(catalog, []);
+});
+
+test('no packageManager grant omits package-manager tools', t => {
+  const names = nameSet(
+    makeWorkspaceTools({
+      filesystem: grant('Filesystem'),
+      git: grant('Git'),
+      shell: grant('Shell'),
+    }),
+  );
+  for (const name of PM_TOOL_NAMES) {
+    t.false(names.has(name), `"${name}" absent without packageManager grant`);
+  }
+});
+
+test('a packageManager grant alone composes only package-manager tools', t => {
+  // Far stand-in is enough for name presence: isPackageManagerReadOnly is
+  // undefined on unknown objects, so write tools are included (not read-only).
+  const names = nameSet(
+    makeWorkspaceTools({ packageManager: grant('PackageManager') }),
+  );
+  for (const name of PM_TOOL_NAMES) {
+    t.true(names.has(name), `package-manager tool "${name}" present`);
+  }
+  for (const absent of [
+    'mountReadText',
+    'log',
+    'status',
+    'push',
+    'exec',
+    'inspect',
+  ]) {
+    t.false(names.has(absent), `"${absent}" absent without its grant`);
+  }
+});
+
+test('packageManager + filesystem compose a flat catalog without collisions', t => {
+  const catalog = makeWorkspaceTools({
+    filesystem: grant('Filesystem'),
+    packageManager: grant('PackageManager'),
+  });
+  t.is(catalog.length, nameSet(catalog).size, 'no name is repeated');
+  const names = nameSet(catalog);
+  t.true(names.has('mountReadText'));
+  t.true(names.has('detectPackageManager'));
+  t.true(names.has('installDependencies'));
+  t.false(names.has('log'), 'git tools absent without git grant');
+});
+
+test('packageManager + git + filesystem compose without name collisions', t => {
+  const catalog = makeWorkspaceTools({
+    filesystem: grant('Filesystem'),
+    git: grant('Git'),
+    packageManager: grant('PackageManager'),
+  });
+  t.is(catalog.length, nameSet(catalog).size, 'no name is repeated');
+  const names = nameSet(catalog);
+  t.true(names.has('commit'));
+  t.true(names.has('status'));
+  t.true(names.has('mountList'));
+  t.true(names.has('runPackageScript'));
+});
+
+test('read-only packageManager grant emits only detect/list tools', t => {
+  // WeakMap read-only identity requires a real exo; Far would look full-access.
+  const names = nameSet(
+    makeWorkspaceTools({
+      packageManager: realPackageManager({ readOnly: true }),
+    }),
+  );
+  t.deepEqual(names, new Set(['detectPackageManager', 'listPackageScripts']));
+  t.false(names.has('installDependencies'));
+  t.false(names.has('runPackageScript'));
+});
+
+test('full packageManager grant from real exo emits install/run tools', t => {
+  const names = nameSet(
+    makeWorkspaceTools({
+      packageManager: realPackageManager(),
+    }),
+  );
+  t.deepEqual(names, new Set(PM_TOOL_NAMES));
+});
+
+test('provisionWorkspaceTools forwards packageManager grant', async t => {
+  await null;
+  const catalog = await provisionWorkspaceTools({
+    packageManager: grant('PackageManager'),
+  });
+  const names = nameSet(catalog);
+  for (const name of PM_TOOL_NAMES) {
+    t.true(names.has(name), `provisioned catalog includes "${name}"`);
+  }
+  t.false(names.has('mountReadText'), 'no filesystem derivation without git');
 });

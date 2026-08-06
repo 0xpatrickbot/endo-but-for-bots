@@ -20,13 +20,14 @@ import { makeGitMountTools } from './json-tools/git-mount.js';
 import { makeGitRemoteTool } from './json-tools/git-remote.js';
 import { makeShellTool } from './json-tools/shell.js';
 import { makeMountFsTools } from './json-tools/fs.js';
+import { makePackageManagerTools } from './json-tools/package-manager.js';
 
 /**
  * Capability-based provisioning for one agent workspace: the thin adapter that
  * turns a set of already-granted daemon capabilities into the flat agent-tool
  * catalog a harness advertises to a model, replacing the path-root provisioning
  * sketch (`endo grant fae fs /home/user/project`, a git subprocess rooted at a
- * host path) with composition over the trio's capabilities.
+ * host path) with composition over the granted capabilities.
  *
  * The composition realizes the two rules of daemon-agent-tools § Granting and
  * Provisioning:
@@ -36,7 +37,9 @@ import { makeMountFsTools } from './json-tools/fs.js';
  *   *absent*, not present-but-failing. This maps one grant to one group:
  *   `filesystem` → the mount file tools, `git` → the versioning tools (the
  *   JSON-safe git slice plus the mount-bridged `status` / `add`), `remote` →
- *   the push tier, `shell` → the command tools.
+ *   the push tier, `shell` → the command tools, `packageManager` → confined
+ *   install of declared dependencies and named package.json scripts (peer
+ *   grant, not a general shell substitute).
  * - **Formula-owned identity rides the granted `Git`.** Commit attribution is
  *   captured at `provideGit` / `provideGitClone` construction time and is
  *   guest-immutable (daemon-agent-tools § Commit-identity boundary). This
@@ -96,9 +99,11 @@ export const makeWorkspaceTools = ({
   git,
   remote,
   shell,
+  packageManager,
   readOnly = false,
   maxChars,
   shellOptions,
+  packageManagerOptions,
 } = {}) => {
   /** @type {{ group: string, records: ToolRecord[] }[]} */
   const groups = [];
@@ -124,6 +129,14 @@ export const makeWorkspaceTools = ({
       records: makeShellTool(shell, shellOptions),
     });
   }
+  if (packageManager !== undefined) {
+    // Confined JS package-manager tools: detect/list scripts, install declared
+    // deps, run named package.json scripts. Peer group next to git/fs/shell.
+    groups.push({
+      group: 'packageManager',
+      records: makePackageManagerTools(packageManager, packageManagerOptions),
+    });
+  }
   return concatDistinctTools(groups);
 };
 harden(makeWorkspaceTools);
@@ -137,6 +150,11 @@ harden(makeWorkspaceTools);
  * carries the worktree authority, and `mountAsFilesystem` projects the
  * `Filesystem` the file tools operate on. No host path crosses the boundary.
  *
+ * When `packageManager` is granted without `packageManagerOptions.mount` and a
+ * `git` is also present, the provisioner sets the package-manager mount issuer
+ * from `E(git).worktree()` so cwd path strings resolve on the same tree.
+ * Callers may still pass `packageManagerOptions.mount` explicitly.
+ *
  * @param {ProvisionWorkspaceGrants} [grants]
  * @returns {Promise<ToolRecord[]>}
  */
@@ -145,24 +163,53 @@ export const provisionWorkspaceTools = async ({
   remote,
   shell,
   filesystem,
+  packageManager,
   readOnly = false,
   maxChars,
   shellOptions,
+  packageManagerOptions,
 } = {}) => {
   await null; // safe-await separator before any boundary round-trip
   let workspaceFilesystem = filesystem;
-  if (workspaceFilesystem === undefined && git !== undefined) {
-    const worktree = await E(git).worktree();
-    workspaceFilesystem = mountAsFilesystem(worktree);
+  /** @type {undefined | Awaited<ReturnType<import('@endo/exo-git').EndoGit['worktree']>>} */
+  let worktree;
+  const needsPmMount =
+    packageManager !== undefined &&
+    (packageManagerOptions === undefined ||
+      packageManagerOptions.mount === undefined);
+
+  if (
+    git !== undefined &&
+    (workspaceFilesystem === undefined || needsPmMount)
+  ) {
+    worktree = await E(git).worktree();
+    if (workspaceFilesystem === undefined) {
+      workspaceFilesystem = mountAsFilesystem(worktree);
+    }
   }
+
+  let pmOptions = packageManagerOptions;
+  if (needsPmMount && worktree !== undefined) {
+    // When the host grants packageManager + git without an explicit mount
+    // issuer for cwd path strings, reuse the Git worktree mount (same physical
+    // tree the file tools use). Callers may still pass
+    // `packageManagerOptions.mount` explicitly.
+    pmOptions = {
+      ...packageManagerOptions,
+      mount: worktree,
+    };
+  }
+
   return makeWorkspaceTools({
     filesystem: workspaceFilesystem,
     git,
     remote,
     shell,
+    packageManager,
     readOnly,
     maxChars,
     shellOptions,
+    packageManagerOptions: pmOptions,
   });
 };
 harden(provisionWorkspaceTools);

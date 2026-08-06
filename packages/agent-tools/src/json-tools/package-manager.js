@@ -106,7 +106,12 @@ const cwdProp = harden({
 });
 
 /**
- * Build package-manager agent tools for a live EndoPackageManager capability.
+ * Build agent tools over a confined EndoPackageManager capability.
+ *
+ * The surface is install of declared dependencies and run of named package.json
+ * scripts (plus detect/list metadata). It is a peer grant next to git/fs/shell,
+ * not a general shell substitute, not a polyglot toolchain, and not a
+ * substitute for registry resolve+import.
  *
  * Write tools (`installDependencies`, `runPackageScript`) are omitted when the
  * capability is read-only. Path strings in tool schemas never include host
