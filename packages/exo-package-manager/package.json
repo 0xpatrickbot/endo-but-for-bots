@@ -1,0 +1,99 @@
+{
+  "name": "@endo/exo-package-manager",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Remotable exo glue and interface guards for an EndoPackageManager capability — portable across SES realms; pair with @endo/package-manager for the Node-side sandbox backend.",
+  "keywords": [
+    "endo",
+    "exo",
+    "package-manager",
+    "npm",
+    "pnpm",
+    "yarn"
+  ],
+  "author": "Endo contributors",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/endojs/endo.git",
+    "directory": "packages/exo-package-manager"
+  },
+  "bugs": {
+    "url": "https://github.com/endojs/endo/issues"
+  },
+  "type": "module",
+  "main": "./src/index.js",
+  "types": "./types-index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./types-index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./src/package-manager.js": {
+      "types": "./types-index.d.ts",
+      "default": "./src/package-manager.js"
+    },
+    "./src/detect.js": {
+      "types": "./types-index.d.ts",
+      "default": "./src/detect.js"
+    },
+    "./src/argv.js": {
+      "types": "./types-index.d.ts",
+      "default": "./src/argv.js"
+    },
+    "./src/interfaces.js": {
+      "types": "./types-index.d.ts",
+      "default": "./src/interfaces.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "exit 0",
+    "test": "ses-ava",
+    "lint": "yarn lint:eslint",
+    "lint-fix": "yarn lint:eslint --fix",
+    "lint:eslint": "eslint '**/*.js'"
+  },
+  "dependencies": {
+    "@endo/errors": "workspace:^",
+    "@endo/eventual-send": "workspace:^",
+    "@endo/exo": "workspace:^",
+    "@endo/far": "workspace:^",
+    "@endo/harden": "workspace:^",
+    "@endo/patterns": "workspace:^"
+  },
+  "devDependencies": {
+    "@endo/init": "workspace:^",
+    "@endo/pass-style": "workspace:^",
+    "@endo/ses-ava": "workspace:^",
+    "ava": "catalog:dev",
+    "eslint": "catalog:dev"
+  },
+  "files": [
+    "LICENSE*",
+    "SECURITY*",
+    "src",
+    "types-index.js",
+    "types-index.d.ts"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "ava": {
+    "files": [
+      "test/**/*.test.js"
+    ],
+    "timeout": "60s"
+  },
+  "sesAvaConfigs": {
+    "lockdown": "../../ava-endo-lockdown.config.mjs",
+    "unsafe": "../../ava-endo-lockdown-unsafe.config.mjs",
+    "endo": "../../ava-endo-shims-only.config.mjs",
+    "noop-harden": "../../ava-base.config.mjs"
+  },
+  "eslintConfig": {
+    "extends": [
+      "plugin:@endo/internal"
+    ]
+  }
+}

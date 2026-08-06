@@ -90,6 +90,9 @@
       "path": "packages/exo-http-client/tsconfig.composite.json"
     },
     {
+      "path": "packages/exo-package-manager/tsconfig.composite.json"
+    },
+    {
       "path": "packages/exo-playwright/tsconfig.composite.json"
     },
     {
@@ -175,6 +178,9 @@
     },
     {
       "path": "packages/ocapn-noise/tsconfig.composite.json"
+    },
+    {
+      "path": "packages/package-manager/tsconfig.composite.json"
     },
     {
       "path": "packages/panic/tsconfig.composite.json"

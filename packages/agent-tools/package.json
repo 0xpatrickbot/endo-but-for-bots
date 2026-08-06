@@ -57,6 +57,10 @@
       "types": "./src/json-tools/http.d.ts",
       "default": "./src/json-tools/http.js"
     },
+    "./json-tools/package-manager.js": {
+      "types": "./src/json-tools/package-manager.d.ts",
+      "default": "./src/json-tools/package-manager.js"
+    },
     "./code-mode/evaluate-tool.js": {
       "types": "./src/code-mode/evaluate-tool.js",
       "default": "./src/code-mode/evaluate-tool.js"
@@ -127,6 +131,7 @@
     "@endo/eventual-send": "workspace:^",
     "@endo/exo-git": "workspace:^",
     "@endo/exo-http-client": "workspace:^",
+    "@endo/exo-package-manager": "workspace:^",
     "@endo/exo-shell": "workspace:^",
     "@endo/far": "workspace:^",
     "@endo/marshal": "workspace:^",

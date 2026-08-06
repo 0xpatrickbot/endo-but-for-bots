@@ -1237,6 +1237,7 @@ __metadata:
     "@endo/eventual-send": "workspace:^"
     "@endo/exo-git": "workspace:^"
     "@endo/exo-http-client": "workspace:^"
+    "@endo/exo-package-manager": "workspace:^"
     "@endo/exo-shell": "workspace:^"
     "@endo/far": "workspace:^"
     "@endo/git": "workspace:^"
@@ -1928,6 +1929,24 @@ __metadata:
     prettier: "npm:^3.5.3"
     ses: "workspace:^"
     typescript: "catalog:dev"
+  languageName: unknown
+  linkType: soft
+
+"@endo/exo-package-manager@workspace:^, @endo/exo-package-manager@workspace:packages/exo-package-manager":
+  version: 0.0.0-use.local
+  resolution: "@endo/exo-package-manager@workspace:packages/exo-package-manager"
+  dependencies:
+    "@endo/errors": "workspace:^"
+    "@endo/eventual-send": "workspace:^"
+    "@endo/exo": "workspace:^"
+    "@endo/far": "workspace:^"
+    "@endo/harden": "workspace:^"
+    "@endo/init": "workspace:^"
+    "@endo/pass-style": "workspace:^"
+    "@endo/patterns": "workspace:^"
+    "@endo/ses-ava": "workspace:^"
+    ava: "catalog:dev"
+    eslint: "catalog:dev"
   languageName: unknown
   linkType: soft
 
@@ -2709,6 +2728,21 @@ __metadata:
     tsd: "catalog:dev"
     typescript: "catalog:dev"
     ws: "npm:^8.20.0"
+  languageName: unknown
+  linkType: soft
+
+"@endo/package-manager@workspace:packages/package-manager":
+  version: 0.0.0-use.local
+  resolution: "@endo/package-manager@workspace:packages/package-manager"
+  dependencies:
+    "@endo/errors": "workspace:^"
+    "@endo/eventual-send": "workspace:^"
+    "@endo/exo-package-manager": "workspace:^"
+    "@endo/harden": "workspace:^"
+    "@endo/init": "workspace:^"
+    "@endo/ses-ava": "workspace:^"
+    ava: "catalog:dev"
+    eslint: "catalog:dev"
   languageName: unknown
   linkType: soft
 
