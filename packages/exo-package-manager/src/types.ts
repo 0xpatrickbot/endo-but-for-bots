@@ -113,12 +113,24 @@ export type PackageManagerPolicy = {
 /**
  * Snapshot returned by the backend for pure selection / script listing.
  * Markers are filenames present at the effective project root.
+ *
+ * `packageName` is `package.json#name` (identity/metadata only).
+ * `workspaceSelector` is a monorepo workspace filter for manager argv and
+ * must only be set when a workspace package is targeted by name rather than
+ * by package-relative cwd. It must not be filled from `packageName` alone —
+ * spawn already runs with cwd at the selected package directory.
  */
 export type WorkspaceSnapshot = {
   packageManagerField?: string;
   markers: Record<string, boolean> | string[];
   scriptNames?: string[];
-  workspaceName?: string;
+  /** package.json#name for display / audit metadata */
+  packageName?: string;
+  /**
+   * Monorepo workspace selector for install/run argv only.
+   * Undefined when targeting via package-relative cwd (the default path).
+   */
+  workspaceSelector?: string;
   yarnMajorVersion?: number;
   displayPath?: string;
 };
@@ -133,7 +145,13 @@ export type InstallBackendInput = {
   versionRequest?: string;
   segments: string[];
   displayPath: string;
-  workspaceName?: string;
+  /** package.json#name for result metadata only (never an argv selector) */
+  packageName?: string;
+  /**
+   * Monorepo workspace argv selector. Only set when targeting a workspace
+   * package by name; omit when spawn cwd is already the package directory.
+   */
+  workspaceSelector?: string;
   yarnMajorVersion?: number;
   lockfileMode: LockfileMode;
   offline: boolean;
@@ -149,7 +167,13 @@ export type RunBackendInput = {
   versionRequest?: string;
   segments: string[];
   displayPath: string;
-  workspaceName?: string;
+  /** package.json#name for result metadata only (never an argv selector) */
+  packageName?: string;
+  /**
+   * Monorepo workspace argv selector. Only set when targeting a workspace
+   * package by name; omit when spawn cwd is already the package directory.
+   */
+  workspaceSelector?: string;
   yarnMajorVersion?: number;
   script: string;
   args: string[];

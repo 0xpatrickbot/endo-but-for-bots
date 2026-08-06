@@ -211,8 +211,9 @@ export const makePackageManager = ({
         ...(selection.versionRequest !== undefined
           ? { versionRequest: selection.versionRequest }
           : {}),
-        ...(snapshot.workspaceName !== undefined
-          ? { workspaceName: snapshot.workspaceName }
+        // package.json#name is identity metadata, not a monorepo selector.
+        ...(snapshot.packageName !== undefined
+          ? { workspaceName: snapshot.packageName }
           : {}),
         hasFrozenLockfile: hasFrozenLockfile(
           selection.manager,
@@ -234,8 +235,9 @@ export const makePackageManager = ({
         scriptNames,
         displayPath,
         manager: selection.manager,
-        ...(snapshot.workspaceName !== undefined
-          ? { workspaceName: snapshot.workspaceName }
+        // package.json#name is identity metadata, not a monorepo selector.
+        ...(snapshot.packageName !== undefined
+          ? { workspaceName: snapshot.packageName }
           : {}),
       });
     },
@@ -294,7 +296,10 @@ export const makePackageManager = ({
           versionRequest: selection.versionRequest,
           segments,
           displayPath,
-          workspaceName: snapshot.workspaceName,
+          packageName: snapshot.packageName,
+          // Only a true monorepo selector; never package.json#name alone.
+          // Spawn cwd is already the selected package directory.
+          workspaceSelector: snapshot.workspaceSelector,
           yarnMajorVersion: snapshot.yarnMajorVersion,
           lockfileMode,
           offline,
@@ -352,7 +357,10 @@ export const makePackageManager = ({
           versionRequest: selection.versionRequest,
           segments,
           displayPath,
-          workspaceName: snapshot.workspaceName,
+          packageName: snapshot.packageName,
+          // Only a true monorepo selector; never package.json#name alone.
+          // Spawn cwd is already the selected package directory.
+          workspaceSelector: snapshot.workspaceSelector,
           yarnMajorVersion: snapshot.yarnMajorVersion,
           script,
           args: [...args],

@@ -29,7 +29,7 @@ const makeFakeBackend = () => {
       return harden({
         markers: { 'package-lock.json': true },
         scriptNames: ['lint', 'test'],
-        workspaceName: 'fixture',
+        packageName: 'fixture',
         displayPath,
       });
     },

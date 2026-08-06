@@ -26,7 +26,9 @@ const makeFakeBackend = (snapshot = {}) => {
     packageManagerField: undefined,
     markers: { 'package-lock.json': true },
     scriptNames: ['lint', 'test'],
-    workspaceName: undefined,
+    packageName: 'fixture-pkg',
+    // Default: no monorepo selector (spawn cwd targets the package).
+    workspaceSelector: undefined,
     yarnMajorVersion: 2,
     ...snapshot,
   };
@@ -211,6 +213,29 @@ test('run accepts declared scripts', async t => {
   t.true(result.ok);
   t.is(backend.runCalls[0].script, 'lint');
   t.deepEqual(backend.runCalls[0].args, ['--fix']);
+  // package.json#name is forwarded as packageName metadata only — never as a
+  // monorepo workspaceSelector that would emit --workspace / --filter flags.
+  t.is(backend.runCalls[0].packageName, 'fixture-pkg');
+  t.is(backend.runCalls[0].workspaceSelector, undefined);
+});
+
+test('run does not treat package.json name as workspace selector', async t => {
+  const backend = makeFakeBackend({
+    packageName: '@scope/my-package',
+    workspaceSelector: undefined,
+  });
+  const pm = makePackageManager({
+    mount: makeMount(),
+    backend,
+    lineageOf,
+  });
+  await pm.run({ script: 'test' });
+  t.is(backend.runCalls[0].packageName, '@scope/my-package');
+  t.is(
+    backend.runCalls[0].workspaceSelector,
+    undefined,
+    'single-package / cwd-targeted runs must not set monorepo selectors',
+  );
 });
 
 test('readOnly keeps metadata and fails closed on mutators', async t => {

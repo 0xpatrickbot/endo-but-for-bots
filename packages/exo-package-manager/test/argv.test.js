@@ -56,11 +56,24 @@ test('buildInstallArgv yarn uses version-appropriate frozen flags', t => {
   ]);
 });
 
-test('buildRunArgv maps workspace selectors per manager', t => {
+test('buildRunArgv plain named scripts omit workspace flags', t => {
   t.deepEqual(
     buildRunArgv({ manager: 'npm', script: 'test', args: ['--watch'] }),
     ['npm', 'run', 'test', '--', '--watch'],
   );
+  t.deepEqual(buildRunArgv({ manager: 'pnpm', script: 'lint' }), [
+    'pnpm',
+    'run',
+    'lint',
+  ]);
+  t.deepEqual(buildRunArgv({ manager: 'yarn', script: 'build' }), [
+    'yarn',
+    'run',
+    'build',
+  ]);
+});
+
+test('buildRunArgv maps workspace selectors per manager only when set', t => {
   t.deepEqual(
     buildRunArgv({
       manager: 'npm',

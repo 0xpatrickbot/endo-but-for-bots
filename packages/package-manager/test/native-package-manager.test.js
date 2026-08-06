@@ -227,7 +227,7 @@ test('install pnpm frozen-lockfile and yarn immutable argv', async t => {
   ]);
 });
 
-test('run uses fixed named-script argv with network none', async t => {
+test('run uses plain named-script argv for single-package (no workspace flag from package name)', async t => {
   const sandbox = makeFakeSandbox({ stdout: 'lint ok\n' });
   const backend = makeNativePackageManagerBackend({
     sandbox,
@@ -239,11 +239,43 @@ test('run uses fixed named-script argv with network none', async t => {
       'package-lock.json': '{}',
     }),
   });
+  // packageName is metadata; must not become --workspace=
   const result = await backend.run({
     manager: 'npm',
     segments: [],
     displayPath: '.',
-    workspaceName: 'pkg',
+    packageName: 'pkg',
+    script: 'lint',
+    args: [],
+    timeoutMs: 5000,
+    maxOutputBytes: 1000,
+  });
+  t.true(result.ok);
+  t.deepEqual(sandbox.spawns[0].argv, ['npm', 'run', 'lint']);
+  t.false(sandbox.spawns[0].argv.some(a => String(a).includes('--workspace')));
+  t.is(sandbox.spawns[0].opts.network, 'none');
+  // Result may still report package identity for audit.
+  t.is(result.target.workspaceName, 'pkg');
+});
+
+test('run adds monorepo workspace selector only when workspaceSelector is set', async t => {
+  const sandbox = makeFakeSandbox({ stdout: 'lint ok\n' });
+  const backend = makeNativePackageManagerBackend({
+    sandbox,
+    workspaceReader: makeReader({
+      'package.json': JSON.stringify({
+        name: 'root',
+        scripts: { lint: 'eslint .' },
+      }),
+      'package-lock.json': '{}',
+    }),
+  });
+  const result = await backend.run({
+    manager: 'npm',
+    segments: [],
+    displayPath: '.',
+    packageName: 'root',
+    workspaceSelector: '@scope/pkg',
     script: 'lint',
     args: [],
     timeoutMs: 5000,
@@ -254,9 +286,8 @@ test('run uses fixed named-script argv with network none', async t => {
     'npm',
     'run',
     'lint',
-    '--workspace=pkg',
+    '--workspace=@scope/pkg',
   ]);
-  t.is(sandbox.spawns[0].opts.network, 'none');
 });
 
 test('non-zero exit is a result not a setup throw', async t => {

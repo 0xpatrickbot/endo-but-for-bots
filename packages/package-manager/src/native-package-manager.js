@@ -241,7 +241,12 @@ export const makeNativePackageManagerBackend = options => {
         typeof pkg.packageManager === 'string' ? pkg.packageManager : undefined,
       markers,
       scriptNames,
-      workspaceName: typeof pkg.name === 'string' ? pkg.name : undefined,
+      // package.json#name is identity metadata only. Do NOT treat it as a
+      // monorepo workspace selector: spawn cwd is already the selected package
+      // directory (mount-relative segments). Workspace argv flags
+      // (--workspace / --filter / yarn workspace) require an explicit
+      // workspaceSelector on a future monorepo-by-name path.
+      packageName: typeof pkg.name === 'string' ? pkg.name : undefined,
       yarnMajorVersion,
       displayPath,
     });
@@ -253,7 +258,8 @@ export const makeNativePackageManagerBackend = options => {
    * @param {string[]} args.argv
    * @param {string} args.manager
    * @param {string} args.displayPath
-   * @param {string} [args.workspaceName]
+   * @param {string} [args.packageName] package.json#name for result metadata
+   * @param {string} [args.workspaceSelector] monorepo argv selector only
    * @param {string[]} args.segments
    * @param {number} args.timeoutMs
    * @param {number} args.maxOutputBytes
@@ -266,7 +272,8 @@ export const makeNativePackageManagerBackend = options => {
     argv,
     manager,
     displayPath,
-    workspaceName,
+    packageName,
+    workspaceSelector,
     segments,
     timeoutMs,
     maxOutputBytes,
@@ -412,13 +419,19 @@ export const makeNativePackageManagerBackend = options => {
       termination === 'exit' && exitCode === 0 && !stdoutResult.truncated &&
       !stderrResult.truncated;
 
+    // Result metadata: report package name for audit, and workspaceName only
+    // when a monorepo selector was actually used in argv (not package.json#name).
+    const targetWorkspaceName = workspaceSelector || packageName;
+
     return harden({
       ok,
       operation,
       manager: /** @type {any} */ (manager),
       target: {
         displayPath,
-        ...(workspaceName !== undefined ? { workspaceName } : {}),
+        ...(targetWorkspaceName !== undefined
+          ? { workspaceName: targetWorkspaceName }
+          : {}),
       },
       command: {
         operation,
@@ -474,7 +487,8 @@ export const makeNativePackageManagerBackend = options => {
         argv: [...argv],
         manager: input.manager,
         displayPath: input.displayPath,
-        workspaceName: input.workspaceName,
+        packageName: input.packageName,
+        workspaceSelector: input.workspaceSelector,
         segments: input.segments,
         timeoutMs: input.timeoutMs,
         maxOutputBytes: input.maxOutputBytes,
@@ -488,11 +502,13 @@ export const makeNativePackageManagerBackend = options => {
      * @returns {Promise<PackageCommandResult>}
      */
     async run(input) {
+      // workspaceSelector alone drives monorepo argv flags. packageName is
+      // metadata and must not become --workspace / --filter / yarn workspace.
       const argv = buildRunArgv({
         manager: input.manager,
         script: input.script,
         args: input.args,
-        workspaceName: input.workspaceName,
+        workspaceName: input.workspaceSelector,
       });
       // Named scripts default to no network.
       return runArgv({
@@ -500,7 +516,8 @@ export const makeNativePackageManagerBackend = options => {
         argv: [...argv],
         manager: input.manager,
         displayPath: input.displayPath,
-        workspaceName: input.workspaceName,
+        packageName: input.packageName,
+        workspaceSelector: input.workspaceSelector,
         segments: input.segments,
         timeoutMs: input.timeoutMs,
         maxOutputBytes: input.maxOutputBytes,
