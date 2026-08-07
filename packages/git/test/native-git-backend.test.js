@@ -101,7 +101,7 @@ const provisionCommittedRepo = async t => {
     '-qm',
     'root',
   ]);
-  return root;
+  return fs.promises.realpath(root);
 };
 
 test('worktreeList parses locked, detached, prunable, and bare records', async t => {
