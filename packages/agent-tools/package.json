@@ -73,6 +73,10 @@
       "types": "./src/code-mode/declarations.js",
       "default": "./src/code-mode/declarations.js"
     },
+    "./code-mode/capabilities.js": {
+      "types": "./src/code-mode/capabilities.js",
+      "default": "./src/code-mode/capabilities.js"
+    },
     "./code-mode-globals/git.js": {
       "types": "./src/code-mode-globals/git.js",
       "default": "./src/code-mode-globals/git.js"

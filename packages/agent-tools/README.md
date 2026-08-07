@@ -57,6 +57,27 @@ values.get('answer'); // 42
 The daemon host always advertises `resultName` and forwards it to the daemon's
 `evaluate`, where formula capture keeps the named value durable.
 
+### Durable capability bank
+
+A host that has both a live pet-name lookup capability and the durable
+`storeValue` hook can expose a capability bank to code mode. The bank is
+intentionally narrow: `caps.lookup(petName)` recovers an existing capability
+and `caps.preserve(value, petName)` stores one for a later session. The
+compartment also receives `Far` directly, so guest code can make a remotable
+without trying to marshal a guest methods object through the bank:
+
+```js
+const far = Far('Counter', { increment: n => n + 1 });
+await caps.preserve(far, 'counter');
+const counter = await caps.lookup('counter');
+await E(counter).increment(1); // 2
+```
+
+Construct it with `makeCapabilityBank({ lookupPowers, storeValue })` or let
+`makeCodeModeAgent` construct it from those two options. The persistence
+backend owns the lifetime and authorization policy; the bank never serializes
+or broadens a capability.
+
 The MCP adapter gap remains separate.
 This package still does not map the tool record to MCP `outputSchema` or
 `structuredContent`; an MCP protocol adapter will own that mapping.

@@ -8,9 +8,14 @@
 /** @import { Evaluate, StoreValue, CodeModeGlobal, CodeModePower, PowerHandle, LookupPowers } from '@endo/agent-tools/code-mode/evaluate-tool.js' */
 
 import { E } from '@endo/eventual-send';
+import { Far } from '@endo/pass-style';
 import { isGitHistoryRewrite, isGitReadOnly } from '@endo/exo-git';
 import { makeCompartmentEvaluate } from '@endo/agent-tools/code-mode/compartment.js';
 import { makeEvaluateTool } from '@endo/agent-tools/code-mode/evaluate-tool.js';
+import {
+  makeCapabilityBank,
+  makeCapabilityGlobals,
+} from '@endo/agent-tools/code-mode/capabilities.js';
 import {
   formatGlobalDeclarations,
   normalizeGlobals,
@@ -35,6 +40,9 @@ export const makeCodeModeSystemPrompt = (globals, options = {}) => {
   const resultNameGuidance = options.storeValue
     ? ' Use resultName only when the user asks you to store the result for later.'
     : '';
+  const capabilityGuidance = normalized.some(global => global.name === 'caps')
+    ? ' When caps is available, make a Far locally with Far(name, methods), then await caps.preserve(far, petName); recover it in a later session with await caps.lookup(petName).'
+    : '';
   const preamble =
     options.preamble ||
     'You are codeMode, an Endo code-mode agent. You solve tasks by writing JavaScript and calling the evaluate tool.';
@@ -53,7 +61,7 @@ Use E(capability).method(...) for remotable capabilities. Top-level await is not
 })()
 \`\`\`
 
-Return the desired value as the source completion value.${resultNameGuidance}
+Return the desired value as the source completion value.${resultNameGuidance}${capabilityGuidance}
 
 Available powers:
 
@@ -112,6 +120,9 @@ const lookupRequiredPower = (powers, petName, label) => {
  * @property {Record<string, unknown>} [endowments]
  * @property {Evaluate} [evaluate]
  * @property {StoreValue} [storeValue]
+ * @property {object} [capabilityBank] Optional prebuilt durable capability bank.
+ *   When omitted, one is built from lookupPowers and storeValue when either
+ *   authority is supplied.
  * @property {() => Promise<void> | void} [onContainedEventualSendRejection]
  * @property {CodeModeGlobal[]} [globals]
  * @property {string} [systemPrompt]
@@ -132,9 +143,10 @@ const lookupRequiredPower = (powers, petName, label) => {
  * unless the caller attached its own `declaration`.
  *
  * @param {CodeModePowers} powers
+ * @param {object} [capabilityBank]
  * @returns {CodeModeGlobal[]}
  */
-const makeCodeModeGlobals = (powers = {}) => {
+const makeCodeModeGlobals = (powers = {}, capabilityBank) => {
   /** @type {CodeModeGlobal[]} */
   const globals = [];
   if (powers.workspace !== undefined || powers.workspacePetName !== undefined) {
@@ -158,6 +170,9 @@ const makeCodeModeGlobals = (powers = {}) => {
     );
   }
   globals.push(...(powers.namedPowers || []));
+  if (capabilityBank !== undefined) {
+    globals.push(...makeCapabilityGlobals());
+  }
   return normalizeGlobals(globals);
 };
 harden(makeCodeModeGlobals);
@@ -207,6 +222,7 @@ const resolveConfiguredPowers = (powers, lookupPowers) => {
  * @param {Record<string, CodeModePower>} resolvedPowers
  * @param {Record<string, unknown>} baseEndowments
  * @param {LookupPowers | undefined} lookupPowers
+ * @param {object | undefined} capabilityBank
  * @returns {Record<string, unknown>}
  */
 const makeCodeModeEndowments = (
@@ -214,10 +230,12 @@ const makeCodeModeEndowments = (
   resolvedPowers,
   baseEndowments,
   lookupPowers,
+  capabilityBank,
 ) => {
   /** @type {Record<string, unknown>} */
   const endowments = {
     E,
+    ...(capabilityBank === undefined ? {} : { Far, caps: capabilityBank }),
     ...baseEndowments,
     ...resolvedPowers,
   };
@@ -251,6 +269,7 @@ export const makeCodeModeAgent = options => {
     credentials = makeEnvCredentials(getAmbientEnv()),
     endowments: baseEndowments = {},
     storeValue,
+    capabilityBank: configuredCapabilityBank,
     onContainedEventualSendRejection,
     messages,
     streamFn,
@@ -259,9 +278,17 @@ export const makeCodeModeAgent = options => {
     preamble,
   } = options;
 
+  const capabilityBank =
+    configuredCapabilityBank !== undefined
+      ? configuredCapabilityBank
+      : makeCapabilityBank({ lookupPowers, storeValue });
+
   const globals = options.globals
-    ? normalizeGlobals(options.globals)
-    : makeCodeModeGlobals(powers);
+    ? normalizeGlobals([
+        ...options.globals,
+        ...(capabilityBank === undefined ? [] : makeCapabilityGlobals()),
+      ])
+    : makeCodeModeGlobals(powers, capabilityBank);
 
   if (
     options.evaluate !== undefined &&
@@ -281,6 +308,7 @@ export const makeCodeModeAgent = options => {
         resolvedPowers,
         baseEndowments,
         lookupPowers,
+        capabilityBank,
       ),
       storeValue,
       onContainedEventualSendRejection,
@@ -333,6 +361,8 @@ harden(makeCodeModeAgent);
  * @property {ThinkingLevel} [thinkingLevel]
  * @property {boolean} [readOnlyGit]
  * @property {StoreValue} [storeValue]
+ * @property {LookupPowers} [lookupPowers]
+ * @property {object} [capabilityBank]
  */
 
 /**
@@ -360,6 +390,8 @@ export const makeCodeModeGitLoopAgent = options => {
       'You are an Endo-hosted Pi coding agent. Use the evaluate tool to inspect and edit the repository through the workspace Filesystem and Git capabilities.',
     evaluate: options.evaluate,
     storeValue: options.storeValue,
+    lookupPowers: options.lookupPowers,
+    capabilityBank: options.capabilityBank,
     onContainedEventualSendRejection: options.onContainedEventualSendRejection,
     messages: options.messages,
     streamFn: options.streamFn,

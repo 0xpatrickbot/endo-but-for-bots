@@ -18,3 +18,5 @@ export {
   provisionWorkspaceTools,
   provisionHistoryTools,
 } from './workspace.js';
+
+export { makeCapabilityBank, makeCapabilityGlobals } from './code-mode/capabilities.js';
