@@ -426,7 +426,7 @@ test('explicit filesystem and Git grants default their workspace to cwd', async 
   const [persistence] = harness.reconstructions;
   t.is(persistence.workspacePath, await realpath(cwd));
   t.is(persistence.policy.mounts.workspace.mode, 'readWrite');
-  t.is(persistence.policy.gits.git.mode, 'readOnly');
+  t.is(persistence.policy.gits?.git?.mode, 'readOnly');
   t.deepEqual(
     makeEndoProvisionGlobals(persistence).map(({ name }) => name),
     ['workspace', 'git'],
