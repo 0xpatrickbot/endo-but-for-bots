@@ -211,7 +211,7 @@ test('nested Git grants reject binding collisions, escapes, denial, and capping'
     { message: /denied workspace segment/ },
   );
 
-  for (const mode of ['readWrite', 'historyRewrite']) {
+  for (const mode of /** @type {const} */ (['readWrite', 'historyRewrite'])) {
     // eslint-disable-next-line no-await-in-loop
     await t.throwsAsync(
       () =>
