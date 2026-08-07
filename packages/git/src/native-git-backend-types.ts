@@ -28,3 +28,13 @@ export type RawStatusEntry = {
   /** When the index is 'renamed' or 'copied'. */
   renamedFrom?: string;
 };
+
+export type RawWorktreeEntry = {
+  path: string;
+  head?: string;
+  branch?: string;
+  bare: boolean;
+  detached: boolean;
+  locked: boolean;
+  prunable: boolean;
+};

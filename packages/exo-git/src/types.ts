@@ -72,6 +72,21 @@ export type GitWorktreeStatus =
   | 'ignored'
   | 'conflicted';
 
+export type GitWorktreeEntry = {
+  path: string;
+  head?: string;
+  branch?: string;
+  bare: boolean;
+  detached: boolean;
+  locked: boolean;
+  prunable: boolean;
+};
+
+export type GitWorktreeAddOptions = {
+  ref?: GitRef | string;
+  newBranch?: string;
+};
+
 export type GitStatusEntry = {
   entry: PathEntry;
   path: string;
@@ -305,6 +320,7 @@ export type GitRemoteKit = {
 /** The read-only capability surface returned by `readOnly()`. */
 export type ReadOnlyEndoGit = {
   worktree: () => Promise<ReadOnlyGitWorktree>;
+  worktreeList: () => Promise<GitWorktreeEntry[]>;
   status: () => Promise<GitStatusEntry[]>;
   diff: (options?: GitDiffOptions) => Promise<string>;
   log: (options?: GitLogOptions) => Promise<GitCommit[]>;
@@ -332,6 +348,10 @@ export type ReadOnlyEndoGit = {
 /** The ordinary read-write capability surface. */
 export type ReadWriteEndoGit = ReadOnlyEndoGit & {
   worktree: () => Promise<WritableGitWorktree>;
+  worktreeAdd: (
+    entry: PathEntry,
+    options?: GitWorktreeAddOptions,
+  ) => Promise<ReadWriteEndoGit>;
   add: (entries: PathEntry[]) => Promise<void>;
   restore: (entries: PathEntry[], options?: GitRestoreOptions) => Promise<void>;
   checkoutConflict: (
@@ -365,6 +385,10 @@ export type ReadWriteEndoGit = ReadOnlyEndoGit & {
 
 /** The elevated read-write surface that may rewrite existing history. */
 export type HistoryRewriteEndoGit = ReadWriteEndoGit & {
+  worktreeAdd: (
+    entry: PathEntry,
+    options?: GitWorktreeAddOptions,
+  ) => Promise<HistoryRewriteEndoGit>;
   scope: (name: 'reader' | 'writer' | 'rewriter') => EndoGit;
   commit: (message: string, options?: GitCommitOptions) => Promise<GitCommit>;
   reword: (ref: GitRef | string, message: string) => Promise<GitCommit>;

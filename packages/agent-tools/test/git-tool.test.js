@@ -144,6 +144,8 @@ test('makeGitTool omits cap-heavy methods at every facet', t => {
     );
     const names = new Set(tools.map(tool => tool.name));
     t.false(names.has('status'), `facet: ${facet}`);
+    t.false(names.has('worktreeList'), `facet: ${facet}`);
+    t.false(names.has('worktreeAdd'), `facet: ${facet}`);
     t.false(names.has('add'), `facet: ${facet}`);
     t.false(names.has('restore'), `facet: ${facet}`);
     t.false(names.has('filesystemAt'), `facet: ${facet}`);

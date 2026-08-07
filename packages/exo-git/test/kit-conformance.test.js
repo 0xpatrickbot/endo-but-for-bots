@@ -56,6 +56,18 @@ const makeFakeBackend = () =>
     assertRepositoryRoot: async () => undefined,
     assertNoExecutableRepoConfig: async () => undefined,
     status: async () => [],
+    worktreeList: async () => [
+      {
+        path: '/repo',
+        bare: false,
+        detached: false,
+        locked: false,
+        prunable: false,
+        head: '0'.repeat(40),
+        branch: 'refs/heads/main',
+      },
+    ],
+    worktreeAdd: async () => makeFakeBackend(),
     diff: async () => '',
     log: async () => [],
     show: async () => '',
@@ -156,6 +168,7 @@ const makeFakeMount = () => {
     has: async () => false,
     list: async () => [],
     lookup: async () => undefined,
+    subView: async () => mount,
     writeText: async () => undefined,
     remove: async () => undefined,
     move: async () => undefined,
@@ -173,7 +186,14 @@ const makePowers = () => {
   const { mount } = makeFakeMount();
   const backend = makeFakeBackend();
   const lineage = harden({});
-  const lineageOf = value => (value === mount ? lineage : undefined);
+  const lineageOf = value =>
+    value === mount ||
+    (value !== null &&
+      typeof value === 'object' &&
+      typeof (/** @type {{ segments?: unknown }} */ (value).segments) ===
+        'function')
+      ? lineage
+      : undefined;
   return { mount, backend, lineageOf };
 };
 
@@ -352,6 +372,49 @@ test('worktree(): the reader facet hands back a structural read-only view, never
   // The rewriter facet is cumulative over the writer: same pass-through
   // writable worktree, same identity as the writer's.
   t.is(await E(rewriter).worktree(), powers.mount);
+});
+
+test('worktreeList is readable and worktreeAdd preserves the creating posture', async t => {
+  const powers = makePowers();
+  const { reader, writer, rewriter } = makeGitKit(powers);
+  const entry = powers.mount.entry(['linked']);
+
+  t.deepEqual(await E(reader).worktreeList(), [
+    {
+      path: '/repo',
+      bare: false,
+      detached: false,
+      locked: false,
+      prunable: false,
+      head: '0'.repeat(40),
+      branch: 'refs/heads/main',
+    },
+  ]);
+
+  const writerDerived = await E(writer).worktreeAdd(entry, {
+    ref: 'HEAD',
+    newBranch: 'linked',
+  });
+  t.is(isGitReadOnly(writerDerived), false);
+  t.is(isGitHistoryRewrite(writerDerived), false);
+  t.truthy(await E(writerDerived).currentBranch());
+
+  const rewriterDerived = await E(rewriter).worktreeAdd(entry, {
+    ref: 'HEAD',
+  });
+  t.is(isGitReadOnly(rewriterDerived), false);
+  t.is(isGitHistoryRewrite(rewriterDerived), true);
+
+  const escaped = makeFakeEntry(['..', 'outside']);
+  await t.throwsAsync(E(writer).worktreeAdd(escaped, { ref: 'HEAD' }), {
+    message: /confined mount-relative PathEntry/,
+  });
+  await t.throwsAsync(
+    E(/** @type {any} */ (reader)).worktreeAdd(entry, { ref: 'HEAD' }),
+    {
+      message: /has no method "worktreeAdd"/,
+    },
+  );
 });
 
 test('filesystemAt(): the memo is per instance, and the returned Filesystem rejects every mutation regardless of facet', async t => {

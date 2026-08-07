@@ -151,7 +151,7 @@ They are named so a builder dispatch does not mistake them for gaps in the miles
   Design Decision 10 of [daemon-git-remotes](daemon-git-remotes.md) keeps the *enforcement* boundary server-side; this only reads the provider API.
 - [ ] **Interactive remote provisioning and extended transports.**
   [daemon-git-remotes](daemon-git-remotes.md) § Phase 6 (form / CLI flows, trust-on-first-bind endpoint approval) and § Phase 7 (SSH transport design, Noise revisit).
-- [ ] **Linked-worktree and submodule worked example.**
+- [x] **Linked-worktree and submodule worked example.**
   The pin algorithm ([daemon-git-capability](daemon-git-capability.md) Design Decision 7) handles `git worktree add` and submodules in theory; a worked example pins the contract.
 - [ ] **Audit-log surfaces, timing observability, editor / patch-apply integration.**
   Operator-facing audit exports, the `captpMs` / `transportMs` timing fields ([daemon-git-remotes](daemon-git-remotes.md) § Spike Tasks), and composing `Git` with the chat / endopi edit tools so a proposed patch applies to the worktree as a real reviewable change.
