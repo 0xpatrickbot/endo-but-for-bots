@@ -219,7 +219,9 @@ test.serial(
 
     const host = await fixture.connectHost('nested-git-host');
     const guest = await realizeEndoProvisionOnHost(host, persistence);
-    const nestedGit = await E(guest).lookup('nested');
+    const nestedGit = /** @type {ReadOnlyEndoGit} */ (
+      await E(guest).lookup('nested')
+    );
     const rows = await E(nestedGit).status();
     t.deepEqual(
       rows.map(({ path }) => path),
@@ -236,7 +238,9 @@ test.serial(
         sockPath: fixture.sockPath,
       }),
     );
-    const recoveredGit = await E(recovered.powers).lookup('nested');
+    const recoveredGit = /** @type {ReadOnlyEndoGit} */ (
+      await E(recovered.powers).lookup('nested')
+    );
     const recoveredRows = await E(recoveredGit).status();
     t.deepEqual(
       recoveredRows.map(({ path }) => path),
