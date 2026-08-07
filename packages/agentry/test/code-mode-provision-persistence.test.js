@@ -2,7 +2,7 @@
 
 import test from '@endo/ses-ava/prepare-endo.js';
 
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -70,7 +70,10 @@ test('nested Git grants reconstruct from persistence without the original spec',
   const reconstructed = await validateEndoProvisionPersistence(persistedRecord);
   t.deepEqual(reconstructed, persistence);
   t.deepEqual(reconstructed.policy.gits, {
-    ebfb: { path: join(root, 'nested-repo'), mode: 'readWrite' },
+    ebfb: {
+      path: await realpath(join(root, 'nested-repo')),
+      mode: 'readWrite',
+    },
   });
 });
 
