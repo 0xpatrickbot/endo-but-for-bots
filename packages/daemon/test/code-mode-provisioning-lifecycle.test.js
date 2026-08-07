@@ -8,7 +8,7 @@ import '@endo/init/debug.js';
 import test from 'ava';
 
 import { execFile } from 'node:child_process';
-import { mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -212,7 +212,7 @@ test.serial(
         cwd: fixture.workspace,
       },
     );
-    t.is(persistence.policy.gits?.nested.path, nestedPath);
+    t.is(persistence.policy.gits?.nested.path, await realpath(nestedPath));
 
     await rm(nestedLink, { force: true });
     await symlink(outsidePath, nestedLink, 'dir');
