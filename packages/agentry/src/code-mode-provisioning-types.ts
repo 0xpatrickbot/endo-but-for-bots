@@ -19,6 +19,12 @@ export type NestedGitSpec = {
   mode: 'readOnly' | 'readWrite' | 'historyRewrite';
 };
 
+export type NormalizedNestedGitSpec = {
+  /** Canonical absolute path naming a non-bare Git worktree. */
+  path: string;
+  mode: 'readOnly' | 'readWrite' | 'historyRewrite';
+};
+
 export type EndoProvisionSpec = {
   workspace?: {
     path?: string;
@@ -40,7 +46,7 @@ export type EndoProvisionPolicy = {
   };
   fs?: 'readOnly' | 'readWrite';
   git?: 'readOnly' | 'readWrite' | 'historyRewrite';
-  gits?: { [name: string]: NestedGitSpec };
+  gits?: { [name: string]: NormalizedNestedGitSpec };
   gitRemotes?: { [name: string]: NormalizedGitRemoteSpec };
 };
 

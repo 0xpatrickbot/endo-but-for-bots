@@ -7,7 +7,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { normalizeEndoProvisionSpec } from '../src/code-mode-provision-policy.js';
+import {
+  normalizeEndoProvisionSpec,
+  validateEndoProvisionPersistence,
+} from '../src/code-mode-provision-policy.js';
 
 /** @param {import('ava').ExecutionContext} t */
 const makeWorkspace = async t => {
@@ -150,7 +153,7 @@ test('Git remote dictionaries retain an own __proto__ binding', async t => {
 });
 
 test('nested Git grants normalize workspace-relative paths and modes', async t => {
-  const { root } = await makeWorkspace(t);
+  const { root, child } = await makeWorkspace(t);
   const persistence = await normalizeEndoProvisionSpec(
     {
       fs: 'readWrite',
@@ -163,12 +166,33 @@ test('nested Git grants normalize workspace-relative paths and modes', async t =
   );
 
   t.deepEqual(persistence.policy.gits, {
-    ebfb: { path: [], mode: 'readOnly' },
-    zeta: { path: ['child'], mode: 'historyRewrite' },
+    ebfb: { path: await realpath(root), mode: 'readOnly' },
+    zeta: { path: await realpath(child), mode: 'historyRewrite' },
   });
   t.true(Object.isFrozen(persistence.policy.gits));
   t.true(Object.isFrozen(persistence.policy.gits?.ebfb));
-  t.true(Object.isFrozen(persistence.policy.gits?.zeta?.path));
+});
+
+test('nested Git grants pin canonical paths across validation', async t => {
+  const { root, child } = await makeWorkspace(t);
+  const link = join(root, 'child-link');
+  await symlink(child, link, 'dir');
+
+  const persistence = await normalizeEndoProvisionSpec(
+    {
+      fs: 'readWrite',
+      gits: { linked: { path: ['child-link'], mode: 'readOnly' } },
+    },
+    { harness: 'test', sessionId: 'canonical-nested-git', cwd: root },
+  );
+
+  t.is(persistence.policy.gits?.linked.path, await realpath(child));
+  t.deepEqual(
+    await validateEndoProvisionPersistence(
+      JSON.parse(JSON.stringify(persistence)),
+    ),
+    persistence,
+  );
 });
 
 test('nested Git grants reject binding collisions, escapes, denial, and capping', async t => {
@@ -179,7 +203,7 @@ test('nested Git grants reject binding collisions, escapes, denial, and capping'
       { harness: 'test', sessionId: 'invalid-nested-git', cwd: root },
     );
 
-  for (const name of ['E', 'git', 'workspace', 'class']) {
+  for (const name of ['E', 'git', 'gits', 'workspace', 'class']) {
     // eslint-disable-next-line no-await-in-loop
     await t.throwsAsync(
       () =>

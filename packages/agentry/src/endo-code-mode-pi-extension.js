@@ -10,6 +10,7 @@ import { makeDaemonEvaluate } from '@endo/agent-tools/code-mode/daemon.js';
 import { makeEvaluateTool } from '@endo/agent-tools/code-mode/evaluate-tool.js';
 import { start } from '@endo/daemon';
 
+import { relative, sep } from 'node:path';
 import { exit, stderr } from 'node:process';
 
 import { makeCodeModeSystemPrompt } from './code-mode.js';
@@ -128,7 +129,23 @@ const persistenceToSpec = persistence =>
       : { git: persistence.policy.git }),
     ...(persistence.policy.gits === undefined
       ? {}
-      : { gits: persistence.policy.gits }),
+      : {
+          gits: Object.fromEntries(
+            Object.entries(persistence.policy.gits).map(([name, grant]) => {
+              const fromWorkspace = relative(
+                persistence.workspacePath,
+                grant.path,
+              );
+              return [
+                name,
+                {
+                  path: fromWorkspace === '' ? [] : fromWorkspace.split(sep),
+                  mode: grant.mode,
+                },
+              ];
+            }),
+          ),
+        }),
     ...(persistence.policy.gitRemotes === undefined
       ? {}
       : { gitRemotes: persistence.policy.gitRemotes }),

@@ -70,7 +70,25 @@ test('nested Git grants reconstruct from persistence without the original spec',
   const reconstructed = await validateEndoProvisionPersistence(persistedRecord);
   t.deepEqual(reconstructed, persistence);
   t.deepEqual(reconstructed.policy.gits, {
-    ebfb: { path: ['nested-repo'], mode: 'readWrite' },
+    ebfb: { path: join(root, 'nested-repo'), mode: 'readWrite' },
+  });
+});
+
+test('missing nested Git directories reject the whole persisted authority', async t => {
+  const root = await makeWorkspace(t);
+  const nestedPath = join(root, 'nested-repo');
+  await mkdir(nestedPath);
+  const persistence = await normalizeEndoProvisionSpec(
+    {
+      fs: 'readWrite',
+      gits: { ebfb: { path: ['nested-repo'], mode: 'readOnly' } },
+    },
+    { harness: 'test', sessionId: 'missing-nested-repo', cwd: root },
+  );
+  await rm(nestedPath, { recursive: true, force: true });
+
+  await t.throwsAsync(() => validateEndoProvisionPersistence(persistence), {
+    message: /does not exist or cannot be resolved/,
   });
 });
 

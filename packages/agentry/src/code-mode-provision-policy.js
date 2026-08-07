@@ -1,7 +1,7 @@
 // @ts-check
 /// <reference types="ses"/>
 
-/** @import { EndoProvisionPersistence, EndoProvisionPolicy, EndoProvisionSpec, NormalizeEndoProvisionOptions, NormalizedGitRemoteSpec, NestedGitSpec } from './code-mode-provisioning-types.js' */
+/** @import { EndoProvisionPersistence, EndoProvisionPolicy, EndoProvisionSpec, NormalizeEndoProvisionOptions, NormalizedGitRemoteSpec, NormalizedNestedGitSpec } from './code-mode-provisioning-types.js' */
 
 import { defaultDeniedSegments } from '@endo/daemon/src/mount.js';
 import { isPetName } from '@endo/daemon/pet-name.js';
@@ -30,7 +30,7 @@ const REMOTE_FIELDS = harden([
 ]);
 const FS_MODES = harden(['readOnly', 'readWrite']);
 const GIT_MODES = harden(['readOnly', 'readWrite', 'historyRewrite']);
-const PRODUCT_RESERVED_BINDINGS = harden(['E', 'git', 'workspace']);
+const PRODUCT_RESERVED_BINDINGS = harden(['E', 'git', 'gits', 'workspace']);
 const LANGUAGE_RESERVED_BINDINGS = harden([
   'arguments',
   'await',
@@ -324,7 +324,7 @@ const isWithinWorkspace = (workspacePath, candidate) => {
  * @param {string} workspacePath
  * @param {string[]} deniedSegments
  * @param {unknown} fs
- * @returns {Promise<NestedGitSpec>}
+ * @returns {Promise<NormalizedNestedGitSpec>}
  */
 const normalizeNestedGit = async (
   value,
@@ -383,9 +383,26 @@ const normalizeNestedGit = async (
     );
   }
   return harden({
-    path: harden([...path]),
+    path: nestedPath,
     mode: /** @type {'readOnly' | 'readWrite' | 'historyRewrite'} */ (mode),
   });
+};
+
+/**
+ * Convert a canonical nested Git path from persistence back to the
+ * workspace-relative segments accepted by the inert provisioning spec.
+ *
+ * @param {string} workspacePath
+ * @param {string} nestedPath
+ * @param {string} label
+ * @returns {string[]}
+ */
+const nestedPathSegments = (workspacePath, nestedPath, label) => {
+  const fromWorkspace = relative(workspacePath, nestedPath);
+  if (!isWithinWorkspace(workspacePath, nestedPath)) {
+    throw makeError(X`${q(label)} must stay inside the workspace`);
+  }
+  return fromWorkspace === '' ? [] : fromWorkspace.split(sep);
 };
 
 /**
@@ -482,7 +499,7 @@ const normalizePolicy = async (spec, cwd) => {
     root.gits === undefined
       ? undefined
       : requirePlainRecord(root.gits, 'EndoProvisionSpec.gits');
-  /** @type {Array<[string, NestedGitSpec]>} */
+  /** @type {Array<[string, NormalizedNestedGitSpec]>} */
   const normalizedGits = [];
   for (const name of Object.keys(gitsRecord ?? {}).sort()) {
     // eslint-disable-next-line no-await-in-loop
@@ -495,7 +512,7 @@ const normalizePolicy = async (spec, cwd) => {
     );
     normalizedGits.push([name, grant]);
   }
-  const gits = /** @type {Record<string, NestedGitSpec>} */ (
+  const gits = /** @type {Record<string, NormalizedNestedGitSpec>} */ (
     Object.fromEntries(normalizedGits)
   );
 
@@ -628,6 +645,35 @@ export const validateEndoProvisionPersistence = async value => {
     policyRecord.workspace,
     'Endo provision persistence.policy.workspace',
   );
+  const persistedGits =
+    policyRecord.gits === undefined
+      ? undefined
+      : requirePlainRecord(
+          policyRecord.gits,
+          'Endo provision persistence.policy.gits',
+        );
+  const reconstructedGits =
+    persistedGits === undefined
+      ? undefined
+      : Object.fromEntries(
+          Object.entries(persistedGits).map(([name, grantValue]) => {
+            const label = `Endo provision persistence.policy.gits.${name}`;
+            const grant = requirePlainRecord(grantValue, label);
+            assertKnownFields(grant, NESTED_GIT_FIELDS, label);
+            const canonicalPath = requireString(grant.path, `${label}.path`);
+            return [
+              name,
+              {
+                path: nestedPathSegments(
+                  workspacePath,
+                  canonicalPath,
+                  `${label}.path`,
+                ),
+                mode: grant.mode,
+              },
+            ];
+          }),
+        );
   const reconstructedSpec = harden({
     workspace: harden({
       path: workspacePath,
@@ -635,7 +681,7 @@ export const validateEndoProvisionPersistence = async value => {
     }),
     ...(policyRecord.fs === undefined ? {} : { fs: policyRecord.fs }),
     ...(policyRecord.git === undefined ? {} : { git: policyRecord.git }),
-    ...(policyRecord.gits === undefined ? {} : { gits: policyRecord.gits }),
+    ...(reconstructedGits === undefined ? {} : { gits: reconstructedGits }),
     ...(policyRecord.gitRemotes === undefined
       ? {}
       : { gitRemotes: policyRecord.gitRemotes }),
