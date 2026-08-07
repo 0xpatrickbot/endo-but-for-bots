@@ -13,15 +13,37 @@ export type GitRemoteSpec = Omit<
   credential?: string | string[];
 };
 
-export type NestedGitSpec = {
-  /** Workspace-relative path segments naming a non-bare Git worktree. */
+export type MountGrant = {
+  /** Relative to the provisioning cwd, or an explicitly selected absolute root. */
+  path: string;
+  mode: 'readOnly' | 'readWrite';
+  deniedSegments?: string[];
+};
+
+export type GitGrant = {
+  /** Defaults to the compatibility `workspace` mount. */
+  mount?: string;
+  /** Mount-relative path segments naming a non-bare Git worktree. */
   path: string[];
   mode: 'readOnly' | 'readWrite' | 'historyRewrite';
 };
 
-export type NormalizedNestedGitSpec = {
-  /** Canonical absolute path naming a non-bare Git worktree. */
-  path: string;
+export type NormalizedMountGrant = {
+  /** Canonical absolute root, retained only in trusted policy state. */
+  root: string;
+  mode: 'readOnly' | 'readWrite';
+  deniedSegments: string[];
+  /** Whether this explicitly granted mount is bound into the guest. */
+  guestBinding: boolean;
+};
+
+export type NormalizedGitGrant = {
+  /** Explicit selected mount name. */
+  mount: string;
+  /** Mount-relative selector segments. */
+  path: string[];
+  /** Canonical absolute worktree root, retained only in trusted policy state. */
+  root: string;
   mode: 'readOnly' | 'readWrite' | 'historyRewrite';
 };
 
@@ -32,7 +54,8 @@ export type EndoProvisionSpec = {
   };
   fs?: 'readOnly' | 'readWrite';
   git?: 'readOnly' | 'readWrite' | 'historyRewrite';
-  gits?: { [name: string]: NestedGitSpec };
+  mounts?: { [name: string]: MountGrant };
+  gits?: { [name: string]: GitGrant };
   gitRemotes?: { [name: string]: GitRemoteSpec };
 };
 
@@ -41,12 +64,10 @@ export type NormalizedGitRemoteSpec = NormalizedRemotePolicy & {
 };
 
 export type EndoProvisionPolicy = {
-  workspace: {
-    deniedSegments: string[];
-  };
-  fs?: 'readOnly' | 'readWrite';
-  git?: 'readOnly' | 'readWrite' | 'historyRewrite';
-  gits?: { [name: string]: NormalizedNestedGitSpec };
+  /** One authority graph for all filesystem roots. */
+  mounts: { [name: string]: NormalizedMountGrant };
+  /** Every Git grant names its selected mount explicitly. */
+  gits?: { [name: string]: NormalizedGitGrant };
   gitRemotes?: { [name: string]: NormalizedGitRemoteSpec };
 };
 
@@ -57,7 +78,7 @@ export type EndoProvisionPolicy = {
  * credential material, daemon endpoints, and host authority.
  */
 export type EndoProvisionPersistence = {
-  version: 1;
+  version: 2;
   guestHandlePath: string[];
   workspacePath: string;
   policy: EndoProvisionPolicy;

@@ -15,6 +15,13 @@
 - Re-read PR #958, its revised design comment, the current patch, and PR #960's
   public worktree seam.
 - Confirmed the live PR remains draft and unmerged at the starting SHA.
+- Replaced nested-only types and normalization with named mount grants and
+  per-mount Git grants.
+- Updated host realization to materialize every authorized named mount, bind
+  only explicitly exposed mounts, and mint exact-root Git capabilities under
+  selected-mount ceilings.
+- Updated globals, PI reconstruction, persistence validation, and focused
+  policy/persistence/globals/PI/daemon lifecycle coverage.
 
 ## Decisions
 
@@ -32,9 +39,6 @@
 
 ## Pending work
 
-- Replace policy types and normalization.
-- Update host realization and persistence/fork reconstruction.
-- Revise focused policy, PI lifecycle, globals, and daemon lifecycle tests.
 - Run regression evidence and required project gates.
 - Strip this file, verify final diff, commit, and push the branch.
 
@@ -44,3 +48,5 @@
   top and must not amend them.
 - PR #960 must remain untouched; only its public seam is a design constraint.
 - No product-specific worktree directory may become implementation policy.
+- Current uncommitted implementation needs its first semantic commit before
+  broader gates; type checking and focused policy/PI/daemon tests are green.
