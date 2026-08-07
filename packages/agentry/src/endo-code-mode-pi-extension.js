@@ -423,8 +423,8 @@ export const makeEndoCodeModePiExtension = (options = {}) => {
             } catch {
               throw new EndoPiLifecycleError(
                 'ENDO_PROVISION_SESSION_INVALID',
-                'This session has invalid Endo code-mode persistence.',
-                'Start a new session; do not copy or edit extension-owned session entries.',
+                'This session has missing or invalid Endo code-mode authority; a previously granted workspace or nested Git directory is unavailable.',
+                'Start a new session; no previous grant is silently dropped or changed during recovery.',
               );
             }
 
