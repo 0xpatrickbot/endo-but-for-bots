@@ -2,7 +2,7 @@
 
 import test from '@endo/ses-ava/prepare-endo.js';
 
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -53,6 +53,25 @@ test('persistence validation accepts only normalized records', async t => {
       }),
     { message: /not in normalized form/ },
   );
+});
+
+test('nested Git grants reconstruct from persistence without the original spec', async t => {
+  const root = await makeWorkspace(t);
+  await mkdir(join(root, 'nested-repo'));
+  const persistence = await normalizeEndoProvisionSpec(
+    {
+      fs: 'readWrite',
+      gits: { ebfb: { path: ['nested-repo'], mode: 'readWrite' } },
+    },
+    { harness: 'test', sessionId: 'nested-restart', cwd: root },
+  );
+
+  const persistedRecord = JSON.parse(JSON.stringify(persistence));
+  const reconstructed = await validateEndoProvisionPersistence(persistedRecord);
+  t.deepEqual(reconstructed, persistence);
+  t.deepEqual(reconstructed.policy.gits, {
+    ebfb: { path: ['nested-repo'], mode: 'readWrite' },
+  });
 });
 
 test('persistence equality ignores record key order but preserves array order', async t => {

@@ -2,7 +2,7 @@
 
 import test from '@endo/ses-ava/prepare-endo.js';
 
-import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -147,6 +147,112 @@ test('Git remote dictionaries retain an own __proto__ binding', async t => {
 
   t.deepEqual(Object.keys(persistence.policy.gitRemotes ?? {}), ['__proto__']);
   t.true(Object.hasOwn(persistence.policy.gitRemotes ?? {}, '__proto__'));
+});
+
+test('nested Git grants normalize workspace-relative paths and modes', async t => {
+  const { root } = await makeWorkspace(t);
+  const persistence = await normalizeEndoProvisionSpec(
+    {
+      fs: 'readWrite',
+      gits: {
+        zeta: { path: ['child'], mode: 'historyRewrite' },
+        ebfb: { path: [], mode: 'readOnly' },
+      },
+    },
+    { harness: 'test', sessionId: 'nested-gits', cwd: root },
+  );
+
+  t.deepEqual(persistence.policy.gits, {
+    ebfb: { path: [], mode: 'readOnly' },
+    zeta: { path: ['child'], mode: 'historyRewrite' },
+  });
+  t.true(Object.isFrozen(persistence.policy.gits));
+  t.true(Object.isFrozen(persistence.policy.gits?.ebfb));
+  t.true(Object.isFrozen(persistence.policy.gits?.zeta?.path));
+});
+
+test('nested Git grants reject binding collisions, escapes, denial, and capping', async t => {
+  const { root } = await makeWorkspace(t);
+  const normalizeGits = (gits, extra = {}) =>
+    normalizeEndoProvisionSpec(
+      /** @type {any} */ ({ fs: 'readWrite', gits, ...extra }),
+      { harness: 'test', sessionId: 'invalid-nested-git', cwd: root },
+    );
+
+  for (const name of ['E', 'git', 'workspace', 'class']) {
+    // eslint-disable-next-line no-await-in-loop
+    await t.throwsAsync(
+      () =>
+        normalizeGits({
+          [name]: { path: ['child'], mode: 'readOnly' },
+        }),
+      { message: /non-reserved JavaScript binding/ },
+    );
+  }
+
+  for (const path of [['..'], ['child', '..'], ['/tmp'], ['child\\repo']]) {
+    // eslint-disable-next-line no-await-in-loop
+    await t.throwsAsync(
+      () => normalizeGits({ escape: { path, mode: 'readOnly' } }),
+      { message: /one path segment inside the workspace/ },
+    );
+  }
+
+  await t.throwsAsync(
+    () => normalizeGits({ hidden: { path: ['.ssh'], mode: 'readOnly' } }),
+    { message: /denied workspace segment/ },
+  );
+  await t.throwsAsync(
+    () =>
+      normalizeGits(
+        { privateRepo: { path: ['private'], mode: 'readOnly' } },
+        { workspace: { deniedSegments: ['PRIVATE'] } },
+      ),
+    { message: /denied workspace segment/ },
+  );
+
+  for (const mode of ['readWrite', 'historyRewrite']) {
+    // eslint-disable-next-line no-await-in-loop
+    await t.throwsAsync(
+      () =>
+        normalizeEndoProvisionSpec(
+          {
+            fs: 'readOnly',
+            gits: { nested: { path: ['child'], mode } },
+          },
+          { harness: 'test', sessionId: 'capped-nested-git', cwd: root },
+        ),
+      { message: /writable Git grant.*writable filesystem grant/ },
+    );
+  }
+
+  await t.throwsAsync(
+    () =>
+      normalizeEndoProvisionSpec(
+        {
+          fs: 'readWrite',
+          git: 'readWrite',
+          gits: { origin: { path: ['child'], mode: 'readOnly' } },
+          gitRemotes: {
+            origin: {
+              url: 'file:///tmp/repository.git',
+              allowLocalFileTransport: true,
+            },
+          },
+        },
+        { harness: 'test', sessionId: 'colliding-git-name', cwd: root },
+      ),
+    { message: /declared both in gits and gitRemotes/ },
+  );
+
+  const outside = await mkdtemp(join(tmpdir(), 'endo-provision-outside-'));
+  t.teardown(() => rm(outside, { recursive: true, force: true }));
+  await symlink(outside, join(root, 'escape-link'), 'dir');
+  await t.throwsAsync(
+    () =>
+      normalizeGits({ escape: { path: ['escape-link'], mode: 'readOnly' } }),
+    { message: /must stay inside the workspace/ },
+  );
 });
 
 test('EndoProvisionSpec rejects malformed roots and incompatible modes', async t => {

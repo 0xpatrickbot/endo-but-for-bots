@@ -13,6 +13,12 @@ export type GitRemoteSpec = Omit<
   credential?: string | string[];
 };
 
+export type NestedGitSpec = {
+  /** Workspace-relative path segments naming a non-bare Git worktree. */
+  path: string[];
+  mode: 'readOnly' | 'readWrite' | 'historyRewrite';
+};
+
 export type EndoProvisionSpec = {
   workspace?: {
     path?: string;
@@ -20,6 +26,7 @@ export type EndoProvisionSpec = {
   };
   fs?: 'readOnly' | 'readWrite';
   git?: 'readOnly' | 'readWrite' | 'historyRewrite';
+  gits?: { [name: string]: NestedGitSpec };
   gitRemotes?: { [name: string]: GitRemoteSpec };
 };
 
@@ -33,6 +40,7 @@ export type EndoProvisionPolicy = {
   };
   fs?: 'readOnly' | 'readWrite';
   git?: 'readOnly' | 'readWrite' | 'historyRewrite';
+  gits?: { [name: string]: NestedGitSpec };
   gitRemotes?: { [name: string]: NormalizedGitRemoteSpec };
 };
 

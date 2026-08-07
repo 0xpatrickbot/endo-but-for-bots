@@ -126,6 +126,9 @@ const persistenceToSpec = persistence =>
     ...(persistence.policy.git === undefined
       ? {}
       : { git: persistence.policy.git }),
+    ...(persistence.policy.gits === undefined
+      ? {}
+      : { gits: persistence.policy.gits }),
     ...(persistence.policy.gitRemotes === undefined
       ? {}
       : { gitRemotes: persistence.policy.gitRemotes }),

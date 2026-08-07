@@ -8,6 +8,8 @@
 import { makeError, q, X } from '@endo/errors';
 import { E } from '@endo/eventual-send';
 
+import { resolve } from 'node:path';
+
 import {
   equalEndoProvisionPersistence,
   validateEndoProvisionPersistence,
@@ -256,6 +258,42 @@ const realizeProvisionResources = async (host, persistence, credentials) => {
         );
       }
       guestBindings.push([name, remoteAlias]);
+    }
+  }
+
+  const nestedGits = persistence.policy.gits ?? {};
+  if (Object.keys(nestedGits).length > 0) {
+    // A special internal name cannot collide with a user-facing Git remote or
+    // nested Git binding, both of which are restricted to ordinary pet names.
+    const gitsPath = harden([...controllerPath, '@gits']);
+    await ensureNameDirectory(host, gitsPath);
+    for (const [name, grant] of Object.entries(nestedGits)) {
+      const grantPath = harden([...gitsPath, name]);
+      // eslint-disable-next-line no-await-in-loop
+      await ensureNameDirectory(host, grantPath);
+      const gitMountAlias = harden([...grantPath, 'workspace']);
+      const gitAlias = harden([...grantPath, 'git']);
+      const gitMount = /** @type {EndoMount} */ (
+        // eslint-disable-next-line no-await-in-loop
+        await provideOrLookup(host, gitMountAlias, () =>
+          E(host).provideMount(
+            resolve(persistence.workspacePath, ...grant.path),
+            gitMountAlias,
+            {
+              readOnly: grant.mode === 'readOnly',
+              deniedSegments: persistence.policy.workspace.deniedSegments,
+            },
+          ),
+        )
+      );
+      // eslint-disable-next-line no-await-in-loop
+      await provideOrLookup(host, gitAlias, () =>
+        E(host).provideGit(gitMount, gitAlias, {
+          allowHistoryRewrite: grant.mode === 'historyRewrite',
+          readOnly: grant.mode === 'readOnly',
+        }),
+      );
+      guestBindings.push([name, gitAlias]);
     }
   }
 
