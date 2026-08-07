@@ -22,6 +22,8 @@
   selected-mount ceilings.
 - Updated globals, PI reconstruction, persistence validation, and focused
   policy/persistence/globals/PI/daemon lifecycle coverage.
+- Added collision and guest-disclosure regression coverage, then formatted the
+  changed files.
 
 ## Decisions
 
@@ -39,8 +41,8 @@
 
 ## Pending work
 
-- Run regression evidence and required project gates.
-- Strip this file, verify final diff, commit, and push the branch.
+- Commit the focused test follow-up, strip this file, verify the final diff,
+  and push the branch.
 
 ## Hazards and verification
 
@@ -48,5 +50,7 @@
   top and must not amend them.
 - PR #960 must remain untouched; only its public seam is a design constraint.
 - No product-specific worktree directory may become implementation policy.
-- Current uncommitted implementation needs its first semantic commit before
-  broader gates; type checking and focused policy/PI/daemon tests are green.
+- Regression evidence, affected package tests, type checks, lint, composite
+  configuration, docs, formatting, and pre-dispatch grep gates are green.
+- The deliberate negative regression probe fails when selected-mount capping is
+  removed, confirming the read-only mount ceiling is load-bearing.

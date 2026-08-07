@@ -61,7 +61,7 @@ test('persistence validation accepts only normalized records', async t => {
   );
 });
 
-test('nested Git grants reconstruct from persistence without the original spec', async t => {
+test('Git grants reconstruct from persistence without the original spec', async t => {
   const root = await makeWorkspace(t);
   await mkdir(join(root, 'nested-repo'));
   const persistence = await normalizeEndoProvisionSpec(
@@ -69,7 +69,7 @@ test('nested Git grants reconstruct from persistence without the original spec',
       fs: 'readWrite',
       gits: { ebfb: { path: ['nested-repo'], mode: 'readWrite' } },
     },
-    { harness: 'test', sessionId: 'nested-restart', cwd: root },
+    { harness: 'test', sessionId: 'git-restart', cwd: root },
   );
 
   const persistedRecord = JSON.parse(JSON.stringify(persistence));
@@ -83,7 +83,7 @@ test('nested Git grants reconstruct from persistence without the original spec',
   });
 });
 
-test('missing nested Git directories reject the whole persisted authority', async t => {
+test('missing Git directories reject the whole persisted authority', async t => {
   const root = await makeWorkspace(t);
   const nestedPath = join(root, 'nested-repo');
   await mkdir(nestedPath);
@@ -92,7 +92,7 @@ test('missing nested Git directories reject the whole persisted authority', asyn
       fs: 'readWrite',
       gits: { ebfb: { path: ['nested-repo'], mode: 'readOnly' } },
     },
-    { harness: 'test', sessionId: 'missing-nested-repo', cwd: root },
+    { harness: 'test', sessionId: 'missing-git-repo', cwd: root },
   );
   await rm(nestedPath, { recursive: true, force: true });
 

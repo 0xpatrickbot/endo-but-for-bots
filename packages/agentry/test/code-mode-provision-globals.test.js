@@ -152,7 +152,7 @@ test('remote globals are sorted and hardened', t => {
   t.true(globals.every(Object.isFrozen));
 });
 
-test('nested Git globals each appear in the system prompt', t => {
+test('named Git globals each appear in the system prompt', t => {
   const globals = makeEndoProvisionGlobals(
     makePersistence({
       gits: {
@@ -186,4 +186,41 @@ test('nested Git globals each appear in the system prompt', t => {
   t.true(prompt.includes('declare const ebfb: WritableEndoGit;'));
   t.true(prompt.includes('declare const inspect: ReadOnlyEndoGit;'));
   t.true(prompt.includes('declare const zeta: EndoGitHistory;'));
+});
+
+test('named mount and Git globals expose only named capabilities', t => {
+  const globals = makeEndoProvisionGlobals(
+    makePersistence({
+      mounts: {
+        destination: {
+          root: '/sibling',
+          mode: 'readWrite',
+          deniedSegments: [],
+          guestBinding: true,
+        },
+        source: {
+          root: '/workspace',
+          mode: 'readOnly',
+          deniedSegments: [],
+          guestBinding: true,
+        },
+      },
+      gits: {
+        inspect: {
+          mount: 'source',
+          path: [],
+          root: '/workspace',
+          mode: 'readOnly',
+        },
+      },
+    }),
+  );
+
+  t.deepEqual(
+    globals.map(({ name }) => name),
+    ['destination', 'source', 'inspect'],
+  );
+  const prompt = makeCodeModeSystemPrompt(globals);
+  t.false(prompt.includes('/workspace'));
+  t.false(prompt.includes('/sibling'));
 });
