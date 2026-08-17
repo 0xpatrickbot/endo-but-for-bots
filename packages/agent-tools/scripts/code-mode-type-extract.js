@@ -81,8 +81,6 @@ const DECLARATION_MAX_CHARACTERS = 100_000;
 const DECLARATION_GROWTH_NUMERATOR = 8;
 const DECLARATION_GROWTH_DENOMINATOR = 5;
 const DECLARATION_GROWTH_FLOOR = 1000;
-const AUX_DOC_MAX_CHARACTERS = 480;
-const AUX_DOC_MAX_LINES = 8;
 
 /**
  * Find aliases that participate in a recursive strongly connected component.
@@ -1905,4 +1903,3 @@ export const extractGuardIR = ({ registry, rootLabel }) => {
 harden(extractGuardIR);
 
 // #endregion
-

@@ -25,43 +25,39 @@
 
 export const httpDeclarations = harden({
   http: {
-    aux: `type HttpClient = {
+    aux: `type HttpERef<T> = T | Promise<T>;
+type HttpStreamNode<Y = undefined, R = undefined> = HttpStreamYieldNode<Y, R> | {
+    value: R;
+    promise: null;
+};
+type HttpStreamYieldNode<Y = unknown, R = undefined> = {
+    value: Y;
+    promise: Promise<HttpStreamNode<Y, R>>;
+};`,
+    body: `{
     allowedOrigins: () => string[];
     fetch: (url: string, options?: {
         method?: string;
         headers?: Record<string, string>;
         body?: unknown;
-    }) => Promise<HttpResponse>;
+    }) => Promise<{
+        status: () => number;
+        statusText: () => string;
+        ok: () => boolean;
+        headers: () => Record<string, string>;
+        url: () => string;
+        truncated: () => boolean;
+        maxResponseBytes: () => number;
+        text: () => Promise<string>;
+        json: () => Promise<unknown>;
+        stream: () => {
+            streamBase64: (synPromise: HttpERef<HttpStreamNode<unknown, undefined>>) => Promise<HttpStreamNode<string, undefined>>;
+            readReturnPattern: () => unknown | undefined;
+        };
+        help: () => string;
+    }>;
     help: () => string;
-};
-type HttpResponse = {
-    status: () => number;
-    statusText: () => string;
-    ok: () => boolean;
-    headers: () => Record<string, string>;
-    url: () => string;
-    truncated: () => boolean;
-    maxResponseBytes: () => number;
-    text: () => Promise<string>;
-    json: () => Promise<unknown>;
-    stream: () => HttpPassableBytesReader;
-    help: () => string;
-};
-type HttpPassableBytesReader<TReadReturn = undefined> = {
-    streamBase64: (synPromise: HttpERef<HttpStreamNode<unknown, TReadReturn>>) => Promise<HttpStreamNode<string, TReadReturn>>;
-    readReturnPattern: () => unknown | undefined;
-};
-type HttpERef<T> = T | Promise<T>;
-type HttpStreamNode<Y = undefined, R = undefined> = HttpStreamYieldNode<Y, R> | HttpStreamReturnNode<R>;
-type HttpStreamYieldNode<Y = unknown, R = undefined> = {
-    value: Y;
-    promise: Promise<HttpStreamNode<Y, R>>;
-};
-type HttpStreamReturnNode<R = undefined> = {
-    value: R;
-    promise: null;
-};`,
-    body: `HttpClient`,
+}`,
   },
 });
 harden(httpDeclarations);
