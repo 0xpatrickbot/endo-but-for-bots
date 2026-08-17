@@ -127,6 +127,7 @@ export const buildGitIRs = () =>
       return {
         git: harden({
           rootName: 'WritableEndoGit',
+          rootDoc: git.rootDoc,
           selfName: GIT_ROOT_TYPE,
           members: git.members
             .filter(

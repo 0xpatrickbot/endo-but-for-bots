@@ -26,15 +26,13 @@
 export const httpDeclarations = harden({
   http: {
     aux: `type HttpClient = {
-  allowedOrigins: () => string[];
-  fetch: (url: string, options?: HttpFetchOptions) => Promise<HttpResponse>;
-  help: () => string;
-};
-type HttpERef<T> = T | Promise<T>;
-type HttpFetchOptions = {
-    method?: string;
-    headers?: Record<string, string>;
-    body?: unknown;
+    allowedOrigins: () => string[];
+    fetch: (url: string, options?: {
+        method?: string;
+        headers?: Record<string, string>;
+        body?: unknown;
+    }) => Promise<HttpResponse>;
+    help: () => string;
 };
 type HttpResponse = {
     status: () => number;
@@ -53,14 +51,15 @@ type HttpPassableBytesReader<TReadReturn = undefined> = {
     streamBase64: (synPromise: HttpERef<HttpStreamNode<unknown, TReadReturn>>) => Promise<HttpStreamNode<string, TReadReturn>>;
     readReturnPattern: () => unknown | undefined;
 };
+type HttpERef<T> = T | Promise<T>;
 type HttpStreamNode<Y = undefined, R = undefined> = HttpStreamYieldNode<Y, R> | HttpStreamReturnNode<R>;
-type HttpStreamReturnNode<R = undefined> = {
-    value: R;
-    promise: null;
-};
 type HttpStreamYieldNode<Y = unknown, R = undefined> = {
     value: Y;
     promise: Promise<HttpStreamNode<Y, R>>;
+};
+type HttpStreamReturnNode<R = undefined> = {
+    value: R;
+    promise: null;
 };`,
     body: `HttpClient`,
   },

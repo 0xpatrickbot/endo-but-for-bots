@@ -24,22 +24,20 @@
 export const shellDeclarations = harden({
   shell: {
     aux: `type EndoShell = {
-  exec: (command: string, args: readonly string[], options?: {
-    timeoutMs?: number;
-}) => Promise<ShellResult>;
-  inspect: () => Promise<ShellInspectResult>;
-};
-type ShellInspectResult = {
-    allowedCommands: readonly string[];
-    timeoutMs: number;
-    maxOutputBytes: number;
-};
-type ShellResult = {
-    stdout: string;
-    stderr: string;
-    exitCode: number | null;
-    signal: string | null;
-    truncated: boolean;
+    exec: (command: string, args: readonly string[], options?: {
+        timeoutMs?: number;
+    }) => Promise<{
+        stdout: string;
+        stderr: string;
+        exitCode: number | null;
+        signal: string | null;
+        truncated: boolean;
+    }>;
+    inspect: () => Promise<{
+        allowedCommands: readonly string[];
+        timeoutMs: number;
+        maxOutputBytes: number;
+    }>;
 };`,
     body: `EndoShell`,
   },
