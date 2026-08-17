@@ -19,23 +19,28 @@ test('capability global factories preserve custom lexical names and pet paths', 
     makeGitRemoteGlobal({ name: 'upstream', petName: ['repo', 'origin'] }),
   ];
 
-  t.like(globals[0], {
-    name: 'builderShell',
-    declaration: { body: 'EndoShell' },
-  });
-  t.like(globals[1], {
-    name: 'network',
-    declaration: { body: 'HttpClient' },
-  });
-  t.like(globals[2], {
-    name: 'upstream',
-    declaration: { body: 'GitRemote' },
-  });
+  t.like(globals[0], { name: 'builderShell' });
+  t.like(globals[1], { name: 'network' });
+  t.like(globals[2], { name: 'upstream' });
+  t.true(globals[0].declaration?.body.includes('exec:'));
+  t.true(globals[1].declaration?.body.includes('fetch:'));
+  t.true(globals[2].declaration?.body.includes('push:'));
 
   const prompt = formatGlobalDeclarations(globals);
-  t.true(prompt.includes('declare const builderShell: EndoShell;'));
-  t.true(prompt.includes('declare const network: HttpClient;'));
-  t.true(prompt.includes('declare const upstream: GitRemote;'));
+  t.true(prompt.includes('declare const builderShell: {'));
+  t.true(prompt.includes('declare const network: {'));
+  t.true(prompt.includes('declare const upstream: {'));
+});
+
+test('custom Git names rewrite recursive declaration references', t => {
+  const global = makeGitGlobal({ name: 'repoGit' });
+
+  t.true(global.declaration?.body.includes('typeof repoGit'));
+  t.false(global.declaration?.body.includes('typeof git'));
+
+  const prompt = formatGlobalDeclarations([global]);
+  t.true(prompt.includes('declare const repoGit: {'));
+  t.true(prompt.includes('typeof repoGit'));
 });
 
 test('history Git global explains rebase control and conflict recovery', t => {
@@ -78,9 +83,9 @@ test('a compartment can evaluate code against fake capability globals', async t 
   const globals = [shellGlobal, httpGlobal, remoteGlobal];
 
   const prompt = formatGlobalDeclarations(globals);
-  t.true(prompt.includes('declare const shell: EndoShell;'));
-  t.true(prompt.includes('declare const http: HttpClient;'));
-  t.true(prompt.includes('declare const remote: GitRemote;'));
+  t.true(prompt.includes('declare const shell: {'));
+  t.true(prompt.includes('declare const http: {'));
+  t.true(prompt.includes('declare const remote: {'));
 
   const shell = Far('FakeShell', {
     exec: async (command, args) =>

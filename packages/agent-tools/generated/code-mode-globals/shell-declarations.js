@@ -23,7 +23,8 @@
 
 export const shellDeclarations = harden({
   shell: {
-    aux: `type EndoShell = {
+    aux: ``,
+    body: `{
     exec: (command: string, args: readonly string[], options?: {
         timeoutMs?: number;
     }) => Promise<{
@@ -38,8 +39,7 @@ export const shellDeclarations = harden({
         timeoutMs: number;
         maxOutputBytes: number;
     }>;
-};`,
-    body: `EndoShell`,
+}`,
   },
 });
 harden(shellDeclarations);

@@ -23,49 +23,7 @@
 
 export const gitRemoteDeclarations = harden({
   gitRemote: {
-    aux: `type GitRemote = {
-    fetch: (options?: {
-        prune?: boolean;
-        tags?: boolean;
-    }) => Promise<RemoteOperationResult>;
-    inspect: () => Promise<RemoteSnapshot>;
-    pull: (options?: {
-        branch?: {
-            name: string;
-            kind: 'branch' | 'tag' | 'commit' | 'detached';
-            oid?: string;
-        } | string;
-        strategy?: 'merge' | 'rebase' | 'ff-only';
-        prune?: boolean;
-        tags?: boolean;
-    }) => Promise<RemotePullResult>;
-    push: (options?: {
-        refspecs?: string[];
-        source?: string;
-        destination?: string;
-        force?: boolean;
-        forceWithLease?: string;
-        setUpstream?: boolean;
-    }) => Promise<RemoteOperationResult>;
-};
-type RemoteOperationResult = {
-    updatedRefs: RemoteRefUpdate[];
-    text: string;
-};
-type RemoteRefUpdate = {
-    local?: {
-        name: string;
-        kind: 'branch' | 'tag' | 'commit' | 'detached';
-        oid?: string;
-    };
-    remote: string;
-    result: 'created' | 'updated' | 'up-to-date' | 'fast-forward' | 'forced' | 'pruned' | 'rejected';
-};
-type RemoteSnapshot = RemoteNormalizedRemotePolicy & {
-    name: string;
-};
-type RemoteNormalizedRemotePolicy = RemotePolicy & Required<Pick<RemotePolicy, 'allowForcePush' | 'allowTags' | 'allowDelete' | 'allowLocalFileTransport'>>;
-type RemotePolicy = {
+    aux: `type RemotePolicy = {
     url: string;
     allowedDirections: ('fetch' | 'push')[];
     fetchRefspecs: string[];
@@ -76,17 +34,75 @@ type RemotePolicy = {
     allowTags?: boolean;
     allowDelete?: boolean;
     allowLocalFileTransport?: boolean;
-};
-type RemotePullResult = {
-    fetch: RemoteOperationResult;
-    integration: 'up-to-date' | 'fast-forward' | 'merge' | 'rebase';
-    head: {
-        name: string;
-        kind: 'branch' | 'tag' | 'commit' | 'detached';
-        oid?: string;
-    };
 };`,
-    body: `GitRemote`,
+    body: `{
+    fetch: (options?: {
+        prune?: boolean;
+        tags?: boolean;
+    }) => Promise<{
+        updatedRefs: {
+            local?: {
+                name: string;
+                kind: 'branch' | 'tag' | 'commit' | 'detached';
+                oid?: string;
+            };
+            remote: string;
+            result: 'created' | 'updated' | 'up-to-date' | 'fast-forward' | 'forced' | 'pruned' | 'rejected';
+        }[];
+        text: string;
+    }>;
+    inspect: () => Promise<(RemotePolicy & Required<Pick<RemotePolicy, 'allowForcePush' | 'allowTags' | 'allowDelete' | 'allowLocalFileTransport'>>) & {
+        name: string;
+    }>;
+    pull: (options?: {
+        branch?: {
+            name: string;
+            kind: 'branch' | 'tag' | 'commit' | 'detached';
+            oid?: string;
+        } | string;
+        strategy?: 'merge' | 'rebase' | 'ff-only';
+        prune?: boolean;
+        tags?: boolean;
+    }) => Promise<{
+        fetch: {
+            updatedRefs: {
+                local?: {
+                    name: string;
+                    kind: 'branch' | 'tag' | 'commit' | 'detached';
+                    oid?: string;
+                };
+                remote: string;
+                result: 'created' | 'updated' | 'up-to-date' | 'fast-forward' | 'forced' | 'pruned' | 'rejected';
+            }[];
+            text: string;
+        };
+        integration: 'up-to-date' | 'fast-forward' | 'merge' | 'rebase';
+        head: {
+            name: string;
+            kind: 'branch' | 'tag' | 'commit' | 'detached';
+            oid?: string;
+        };
+    }>;
+    push: (options?: {
+        refspecs?: string[];
+        source?: string;
+        destination?: string;
+        force?: boolean;
+        forceWithLease?: string;
+        setUpstream?: boolean;
+    }) => Promise<{
+        updatedRefs: {
+            local?: {
+                name: string;
+                kind: 'branch' | 'tag' | 'commit' | 'detached';
+                oid?: string;
+            };
+            remote: string;
+            result: 'created' | 'updated' | 'up-to-date' | 'fast-forward' | 'forced' | 'pruned' | 'rejected';
+        }[];
+        text: string;
+    }>;
+}`,
   },
 });
 harden(gitRemoteDeclarations);
