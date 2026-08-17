@@ -5289,6 +5289,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@oxlint/plugins@npm:1.78.0":
+  version: 1.78.0
+  resolution: "@oxlint/plugins@npm:1.78.0"
+  checksum: 10c0/cd3bdb50efc92ff7137858a7be3e6e1f60118b502f7246eab0c822b96d2103926aba91eb3e9566d985807bc9480aea292fe5e3abdb9345989b11a1610a2fb834
+  languageName: node
+  linkType: hard
+
 "@package-json/types@npm:^0.0.12":
   version: 0.0.12
   resolution: "@package-json/types@npm:0.0.12"
@@ -15818,6 +15825,7 @@ __metadata:
     "@lavamoat/allow-scripts": "npm:^3.3.5"
     "@lavamoat/preinstall-always-fail": "npm:^3.0.0"
     "@octokit/core": "npm:^3.4.0"
+    "@oxlint/plugins": "npm:1.78.0"
     "@types/node": "npm:^25.2.3"
     "@typescript-eslint/eslint-plugin": "npm:8.59.2"
     "@typescript-eslint/parser": "npm:8.59.2"
