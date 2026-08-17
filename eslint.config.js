@@ -7,6 +7,7 @@ import jessieNoNestedAwait from '@jessie.js/eslint-plugin/lib/rules/no-nested-aw
 import jessieSafeAwaitSeparator from '@jessie.js/eslint-plugin/lib/rules/safe-await-separator.js';
 import jessieUseJessieProcessor from '@jessie.js/eslint-plugin/lib/processors/use-jessie.js';
 import eslintPluginPlugin from 'eslint-plugin-eslint-plugin';
+import antiSlopPlugin from './tools/eslint/anti-slop/index.ts';
 
 // The published Jessie config eagerly constructs a legacy FlatCompat instance.
 // That instance cannot resolve Endo's restored `eslint:recommended` baseline
@@ -46,6 +47,28 @@ export default defineConfig(
     processor: jessieProcessor,
   },
   endoConfigs['flat/internal'],
+
+  // Probe only the six anti-slop rules that inspect JavaScript syntax.
+  // The vendored TypeScript source requires Node's native type stripping.
+  {
+    files: ['packages/**'],
+    plugins: { 'anti-slop': antiSlopPlugin },
+    rules: {
+      'anti-slop/no-reflect-get': 'error',
+      'anti-slop/no-reflect-apply': 'error',
+      'anti-slop/no-runtime-typeof': 'error',
+      'anti-slop/no-conditional-empty-object-spread': 'error',
+      'anti-slop/no-module-mocking': 'error',
+      'anti-slop/no-shape-in-symbol-names': 'error',
+    },
+  },
+  {
+    files: ['tools/eslint/anti-slop/**'],
+    rules: {
+      // The vendored probe plugin is a root-level development tool.
+      'import/no-extraneous-dependencies': 'off',
+    },
+  },
 
   // packages which use the "ses" config scheme
   {
