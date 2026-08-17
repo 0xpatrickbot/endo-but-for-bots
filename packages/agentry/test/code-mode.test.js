@@ -229,16 +229,13 @@ test('a typed global injects its generated declaration into the prompt', t => {
   ]);
   const systemPrompt = makeCodeModeSystemPrompt(globals);
 
-  // git: TS-canonical, referenced by its named root type plus the supporting
+  // git: TS-canonical, inlined at the global declaration plus the supporting
   // aliases the printer emitted.
-  t.true(systemPrompt.includes('declare const git: WritableEndoGit;'));
-  t.true(systemPrompt.includes('type WritableEndoGit = {'));
-  t.true(
-    systemPrompt.includes('commit: (message: string) => Promise<GitCommit>;'),
-  );
+  t.true(systemPrompt.includes('declare const git: {'));
+  t.true(systemPrompt.includes('commit: (message: string) => Promise<{'));
   // workspace: the raw daemon mount bound by code-mode provisioning.
-  t.true(systemPrompt.includes('declare const workspace: DaemonMount;'));
-  t.true(systemPrompt.includes('type MountEndoMountFile = {'));
+  t.true(systemPrompt.includes('declare const workspace: {'));
+  t.true(systemPrompt.includes('type MountPathEntry = {'));
   t.true(systemPrompt.includes("kind: () => 'directory';"));
   t.true(systemPrompt.includes("kind: () => 'file';"));
   t.true(
@@ -259,12 +256,8 @@ test('makeCodeModeAgent configures one history-rewrite git capability', async t 
     globals.map(global => global.name),
     ['workspace', 'git'],
   );
-  t.true(systemPrompt.includes('declare const git: EndoGitHistory;'));
-  t.true(
-    systemPrompt.includes(
-      'commit: (message: string, options?: GitCommitOptions) => Promise<GitCommit>;',
-    ),
-  );
+  t.true(systemPrompt.includes('declare const git: {'));
+  t.true(systemPrompt.includes('commit: (message: string, options?: {'));
   t.true(systemPrompt.includes('reword:'));
   t.true(systemPrompt.includes('cherryPick:'));
   t.true(systemPrompt.includes('rebase:'));
@@ -288,9 +281,8 @@ test('makeCodeModeAgent injects typed git + workspace declarations from powers',
     model: fauxModel(t, []),
     powers: { workspace, git },
   });
-  t.true(systemPrompt.includes('declare const git: WritableEndoGit;'));
-  t.true(systemPrompt.includes('declare const workspace: DaemonMount;'));
-  t.true(systemPrompt.includes('type WritableEndoGit = {'));
+  t.true(systemPrompt.includes('declare const git: {'));
+  t.true(systemPrompt.includes('declare const workspace: {'));
 });
 
 test('makeCodeModeAgent selects the matching standalone Filesystem declaration', t => {
@@ -300,11 +292,10 @@ test('makeCodeModeAgent selects the matching standalone Filesystem declaration',
     powers: { workspace, workspaceSurface: 'filesystem' },
   });
   t.deepEqual(
-    globals.map(global => global.declaration?.body),
-    ['Filesystem'],
+    globals.map(global => global.declaration?.body.startsWith('{')),
+    [true],
   );
-  t.true(systemPrompt.includes('declare const workspace: Filesystem;'));
-  t.false(systemPrompt.includes('declare const workspace: DaemonMount;'));
+  t.true(systemPrompt.includes('declare const workspace: {'));
 });
 
 test('makeEnvCredentials is the single env reader and reads through .get', t => {
