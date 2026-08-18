@@ -31,6 +31,7 @@ import {
   makeCodeModeGitLoopAgent,
 } from '../src/code-mode.js';
 import { defineAgent, makeEnvCredentials } from '../src/define-agent.js';
+import { makeCodeModeGrantMinter } from '../src/code-mode-grants.js';
 
 /** @import { CodeModeGlobal, CodeModePower, Evaluate } from '@endo/agent-tools/code-mode/types.js' */
 /** @import { Model } from '@earendil-works/pi-ai' */
@@ -382,7 +383,7 @@ test('makeCodeModeAgent exposes only evaluate and rejects non-readOnly git in re
   );
 });
 
-test('faux provider drives a scripted evaluate-only code-mode agent', async t => {
+test('faux provider drives a scripted named-capability code-mode agent', async t => {
   const gitCalls = [];
   const git = makeStubGit(gitCalls);
   const executions = [];
@@ -394,9 +395,17 @@ test('faux provider drives a scripted evaluate-only code-mode agent', async t =>
     }),
     fauxAssistantMessage('done'),
   ]);
+  const minter = makeCodeModeGrantMinter();
   const { agent } = makeCodeModeAgent({
     model,
-    powers: { git, gitPetName: 'git', gitMode: 'readOnly' },
+    powers: {
+      grants: [
+        minter.opaque({
+          name: 'git',
+          capability: git,
+        }),
+      ],
+    },
     evaluate: async input => {
       const result = await compartmentEvaluateOver({ git })(input);
       executions.push(result);
@@ -409,6 +418,94 @@ test('faux provider drives a scripted evaluate-only code-mode agent', async t =>
 
   t.deepEqual(gitCalls, ['branches']);
   t.deepEqual(executions, [['main']]);
+});
+
+test('makeCodeModeAgent rejects caller-supplied capability declarations', t => {
+  const capability = Far('Capability', {});
+  t.throws(
+    () =>
+      makeCodeModeAgent({
+        model: fauxModel(t, []),
+        powers: {
+          grants: [
+            /** @type {any} */ ({
+              name: 'capability',
+              capability,
+              declaration: { body: 'WritableEndoGit' },
+            }),
+          ],
+        },
+      }),
+    { message: /trusted code-mode grant minter/ },
+  );
+  t.throws(
+    () =>
+      makeCodeModeAgent({
+        model: fauxModel(t, []),
+        powers: {
+          namedPowers: [
+            /** @type {any} */ ({
+              name: 'capability',
+              capability,
+              declaration: { body: 'WritableEndoGit' },
+            }),
+          ],
+        },
+      }),
+    { message: /cannot supply a capability-and-declaration pair/ },
+  );
+  t.throws(
+    () =>
+      makeCodeModeAgent({
+        model: fauxModel(t, []),
+        endowments: { capability },
+        globals: harden([
+          { name: 'capability', declaration: { body: 'WritableEndoGit' } },
+        ]),
+      }),
+    { message: /cannot pair an unrecognized capability with a declaration/ },
+  );
+});
+
+test('hostile foreign Git and Filesystem objects cannot self-attest posture', t => {
+  let postureCalls = 0;
+  const hostileGit = Far('HostileGit', {
+    readOnly() {
+      postureCalls += 1;
+      return false;
+    },
+    historyRewrite() {
+      postureCalls += 1;
+      return true;
+    },
+  });
+  const hostileFilesystem = Far('HostileFilesystem', {
+    readOnly() {
+      postureCalls += 1;
+      return this;
+    },
+    root() {
+      postureCalls += 1;
+      return this;
+    },
+  });
+  t.throws(
+    () =>
+      makeCodeModeAgent({
+        model: fauxModel(t, []),
+        powers: { git: hostileGit },
+      }),
+    { message: /recognized same-vat Git capability/ },
+  );
+  t.throws(
+    () =>
+      makeCodeModeAgent({
+        model: fauxModel(t, []),
+        powers: { workspace: hostileFilesystem },
+      }),
+    { message: /locally recognized exact reader or writer posture/ },
+  );
+  t.is(postureCalls, 0);
 });
 
 test('git-loop preset edits the workspace, commits, and reads HEAD~1 over a real mount', async t => {
@@ -474,11 +571,13 @@ test('git-loop preset edits the workspace, commits, and reads HEAD~1 over a real
     globals: harden([
       {
         name: 'workspace',
-        description: 'Writable repository Filesystem.',
+        description:
+          'Writable @endo/platform/fs/extended Filesystem for the repository.',
       },
       {
         name: 'git',
-        description: 'Read/write repository Git capability.',
+        description:
+          'Read/write @endo/exo-git Git capability for repository changes.',
       },
       {
         name: 'readFileText',
@@ -489,6 +588,7 @@ test('git-loop preset edits the workspace, commits, and reads HEAD~1 over a real
         description: 'Write UTF-8 text through an endo-fs File capability.',
       },
     ]),
+    endowments: { readFileText, writeFileText },
   });
 
   await agent.prompt('Edit note.txt, commit the change, and inspect HEAD~1.');

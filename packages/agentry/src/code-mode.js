@@ -4,26 +4,25 @@
 /** @import { Model } from '@earendil-works/pi-ai' */
 /** @import { Agent, AgentMessage, StreamFn } from '@earendil-works/pi-agent-core' */
 /** @import { Credentials, GetApiKey, ThinkingLevel } from './harness/types.js' */
-/** @import { CodeModeGlobal, CodeModePower, Evaluate, LookupPowers, PowerHandle, StoreValue } from '@endo/agent-tools/code-mode/types.js' */
+/** @import { CodeModeGlobal, CodeModeGrant, CodeModePower, Evaluate, LookupPowers, PowerHandle, StoreValue } from '@endo/agent-tools/code-mode/types.js' */
 /** @import { CodeModePowers, GitLoopOptions, MakeCodeModeAgentOptions } from './code-mode/types.js' */
 
 import { E } from '@endo/eventual-send';
-import { isGitHistoryRewrite, isGitReadOnly } from '@endo/exo-git';
 import { makeCompartmentEvaluate } from '@endo/agent-tools/code-mode/compartment.js';
 import { makeEvaluateTool } from '@endo/agent-tools/code-mode/evaluate-tool.js';
 import {
   formatGlobalDeclarations,
   normalizeGlobals,
 } from '@endo/agent-tools/code-mode/declarations.js';
-import {
-  makeFilesystemGlobal,
-  makeWorkspaceGlobal,
-} from '@endo/agent-tools/code-mode-globals/fs.js';
-import { makeGitGlobal } from '@endo/agent-tools/code-mode-globals/git.js';
 import { toPiAgentTool } from '@endo/agent-tools/adapters/pi.js';
 import { toolResultToSmallcaps } from '@endo/agent-tools/adapters/smallcaps.js';
 
 import { defineAgent } from './define-agent.js';
+import {
+  codeModeGrantGlobals,
+  makeCodeModeGrantMinter,
+  normalizeCodeModeGrants,
+} from './code-mode-grants.js';
 import { getAmbientEnv, makeEnvCredentials } from './harness/credentials.js';
 
 /**
@@ -103,119 +102,208 @@ const lookupRequiredPower = (powers, petName, label) => {
 };
 
 /**
- * Build the lexical globals for a code-mode agent from its configured powers.
- * This builder only chooses WHICH globals to inject from the configured powers;
- * the per-exo specifics (descriptions, generated declarations, the read-only
- * member policy) live in `git.js` and `fs.js`, which this delegates to. The
- * `gitMode` selects the one configured Git capability's prompt surface.
- * `workspaceSurface` must match the capability supplied as `workspace`:
- * `mount` is the default daemon provision, while `filesystem` is for an
- * extended Filesystem from a standalone local seam.
- * Runtime authority remains with that capability; `namedPowers` stay name-only
- * unless the caller attached its own `declaration`.
- *
  * @param {CodeModePowers} powers
  * @returns {CodeModeGlobal[]}
  */
-const makeCodeModeGlobals = (powers = {}) => {
-  /** @type {CodeModeGlobal[]} */
-  const globals = [];
-  if (powers.workspace !== undefined || powers.workspacePetName !== undefined) {
-    const workspacePetName = powers.workspacePetName ?? 'workspace';
-    const makeWorkspaceDescriptor =
-      powers.workspaceSurface === 'filesystem'
-        ? makeFilesystemGlobal
-        : makeWorkspaceGlobal;
-    globals.push(
-      makeWorkspaceDescriptor({
-        name: petNameToBindingName(workspacePetName, 'workspace'),
-        petName: workspacePetName,
-      }),
-    );
-  }
-  if (powers.git !== undefined || powers.gitPetName !== undefined) {
-    const gitPetName = powers.gitPetName ?? 'git';
-    globals.push(
-      makeGitGlobal({
-        name: petNameToBindingName(gitPetName, 'git'),
-        petName: gitPetName,
-        readOnly: powers.gitMode === 'readOnly',
-        historyRewrite: powers.gitMode === 'historyRewrite',
-      }),
-    );
-  }
-  globals.push(...(powers.namedPowers || []));
-  return normalizeGlobals(globals);
-};
-harden(makeCodeModeGlobals);
+const namedGrantsForCollision = powers =>
+  (powers.grants || []).map(({ name }) => ({ name }));
 
 /**
- * @param {CodeModePowers} powers
- * @param {LookupPowers | undefined} lookupPowers
- * @returns {Record<string, CodeModePower>}
- */
-const resolveConfiguredPowers = (powers, lookupPowers) => {
-  /** @type {Record<string, CodeModePower>} */
-  const resolved = {};
-  if (powers.workspace !== undefined || powers.workspacePetName !== undefined) {
-    const workspacePetName = powers.workspacePetName ?? 'workspace';
-    const workspaceName = petNameToBindingName(workspacePetName, 'workspace');
-    resolved[workspaceName] =
-      powers.workspace ??
-      lookupRequiredPower(lookupPowers, workspacePetName, 'workspace');
-  }
-  if (powers.git !== undefined || powers.gitPetName !== undefined) {
-    const gitPetName = powers.gitPetName ?? 'git';
-    const gitName = petNameToBindingName(gitPetName, 'git');
-    resolved[gitName] =
-      powers.git ?? lookupRequiredPower(lookupPowers, gitPetName, 'git');
-    if (powers.gitMode === 'readOnly') {
-      const gitReadOnly = isGitReadOnly(resolved[gitName]);
-      if (gitReadOnly === false) {
-        throw new Error(
-          'code-mode gitMode readOnly requires an already read-only Git capability',
-        );
-      }
-    }
-    if (powers.gitMode === 'historyRewrite') {
-      const gitHistoryRewrite = isGitHistoryRewrite(resolved[gitName]);
-      if (gitHistoryRewrite === false) {
-        throw new Error(
-          'code-mode gitMode historyRewrite requires a Git capability with history-rewrite authority',
-        );
-      }
-    }
-  }
-  return harden(resolved);
-};
-
-/**
- * @param {CodeModePowers} powers
- * @param {Record<string, CodeModePower>} resolvedPowers
  * @param {Record<string, unknown>} baseEndowments
- * @param {LookupPowers | undefined} lookupPowers
- * @returns {Record<string, unknown>}
+ * @param {CodeModeGlobal[] | undefined} legacyGlobals
+ * @returns {CodeModeGlobal[]}
  */
-const makeCodeModeEndowments = (
+const primitiveGlobalsFor = (baseEndowments, legacyGlobals) => {
+  const globalsByName = new Map(
+    (legacyGlobals || []).map(global => [global.name, global]),
+  );
+  return Object.entries(baseEndowments)
+    .filter(
+      ([, value]) =>
+        (typeof value !== 'object' || value === null) &&
+        typeof value !== 'function',
+    )
+    .map(([name]) => {
+      const global = globalsByName.get(name);
+      return {
+        name,
+        ...(global?.petName === undefined ? {} : { petName: global.petName }),
+        ...(global?.description === undefined
+          ? {}
+          : { description: global.description }),
+      };
+    });
+};
+harden(primitiveGlobalsFor);
+
+/**
+ * @param {CodeModePowers} powers
+ * @param {LookupPowers | undefined} lookupPowers
+ * @param {Record<string, unknown>} baseEndowments
+ * @param {CodeModeGlobal[] | undefined} legacyGlobals
+ * @returns {CodeModeGrant[]}
+ */
+const makeCodeModeGrants = (
   powers,
-  resolvedPowers,
-  baseEndowments,
   lookupPowers,
+  baseEndowments,
+  legacyGlobals,
 ) => {
-  /** @type {Record<string, unknown>} */
-  const endowments = {
-    E,
-    ...baseEndowments,
-    ...resolvedPowers,
-  };
+  const minter = makeCodeModeGrantMinter();
+  // Validate the complete lexical-name set before resolving capabilities so a
+  // deterministic collision cannot be masked by a later posture check.
+  /** @type {CodeModeGlobal[]} */
+  const candidateGlobals = [
+    ...namedGrantsForCollision(powers),
+    ...(powers.workspace !== undefined || powers.workspacePetName !== undefined
+      ? [
+          {
+            name: petNameToBindingName(
+              powers.workspacePetName ?? 'workspace',
+              'workspace',
+            ),
+          },
+        ]
+      : []),
+    ...(powers.git !== undefined || powers.gitPetName !== undefined
+      ? [
+          {
+            name: petNameToBindingName(powers.gitPetName ?? 'git', 'git'),
+          },
+        ]
+      : []),
+    ...(powers.namedPowers || []).map(({ name }) => ({ name })),
+    ...Object.keys(baseEndowments).map(name => ({ name })),
+  ];
+  normalizeGlobals(candidateGlobals);
+  /** @type {CodeModeGrant[]} */
+  const grants = [];
+  const namedGrants = powers.grants || [];
+  grants.push(...normalizeCodeModeGrants(namedGrants));
+
+  if (powers.workspace !== undefined || powers.workspacePetName !== undefined) {
+    const petName = powers.workspacePetName ?? 'workspace';
+    const name = petNameToBindingName(petName, 'workspace');
+    grants.push(
+      minter.filesystem({
+        name,
+        petName,
+        capability:
+          powers.workspace ??
+          lookupRequiredPower(lookupPowers, petName, 'workspace'),
+      }),
+    );
+  }
+  if (powers.git !== undefined || powers.gitPetName !== undefined) {
+    const petName = powers.gitPetName ?? 'git';
+    const name = petNameToBindingName(petName, 'git');
+    grants.push(
+      minter.git({
+        name,
+        petName,
+        requestedMode: powers.gitMode,
+        capability:
+          powers.git ?? lookupRequiredPower(lookupPowers, petName, 'git'),
+      }),
+    );
+  }
+
   for (const namedPower of powers.namedPowers || []) {
-    if (!Object.prototype.hasOwnProperty.call(endowments, namedPower.name)) {
-      endowments[namedPower.name] = lookupRequiredPower(
+    if (Object.hasOwn(namedPower, 'capability')) {
+      throw new Error(
+        `code-mode named power "${namedPower.name}" cannot supply a capability-and-declaration pair; use a trusted grant minter`,
+      );
+    }
+    if (namedPower.declaration !== undefined) {
+      throw new Error(
+        `code-mode named power "${namedPower.name}" cannot supply an unrecognized declaration`,
+      );
+    } else {
+      const capability = lookupRequiredPower(
         lookupPowers,
         namedPower.petName || namedPower.name,
         namedPower.name,
       );
+      // Legacy descriptors have no trusted declaration/capability pairing.
+      // Preserve their lexical name and description, but intentionally reduce
+      // the declaration to `unknown` at this adapter boundary.
+      grants.push(
+        minter.opaque({
+          name: namedPower.name,
+          petName: namedPower.petName,
+          description: namedPower.description,
+          capability,
+        }),
+      );
     }
+  }
+
+  const globalsByName = new Map(
+    (legacyGlobals || []).map(global => [global.name, global]),
+  );
+  for (const [name, capability] of Object.entries(baseEndowments)) {
+    if (name === 'E') {
+      throw new Error('code-mode endowments may not replace the reserved E');
+    }
+    if (grants.some(grant => grant.name === name)) {
+      throw new Error(
+        `code-mode endowment "${name}" duplicates a capability grant`,
+      );
+    }
+    const global = globalsByName.get(name);
+    if (global?.declaration !== undefined) {
+      throw new Error(
+        `code-mode endowment "${name}" cannot pair an unrecognized capability with a declaration`,
+      );
+    }
+    if (
+      (typeof capability === 'object' && capability !== null) ||
+      typeof capability === 'function'
+    ) {
+      grants.push(
+        minter.opaque({
+          name,
+          petName: global?.petName,
+          description: global?.description,
+          capability: /** @type {CodeModePower} */ (capability),
+        }),
+      );
+    }
+  }
+
+  const normalized = normalizeCodeModeGrants(grants);
+  if (legacyGlobals !== undefined) {
+    const normalizedLegacy = normalizeGlobals(legacyGlobals);
+    const primitiveGlobals = primitiveGlobalsFor(baseEndowments, legacyGlobals);
+    const derived = normalizeGlobals([
+      ...codeModeGrantGlobals(normalized),
+      ...primitiveGlobals,
+    ]);
+    if (
+      normalizedLegacy.length !== derived.length ||
+      normalizedLegacy.some((global, index) =>
+        Object.keys(global).some(key => global[key] !== derived[index][key]),
+      )
+    ) {
+      throw new Error(
+        'code-mode globals must be derived from the live capability grants',
+      );
+    }
+  }
+  return normalized;
+};
+harden(makeCodeModeGrants);
+
+/**
+ * @param {CodeModeGrant[]} grants
+ * @param {Record<string, unknown>} baseEndowments
+ * @returns {Record<string, unknown>}
+ */
+const makeCodeModeEndowments = (grants, baseEndowments) => {
+  /** @type {Record<string, unknown>} */
+  const endowments = { E, ...baseEndowments };
+  for (const grant of grants) {
+    endowments[grant.name] = grant.capability;
   }
   return harden(endowments);
 };
@@ -228,7 +316,7 @@ const makeCodeModeEndowments = (
  * closure; supplying powers here is the powered stage.
  *
  * @param {MakeCodeModeAgentOptions} options
- * @returns {{ agent: Agent, globals: CodeModeGlobal[], evaluate: Evaluate, systemPrompt: string, model: Model<string> }}
+ * @returns {{ agent: Agent, grants: CodeModeGrant[], globals: CodeModeGlobal[], evaluate: Evaluate, systemPrompt: string, model: Model<string> }}
  */
 export const makeCodeModeAgent = options => {
   const {
@@ -246,9 +334,23 @@ export const makeCodeModeAgent = options => {
     preamble,
   } = options;
 
-  const globals = options.globals
-    ? normalizeGlobals(options.globals)
-    : makeCodeModeGlobals(powers);
+  if (options.systemPrompt !== undefined) {
+    throw new Error(
+      'code-mode systemPrompt is derived from live capability grants; use preamble for trusted instructions',
+    );
+  }
+
+  const grants = makeCodeModeGrants(
+    powers,
+    lookupPowers,
+    baseEndowments,
+    options.globals,
+  );
+  const primitiveGlobals = primitiveGlobalsFor(baseEndowments, options.globals);
+  const globals = normalizeGlobals([
+    ...codeModeGrantGlobals(grants),
+    ...primitiveGlobals,
+  ]);
 
   if (
     options.evaluate !== undefined &&
@@ -259,16 +361,10 @@ export const makeCodeModeAgent = options => {
     );
   }
 
-  const resolvedPowers = resolveConfiguredPowers(powers, lookupPowers);
   const evaluate =
     options.evaluate ||
     makeCompartmentEvaluate({
-      endowments: makeCodeModeEndowments(
-        powers,
-        resolvedPowers,
-        baseEndowments,
-        lookupPowers,
-      ),
+      endowments: makeCodeModeEndowments(grants, baseEndowments),
       storeValue,
       onContainedEventualSendRejection,
     });
@@ -300,13 +396,13 @@ export const makeCodeModeAgent = options => {
   // The returned record is intentionally NOT hardened: `agent` is a live
   // pi-agent-core instance that mutates its own run state (e.g. `activeRun`)
   // while driving a conversation, so deep-freezing it would break the loop.
-  return { agent, globals, evaluate, systemPrompt, model };
+  return { agent, grants, globals, evaluate, systemPrompt, model };
 };
 harden(makeCodeModeAgent);
 
 /**
  * The git-loop preset: a thin alias over {@link makeCodeModeAgent} that wires a
- * repository `workspace` mount and a `git` capability as the lexical
+ * repository `workspace` Filesystem and a `git` capability as the lexical
  * powers and supplies the repository-oriented preamble. Returns the live
  * `Agent`.
  *
@@ -320,13 +416,15 @@ export const makeCodeModeGitLoopAgent = options => {
     powers: {
       workspace,
       git,
-      gitMode: readOnlyGit ? 'readOnly' : 'readWrite',
+      ...(readOnlyGit ? { gitMode: 'readOnly' } : {}),
     },
     endowments: options.endowments,
     globals: options.globals,
-    systemPrompt: options.systemPrompt,
+    ...(options.systemPrompt === undefined
+      ? {}
+      : { preamble: options.systemPrompt }),
     preamble:
-      'You are an Endo-hosted Pi coding agent. Use the evaluate tool to inspect and edit the repository through the workspace mount and Git capabilities.',
+      'You are an Endo-hosted Pi coding agent. Use the evaluate tool to inspect and edit the repository through the workspace Filesystem and Git capabilities.',
     evaluate: options.evaluate,
     storeValue: options.storeValue,
     onContainedEventualSendRejection: options.onContainedEventualSendRejection,
