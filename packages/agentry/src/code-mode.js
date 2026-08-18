@@ -188,6 +188,7 @@ const makeCodeModeGrants = (
       minter.filesystem({
         name,
         petName,
+        surface: powers.workspaceSurface,
         capability:
           powers.workspace ??
           lookupRequiredPower(lookupPowers, petName, 'workspace'),

@@ -4,8 +4,12 @@
 /** @import { CodeModeGlobal, CodeModeGrant, CodeModePower, GlobalDeclaration } from '@endo/agent-tools/code-mode/types.js' */
 
 import { normalizeGlobals } from '@endo/agent-tools/code-mode/declarations.js';
-import { makeWorkspaceGlobal } from '@endo/agent-tools/code-mode-globals/fs.js';
+import {
+  makeFilesystemGlobal,
+  makeWorkspaceGlobal,
+} from '@endo/agent-tools/code-mode-globals/fs.js';
 import { makeGitGlobal } from '@endo/agent-tools/code-mode-globals/git.js';
+import { lineageOf } from '@endo/daemon/src/mount.js';
 import { isGitHistoryRewrite, isGitReadOnly } from '@endo/exo-git';
 import { filesystemPostureOf } from '@endo/platform/fs/extended';
 
@@ -15,7 +19,7 @@ import { filesystemPostureOf } from '@endo/platform/fs/extended';
  * @typedef {object} CodeModeGrantMinter
  * @property {(options: { name: string, petName?: string | string[], description?: string, capability: CodeModePower }) => CodeModeGrant} opaque
  * @property {(options: { name: string, petName?: string | string[], capability: CodeModePower, requestedMode?: GitMode }) => CodeModeGrant} git
- * @property {(options: { name: string, petName?: string | string[], capability: CodeModePower }) => CodeModeGrant} filesystem
+ * @property {(options: { name: string, petName?: string | string[], capability: CodeModePower, surface?: 'mount' | 'filesystem' }) => CodeModeGrant} filesystem
  * @property {(options: { name: string, petName?: string | string[], capability: CodeModePower, mode: 'readOnly' | 'readWrite', authority: object }) => CodeModeGrant} provisionedFilesystem
  * @property {(options: { name: string, petName?: string | string[], capability: CodeModePower, mode: GitMode, authority: object }) => CodeModeGrant} provisionedGit
  */
@@ -191,14 +195,24 @@ export const makeCodeModeGrantMinter = () => {
         capability,
       });
     },
-    filesystem: ({ name, petName = name, capability }) => {
+    filesystem: ({ name, petName = name, capability, surface }) => {
       const posture = filesystemPostureOf(capability);
-      if (posture === undefined) {
+      const isMount = lineageOf(capability) !== undefined;
+      if (
+        (surface === 'filesystem' && posture === undefined) ||
+        (surface === 'mount' && !isMount) ||
+        (surface === undefined && posture === undefined && !isMount)
+      ) {
         throw new Error(
           `code-mode filesystem grant "${name}" requires a locally recognized exact reader or writer posture; foreign filesystem capabilities are rejected`,
         );
       }
-      const global = makeWorkspaceGlobal({
+      const makeFilesystemDescriptor =
+        surface === 'filesystem' ||
+        (surface === undefined && posture !== undefined)
+          ? makeFilesystemGlobal
+          : makeWorkspaceGlobal;
+      const global = makeFilesystemDescriptor({
         name,
         petName,
         readOnly: posture === 'readOnly',

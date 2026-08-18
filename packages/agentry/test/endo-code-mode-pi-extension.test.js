@@ -1204,6 +1204,7 @@ test('intentional shutdown ignores the connection close observation', async t =>
       observer = options.onConnectionFailure;
       return harden({
         powers: FAKE_POWERS,
+        grants: harden([]),
         globals: harden([]),
         persistence,
         cleanup: async () => {

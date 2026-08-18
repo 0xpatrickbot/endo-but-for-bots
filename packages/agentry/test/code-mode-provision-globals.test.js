@@ -191,7 +191,7 @@ test('named Git globals each appear in the system prompt', t => {
   t.true(prompt.includes('declare const zeta: EndoGitHistory;'));
 });
 
-test('read-only guest-bound mount advertises a read-only declaration', t => {
+test('guest-bound mounts remain untyped until their live capability is rebound', t => {
   const [readOnly] = makeEndoProvisionGlobals(
     makePersistence({
       mounts: {
@@ -217,16 +217,8 @@ test('read-only guest-bound mount advertises a read-only declaration', t => {
     }),
   );
 
-  t.deepEqual(
-    readOnly,
-    makeWorkspaceGlobal({ name: 'workspace', readOnly: true }),
-  );
-  t.true(/read-only/iu.test(readOnly.description ?? ''));
-  t.false(/writable/iu.test(readOnly.description ?? ''));
-  t.true(/writable/iu.test(writable.description ?? ''));
-  // The read-only mount reuses the same Filesystem declaration; the read-only
-  // cap is enforced at the capability, not by hiding verbs from the prompt.
-  t.deepEqual(readOnly.declaration, writable.declaration);
+  t.deepEqual(readOnly, normalizeGlobals([{ name: 'workspace' }])[0]);
+  t.deepEqual(writable, normalizeGlobals([{ name: 'workspace' }])[0]);
 });
 
 test('writable Git declaration discloses its writable worktree reach', t => {

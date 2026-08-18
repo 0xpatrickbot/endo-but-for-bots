@@ -23,6 +23,8 @@ import { makeNodeFilesystem } from '@endo/platform/fs/extended';
 
 import { makeEvaluateTool } from '@endo/agent-tools/code-mode/evaluate-tool.js';
 import { makeCompartmentEvaluate } from '@endo/agent-tools/code-mode/compartment.js';
+import { makeWorkspaceGlobal } from '@endo/agent-tools/code-mode-globals/fs.js';
+import { makeGitGlobal } from '@endo/agent-tools/code-mode-globals/git.js';
 import { gitDeclarations } from '@endo/agent-tools/generated/code-mode-globals/git-declarations.js';
 import { fsDeclarations } from '@endo/agent-tools/generated/code-mode-globals/fs-declarations.js';
 import {
@@ -569,16 +571,8 @@ test('git-loop preset edits the workspace, commits, and reads HEAD~1 over a real
     git,
     evaluate,
     globals: harden([
-      {
-        name: 'workspace',
-        description:
-          'Writable @endo/platform/fs/extended Filesystem for the repository.',
-      },
-      {
-        name: 'git',
-        description:
-          'Read/write @endo/exo-git Git capability for repository changes.',
-      },
+      makeWorkspaceGlobal({ name: 'workspace' }),
+      makeGitGlobal({ name: 'git' }),
       {
         name: 'readFileText',
         description: 'Read a UTF-8 file through an endo-fs File capability.',
