@@ -26,6 +26,8 @@ const AsyncWriterInterface = M.interface('SandboxWriter', {
 
 /** @import { MakeSandboxFactoryInput, SandboxFactory, SandboxMakeOpts, SandboxDriver, BackendProbe, MountSpec, SliceSpec, MountCap, MountMode, SandboxHandle, ProcessHandle, MountHandle, SpawnOpts, DriverProcess, RootfsSpec, TerminationSignal } from './types.js' */
 
+/** @typedef {MakeSandboxFactoryInput & { testOnlyDelay?: typeof delay }} FactoryInputWithTestDelay */
+
 const FACTORY_HELP = `\
 SandboxFactory — root capability of the @endo/sandbox plugin.
 
@@ -217,11 +219,12 @@ harden(delay);
  *
  * @param {Promise<unknown>} work
  * @param {number} ms
+ * @param {typeof delay} [makeDelay]
  * @returns {Promise<void>}
  */
-const raceDelay = async (work, ms) => {
+const raceDelay = async (work, ms, makeDelay = delay) => {
   await null;
-  const timeout = delay(ms);
+  const timeout = makeDelay(ms);
   try {
     await Promise.race([work, timeout.promise]);
   } finally {
@@ -298,7 +301,12 @@ const resolveHostPath = async (scratchProvider, cap, context) => {
  * @param {MakeSandboxFactoryInput} input
  * @returns {SandboxFactory}
  */
-export const makeSandboxFactory = ({ drivers, scratchProvider, context }) => {
+export const makeSandboxFactory = input => {
+  // This private test hook controls only the drain grace timer. The default
+  // remains the real timer, so production callers retain the same behavior.
+  /** @type {FactoryInputWithTestDelay} */
+  const testInput = input;
+  const { drivers, scratchProvider, context, testOnlyDelay } = testInput;
   const driverList = harden([...drivers]);
   /** @type {Set<SandboxHandle>} */
   const liveHandles = new Set();
@@ -646,6 +654,7 @@ export const makeSandboxFactory = ({ drivers, scratchProvider, context }) => {
             await raceDelay(
               Promise.all(controls.map(control => control.finished)),
               DRAIN_GRACE_MS,
+              testOnlyDelay,
             );
             for (const control of controls) control.close();
           })();
