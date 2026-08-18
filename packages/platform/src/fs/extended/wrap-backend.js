@@ -50,6 +50,7 @@ import {
 import { makeXattrsExo } from './shared/xattrs-exo.js';
 import { makeCursorExo } from './shared/cursor-exo.js';
 import { makeNodeWatcherExo } from './shared/watcher-exo.js';
+import { registerFilesystemPosture } from './posture.js';
 
 /**
  * @import { FsBackend } from './backend-types.js'
@@ -1048,7 +1049,7 @@ export const wrapBackend = (backend, opts = {}) => {
 
   const root = makeDirectoryExo([]);
 
-  return makeExo('Filesystem', FilesystemInterface, {
+  const filesystem = makeExo('Filesystem', FilesystemInterface, {
     root() {
       return root;
     },
@@ -1083,5 +1084,8 @@ export const wrapBackend = (backend, opts = {}) => {
       return `No documentation for method ${q(method)}.`;
     },
   });
+  return /** @type {any} */ (
+    registerFilesystemPosture(filesystem, 'readWrite')
+  );
 };
 harden(wrapBackend);

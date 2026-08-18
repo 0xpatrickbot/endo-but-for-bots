@@ -53,6 +53,7 @@ import {
   movePathToPath,
   toSegments,
 } from './shared/helpers.js';
+import { filesystemPostureOf, registerFilesystemPosture } from './posture.js';
 
 /** @import { Qid } from './types.js' */
 
@@ -68,6 +69,24 @@ import {
 const tagSets = new WeakMap();
 
 const fresh = () => Symbol('endo-fs:tag');
+
+/**
+ * @param {object} filesystem
+ * @param {object[]} participants
+ */
+const registerCombinedPosture = (filesystem, participants) => {
+  const postures = participants.map(filesystemPostureOf);
+  if (postures.some(posture => posture === undefined)) {
+    return;
+  }
+  registerFilesystemPosture(
+    filesystem,
+    postures.some(posture => posture === 'readWrite')
+      ? 'readWrite'
+      : 'readOnly',
+  );
+};
+harden(registerCombinedPosture);
 
 // Resolve trailing path segments by chaining one-segment `lookup`s.
 // Used by the composed Directory exos to implement the catalog's
@@ -490,6 +509,7 @@ export const emptyFilesystem = () => {
         : `No documentation for method "${method}".`,
   });
   registerTags(fs, new Set([tag]));
+  registerFilesystemPosture(fs, 'readOnly');
   return fs;
 };
 harden(emptyFilesystem);
@@ -550,6 +570,10 @@ export const chroot = (fs, subPath) => {
         : `No documentation for method "${method}".`,
   });
   registerTags(inner, new Set([tag, ...tagsOf(fs)]));
+  const posture = filesystemPostureOf(fs);
+  if (posture !== undefined) {
+    registerFilesystemPosture(inner, posture);
+  }
   return inner;
 };
 harden(chroot);
@@ -756,6 +780,7 @@ export const bind = (host, mountPath, guest) => {
         : `No documentation for method "${method}".`,
   });
   registerTags(fs, new Set([tag, ...tagsOf(host), ...tagsOf(guest)]));
+  registerCombinedPosture(fs, [host, guest]);
   return fs;
 };
 harden(bind);
@@ -1086,6 +1111,7 @@ export const namespace = mounts => {
     for (const t of tagsOf(m)) allTags.add(t);
   }
   registerTags(fs, allTags);
+  registerCombinedPosture(fs, participants);
   return fs;
 };
 harden(namespace);
@@ -1920,6 +1946,10 @@ export const compose = (layer, backing, _opts = {}) => {
         : `No documentation for method "${method}".`,
   });
   registerTags(fs, new Set([tag, ...tagsOf(layer), ...tagsOf(backing)]));
+  const posture = filesystemPostureOf(layer);
+  if (posture !== undefined) {
+    registerFilesystemPosture(fs, posture);
+  }
   return fs;
 };
 harden(compose);

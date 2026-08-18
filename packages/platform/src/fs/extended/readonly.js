@@ -26,6 +26,7 @@ import {
   OpenFileInterface,
   XattrsInterface,
 } from './type-guards.js';
+import { registerFilesystemPosture } from './posture.js';
 
 /**
  * @import { ERef } from '@endo/eventual-send'
@@ -95,7 +96,7 @@ harden(readOnly);
  * @returns {Filesystem}
  */
 const makeReadOnlyFilesystem = inner => {
-  return makeExo('Filesystem', FilesystemInterface, {
+  const filesystem = makeExo('Filesystem', FilesystemInterface, {
     async root() {
       const r = await E(inner).root();
       const qid = await E(r).getQid();
@@ -119,6 +120,7 @@ const makeReadOnlyFilesystem = inner => {
       return `No documentation for method "${method}".`;
     },
   });
+  return /** @type {any} */ (registerFilesystemPosture(filesystem, 'readOnly'));
 };
 
 /**
