@@ -26,8 +26,6 @@ const AsyncWriterInterface = M.interface('SandboxWriter', {
 
 /** @import { MakeSandboxFactoryInput, SandboxFactory, SandboxMakeOpts, SandboxDriver, BackendProbe, MountSpec, SliceSpec, MountCap, MountMode, SandboxHandle, ProcessHandle, MountHandle, SpawnOpts, DriverProcess, RootfsSpec, TerminationSignal } from './types.js' */
 
-/** @typedef {MakeSandboxFactoryInput & { testOnlyDelay?: typeof delay }} FactoryInputWithTestDelay */
-
 const FACTORY_HELP = `\
 SandboxFactory — root capability of the @endo/sandbox plugin.
 
@@ -304,7 +302,7 @@ const resolveHostPath = async (scratchProvider, cap, context) => {
 export const makeSandboxFactory = input => {
   // This private test hook controls only the drain grace timer. The default
   // remains the real timer, so production callers retain the same behavior.
-  /** @type {FactoryInputWithTestDelay} */
+  /** @type {MakeSandboxFactoryInput & { testOnlyDelay?: (ms: number) => { promise: Promise<void>, cancel: () => void } }} */
   const testInput = input;
   const { drivers, scratchProvider, context, testOnlyDelay } = testInput;
   const driverList = harden([...drivers]);
