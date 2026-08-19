@@ -28,7 +28,7 @@
       "default": "./index.js"
     },
     "./grants.js": {
-      "types": "./grants.d.ts",
+      "types": "./grants.types.d.ts",
       "default": "./grants.js"
     },
     "./locator.js": "./locator.js",

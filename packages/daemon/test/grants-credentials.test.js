@@ -1,7 +1,7 @@
 // @ts-check
 
 /** @import { GitRemote } from '@endo/exo-git' */
-/** @import { EndoProvisionSpec } from '../grants.js' */
+/** @import { EndoProvisionSpec } from '../src/grants-types.js' */
 
 import '@endo/init/debug.js';
 
