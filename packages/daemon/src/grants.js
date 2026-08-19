@@ -1,0 +1,175 @@
+// @ts-check
+/// <reference types="ses"/>
+
+/** @import { EndoHost } from './types.js' */
+/** @import { EndoConnectionFailureObserver, EndoProvisionForkOptions, EndoProvisionPersistence, EndoProvisionResult, ProvisionEndoGuestOptions, ReconstructEndoGuestOptions } from './grants-types.js' */
+
+import { makeCancelKit } from '@endo/cancel';
+import { makeError, q, X } from '@endo/errors';
+import { E } from '@endo/eventual-send';
+import { whereEndoSock } from '@endo/where';
+
+import { homedir, tmpdir, userInfo } from 'node:os';
+import { env, platform } from 'node:process';
+
+import {
+  normalizeEndoProvisionSpec,
+  validateEndoProvisionPersistence,
+} from './grants-policy.js';
+import { realizeEndoProvisionOnHost } from './grants-host.js';
+import { makeEndoClient } from './client.js';
+
+/**
+ * @param {string | undefined} sockPath
+ * @returns {string}
+ */
+const selectSockPath = sockPath => {
+  if (sockPath !== undefined) {
+    if (typeof sockPath !== 'string' || sockPath.length === 0) {
+      throw makeError(X`${q('sockPath')} must be a non-empty string`);
+    }
+    if (sockPath.includes('\0')) {
+      throw makeError(X`${q('sockPath')} must not contain NUL bytes`);
+    }
+    return sockPath;
+  }
+  const user = userInfo().username;
+  return whereEndoSock(platform, env, {
+    home: homedir(),
+    user,
+    temp: tmpdir(),
+  });
+};
+
+/**
+ * Build the scoped CapTP presentation policy used by provisioning clients.
+ * Promise-delivered application failures remain owned by their awaiting
+ * caller; only connection failures cross this host-owned observer boundary.
+ *
+ * Exported for focused policy tests, but intentionally omitted from the
+ * package's public provisioning thunk.
+ *
+ * @param {EndoConnectionFailureObserver} onConnectionFailure
+ */
+export const makeProvisionCapTpOptions = onConnectionFailure =>
+  harden({
+    /**
+     * @param {unknown} error
+     * @param {{ kind: 'promise' | 'disconnect' | 'protocol' }} context
+     */
+    onReject: (error, context) => {
+      if (context.kind === 'promise') {
+        return;
+      }
+      onConnectionFailure(error, harden({ kind: context.kind }));
+    },
+  });
+harden(makeProvisionCapTpOptions);
+
+/**
+ * @param {EndoProvisionPersistence} persistence
+ * @param {string | undefined} sockPath
+ * @param {EndoConnectionFailureObserver | undefined} onConnectionFailure
+ * @param {EndoProvisionForkOptions} [forkOptions]
+ * @returns {Promise<EndoProvisionResult>}
+ */
+const connectAndRealize = async (
+  persistence,
+  sockPath,
+  onConnectionFailure,
+  forkOptions,
+) => {
+  await null;
+  const { cancelled, cancel } = makeCancelKit();
+  /** @type {Promise<void> | undefined} */
+  let closed;
+  let cleaned = false;
+  const cleanup = async () => {
+    if (cleaned) {
+      return;
+    }
+    cleaned = true;
+    cancel(makeError(X`Provisioning session closed`));
+    await closed?.catch(() => {});
+  };
+
+  try {
+    const scope = persistence.guestHandlePath[1];
+    const sessionKey = persistence.guestHandlePath[2];
+    const capTpOptions =
+      onConnectionFailure === undefined
+        ? undefined
+        : makeProvisionCapTpOptions(onConnectionFailure);
+    const client = await makeEndoClient(
+      `provision-${scope}-${sessionKey.slice('session-'.length, 'session-'.length + 12)}`,
+      selectSockPath(sockPath),
+      cancelled,
+      undefined,
+      capTpOptions,
+    );
+    closed = client.closed;
+    closed.catch(() => {});
+    const bootstrap = await client.getBootstrap();
+    const host = /** @type {EndoHost} */ (await E(bootstrap).host());
+    const guest = await realizeEndoProvisionOnHost(
+      host,
+      persistence,
+      forkOptions,
+    );
+    return harden({
+      guest,
+      persistence,
+      cleanup,
+    });
+  } catch (error) {
+    await cleanup();
+    throw error;
+  }
+};
+
+/**
+ * Provision or recover one deterministic retained daemon guest from inert
+ * caller policy. Filesystem and Git grants are selected independently, but a
+ * writable Git grant requires a writable filesystem grant: the native Git
+ * backend writes the same working tree at the OS level, so a read-only
+ * filesystem view cannot coexist with writable Git.
+ *
+ * @param {ProvisionEndoGuestOptions} options
+ * @returns {Promise<EndoProvisionResult>}
+ */
+export const provisionEndoGuest = async options => {
+  const persistence = await normalizeEndoProvisionSpec(options?.spec, {
+    scope: options?.scope,
+    sessionId: options?.sessionId,
+    cwd: options?.cwd,
+  });
+  return connectAndRealize(
+    persistence,
+    options?.sockPath,
+    options?.onConnectionFailure,
+  );
+};
+harden(provisionEndoGuest);
+
+/**
+ * Reconnect to a retained guest from its normalized, non-secret persistence
+ * record. A host-retained copy of the original record is compared before any
+ * capability is reused, so descriptor tampering cannot widen authority.
+ *
+ * @param {ReconstructEndoGuestOptions} options
+ * @returns {Promise<EndoProvisionResult>}
+ */
+export const reconstructEndoGuest = async options => {
+  const persistence = await validateEndoProvisionPersistence(
+    options?.persistence,
+  );
+  return connectAndRealize(
+    persistence,
+    options?.sockPath,
+    options?.onConnectionFailure,
+    options?.forkFrom === undefined
+      ? undefined
+      : { forkFrom: options.forkFrom },
+  );
+};
+harden(reconstructEndoGuest);

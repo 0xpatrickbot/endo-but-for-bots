@@ -133,7 +133,7 @@ test('named grants pin the first host capability and bind only the guest alias',
 
   const controllerPowerPath = [
     ...persistence.guestHandlePath.slice(0, -1),
-    'grants',
+    'powers',
     'calendar',
   ];
   t.is(
@@ -177,7 +177,7 @@ test('missing retained grant state and missing sources fail closed', async t => 
   first.identifiers.delete(
     pathKey([
       ...persistence.guestHandlePath.slice(0, -1),
-      'grants',
+      'powers',
       'calendar',
     ]),
   );

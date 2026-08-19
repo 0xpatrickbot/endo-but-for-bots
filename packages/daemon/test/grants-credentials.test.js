@@ -1,7 +1,7 @@
 // @ts-check
 
 /** @import { GitRemote } from '@endo/exo-git' */
-/** @import { EndoProvisionSpec } from '../../agentry/src/code-mode-provisioning-types.js' */
+/** @import { EndoProvisionSpec } from '../grants.js' */
 
 import '@endo/init/debug.js';
 
@@ -12,20 +12,18 @@ import { promisify } from 'node:util';
 
 import { E } from '@endo/eventual-send';
 
-/* eslint-disable import/no-relative-packages */
 import {
   EndoCredentialUnavailableError,
-  provisionEndoCodeMode,
-  reconstructEndoCodeMode,
-} from '../../agentry/code-mode-provisioning.js';
-/* eslint-enable import/no-relative-packages */
+  provisionEndoGuest,
+  reconstructEndoGuest,
+} from '../grants.js';
 
-import { makeProvisioningFixture } from './_code-mode-provisioning-fixture.js';
+import { makeProvisioningFixture } from './_grants-fixture.js';
 
 const execFileAsync = promisify(execFile);
 
 test.serial(
-  'code-mode provisioning validates and rotates credentials',
+  'daemon provisioning validates and rotates credentials',
   async t => {
     t.timeout(120_000);
     const fixture = await makeProvisioningFixture(t);
@@ -55,8 +53,8 @@ test.serial(
       },
     });
     const credentialSession = fixture.trackSession(
-      await provisionEndoCodeMode({
-        harness: 'test',
+      await provisionEndoGuest({
+        scope: 'test',
         sessionId: 'credential-remote',
         cwd: fixture.workspace,
         sockPath: fixture.sockPath,
@@ -64,34 +62,34 @@ test.serial(
       }),
     );
     const oldRemote = /** @type {GitRemote} */ (
-      await E(credentialSession.powers).lookup('upstream')
+      await E(credentialSession.guest).lookup('upstream')
     );
-    const oldRemoteId = await E(credentialSession.powers).identify('upstream');
+    const oldRemoteId = await E(credentialSession.guest).identify('upstream');
 
     await E(host).provideBearerCredential(['credentials', 'github'], {
       audience: 'https://github.com',
       token: 'reprovisioned-test-token',
     });
     const reprovisioned = fixture.trackSession(
-      await provisionEndoCodeMode({
-        harness: 'test',
+      await provisionEndoGuest({
+        scope: 'test',
         sessionId: 'credential-remote',
         cwd: fixture.workspace,
         sockPath: fixture.sockPath,
         spec,
       }),
     );
-    const newRemoteId = await E(reprovisioned.powers).identify('upstream');
+    const newRemoteId = await E(reprovisioned.guest).identify('upstream');
     t.not(oldRemoteId, newRemoteId);
     await t.throwsAsync(E(oldRemote).inspect(), {
       message: /has been revoked/,
     });
-    t.truthy(await E(reprovisioned.powers).lookup('upstream'));
+    t.truthy(await E(reprovisioned.guest).lookup('upstream'));
 
     await t.throwsAsync(
       () =>
-        provisionEndoCodeMode({
-          harness: 'test',
+        provisionEndoGuest({
+          scope: 'test',
           sessionId: 'missing-credential',
           cwd: fixture.workspace,
           sockPath: fixture.sockPath,
@@ -113,8 +111,8 @@ test.serial(
     );
     await t.throwsAsync(
       () =>
-        provisionEndoCodeMode({
-          harness: 'test',
+        provisionEndoGuest({
+          scope: 'test',
           sessionId: 'wrong-audience',
           cwd: fixture.workspace,
           sockPath: fixture.sockPath,
@@ -135,7 +133,7 @@ test.serial(
     await fixture.restartDaemon();
     await t.throwsAsync(
       () =>
-        reconstructEndoCodeMode({
+        reconstructEndoGuest({
           persistence: credentialSession.persistence,
           sockPath: fixture.sockPath,
         }),

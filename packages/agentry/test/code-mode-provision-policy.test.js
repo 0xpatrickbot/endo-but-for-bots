@@ -43,9 +43,9 @@ test('normalization preserves omission and resolves a canonical cwd', async t =>
   );
 
   t.deepEqual(first, second);
-  t.is(first.version, 2);
+  t.is(first.version, 3);
   t.is(first.workspacePath, await realpath(child));
-  t.deepEqual(first.guestHandlePath.slice(0, 2), ['code-mode', 'test']);
+  t.deepEqual(first.guestHandlePath.slice(0, 2), ['provision', 'test']);
   t.deepEqual(first.guestHandlePath.slice(2), [
     'session-e18c78136e8ee72d10e2af231794072c72fa11fcf2367f56e50eb0d97d37b870',
     'guest-handle',

@@ -17,7 +17,7 @@ import { registerProvisionedGuest } from '../src/code-mode-grants.js';
 const makePersistence = policy =>
   harden(
     /** @type {any} */ ({
-      version: 2,
+      version: 3,
       guestHandlePath: ['code-mode', 'test', 'session-test', 'guest-handle'],
       workspacePath: '/workspace',
       policy: {

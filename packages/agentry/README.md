@@ -20,9 +20,9 @@ Each surface is opt-in via its own subpath export.
 - `@endo/agentry/code-mode` — the complete Pi code-mode preset and prompt
   assembly (`makeCodeModeAgent`, `makeCodeModeGitLoopAgent`), built on
   `defineAgent` and `@endo/agent-tools`.
-- `@endo/agentry/code-mode-provisioning` — Pi-independent translation from a
-  plain provisioning policy to a retained daemon guest, matching lexical
-  global descriptors, and non-secret reconstruction data.
+- `@endo/agentry/code-mode-provisioning` — the code-mode compatibility adapter
+  over `@endo/daemon/grants.js`, adding lexical grant records, prompt globals,
+  and Pi session context.
 - `@endo/agentry/endo-code-mode-pi-extension` — a directly loadable Pi extension that binds
   one retained daemon guest to each Pi session and exposes only `evaluate`.
 
@@ -164,10 +164,10 @@ An external MCP server is a separate consumer of that package.
 
 ## Daemon code-mode provisioning
 
-`@endo/agentry/code-mode-provisioning` owns the host-privileged lifecycle that
-maps inert session policy into daemon capabilities.
-It is independent of Pi and can feed any code-mode loop that accepts an
-`evaluate` implementation and lexical global descriptors.
+`@endo/daemon/grants.js` owns the host-privileged lifecycle that maps inert
+session policy into daemon capabilities.
+`@endo/agentry/code-mode-provisioning` is the compatibility adapter that adds
+trusted code-mode grant records, prompt globals, and Pi session context.
 
 ```js
 import { makeDaemonEvaluate } from '@endo/agent-tools/code-mode/daemon.js';
@@ -201,6 +201,12 @@ try {
   await session.cleanup();
 }
 ```
+
+Code-mode persistence version 3 separates daemon authority policy from prompt
+context.
+Version 2 records must be reprovisioned; the adapter reports that requirement
+explicitly instead of attempting to reuse an older retained policy under the
+new daemon-owned namespace.
 
 The `EndoProvisionSpec` fields are optional grants:
 
@@ -285,9 +291,9 @@ same named authority graph, so the two styles compose in one spec.
 Provisioning derives deterministic controller aliases and retained guest handle
 and agent paths from `sessionId`.
 The host-side retained state for the Pi harness lives in the daemon pet store
-under `code-mode/pi/session-<hash>/`, as shown by `endo list`.
-The `code-mode/` root is harness-scoped, so future harnesses can keep their
-state beside `pi/` without sharing session namespaces.
+under `provision/pi/session-<hash>/`, as shown by `endo list`.
+The `provision/` root is consumer-scoped, so other direct daemon consumers keep
+their retained guests beside `pi/` without sharing session namespaces.
 The host retains those aliases while the guest receives the same formula IDs as
 the simple pet names `workspace`, `git`, and each remote name.
 Consequently, daemon evaluation with `resultName` stores the result in the guest

@@ -13,6 +13,56 @@ envelopes.
 The bootstrap provides the user agent API from which one can derive facets for
 other agents.
 
+## Filesystem and Git grants
+
+`@endo/daemon/grants.js` provisions a retained guest with attenuated filesystem,
+Git, Git-remote, and named host powers without requiring a coding harness.
+The caller supplies inert policy and a stable session identifier, saves the
+returned versioned persistence record, and closes the client when finished.
+
+```js
+import {
+  provisionEndoGuest,
+  reconstructEndoGuest,
+} from '@endo/daemon/grants.js';
+import { E } from '@endo/eventual-send';
+
+const session = await provisionEndoGuest({
+  scope: 'example',
+  sessionId: conversationId,
+  cwd: process.cwd(),
+  spec: {
+    workspace: { path: '.', deniedSegments: ['.git', '.env'] },
+    fs: 'readWrite',
+    git: 'readOnly',
+  },
+});
+
+await saveSession(session.persistence);
+const workspace = await E(session.guest).lookup('workspace');
+
+try {
+  await E(workspace).readText('README.md');
+} finally {
+  await session.cleanup();
+}
+
+const recovered = await reconstructEndoGuest({
+  persistence: await loadSession(),
+});
+```
+
+Omission grants nothing.
+`fs`, `git`, `mounts`, `gits`, and `gitRemotes` select filesystem and Git
+authority; `powers` pins host pet-name paths and introduces the retained formula
+identities into the guest.
+Writable Git requires a writable guest-visible mount because the native Git
+backend writes the same working tree.
+The persistence record contains normalized policy but no live capability,
+credential material, formula identifier, daemon endpoint, or prompt context.
+Credential policy contains only a host-side pet name; credential material stays
+inside the daemon.
+
 ## Debugging
 
 The daemon has structured logging and environment variable flags for

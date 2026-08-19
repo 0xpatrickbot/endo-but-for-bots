@@ -22,7 +22,7 @@ import { reconstructEndoCodeMode } from '../../agentry/code-mode-provisioning.js
 import { makeEndoCodeModePiExtension } from '../../agentry/endo-code-mode-pi-extension.js';
 /* eslint-enable import/no-relative-packages */
 
-import { makeProvisioningFixture } from './_code-mode-provisioning-fixture.js';
+import { makeProvisioningFixture } from './_grants-fixture.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -227,7 +227,7 @@ test.serial(
       /** @type {import('../../agentry/src/code-mode-provisioning-types.js').EndoProvisionPersistence} */ (
         driver.appended[0].data
       );
-    t.deepEqual(persistence.guestHandlePath.slice(0, 2), ['code-mode', 'pi']);
+    t.deepEqual(persistence.guestHandlePath.slice(0, 2), ['provision', 'pi']);
     await driver.emit('session_shutdown', {
       type: 'session_shutdown',
       reason: 'quit',

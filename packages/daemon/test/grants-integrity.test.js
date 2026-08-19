@@ -6,17 +6,12 @@ import test from 'ava';
 
 import { E } from '@endo/eventual-send';
 
-/* eslint-disable import/no-relative-packages */
-import {
-  normalizeEndoProvisionSpec,
-  provisionEndoCodeMode,
-} from '../../agentry/code-mode-provisioning.js';
-/* eslint-enable import/no-relative-packages */
+import { normalizeEndoProvisionSpec, provisionEndoGuest } from '../grants.js';
 
-import { makeProvisioningFixture } from './_code-mode-provisioning-fixture.js';
+import { makeProvisioningFixture } from './_grants-fixture.js';
 
 test.serial(
-  'code-mode provisioning rejects incomplete or changed state',
+  'daemon provisioning rejects incomplete or changed state',
   async t => {
     t.timeout(120_000);
     const fixture = await makeProvisioningFixture(t);
@@ -24,7 +19,7 @@ test.serial(
     const interrupted = await normalizeEndoProvisionSpec(
       { fs: 'readOnly' },
       {
-        harness: 'test',
+        scope: 'test',
         sessionId: 'interrupted-provision',
         cwd: fixture.workspace,
       },
@@ -39,8 +34,8 @@ test.serial(
       'interrupted-seed',
       'agent',
     );
-    await E(host).makeDirectory(['code-mode']);
-    await E(host).makeDirectory(['code-mode', 'test']);
+    await E(host).makeDirectory(['provision']);
+    await E(host).makeDirectory(['provision', 'test']);
     await E(host).makeDirectory(controllerPath);
     await E(host).storeIdentifier(
       [...controllerPath, 'guest-agent'],
@@ -49,8 +44,8 @@ test.serial(
 
     await t.throwsAsync(
       () =>
-        provisionEndoCodeMode({
-          harness: 'test',
+        provisionEndoGuest({
+          scope: 'test',
           sessionId: 'interrupted-provision',
           cwd: fixture.workspace,
           sockPath: fixture.sockPath,
@@ -65,8 +60,8 @@ test.serial(
     );
     await t.throwsAsync(
       () =>
-        provisionEndoCodeMode({
-          harness: 'test',
+        provisionEndoGuest({
+          scope: 'test',
           sessionId: 'interrupted-provision',
           cwd: fixture.workspace,
           sockPath: fixture.sockPath,
