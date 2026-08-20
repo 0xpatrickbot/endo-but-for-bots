@@ -89,6 +89,22 @@ test('persistence round-trips named grants without live capabilities', async t =
   t.false(Object.hasOwn(roundTrip.policy.grants?.calendar ?? {}, 'capability'));
 });
 
+test('an empty grants dictionary round-trips without projecting powers', async t => {
+  const root = await makeWorkspace(t);
+  const persistence = await normalizeEndoProvisionSpec(
+    { grants: {} },
+    { harness: 'test', sessionId: 'persist-empty-grants', cwd: root },
+  );
+
+  t.deepEqual(persistence.policy.grants, {});
+  // The daemon normal form omits an empty `powers` record; validation would
+  // reject the round trip if the empty grants dictionary projected one.
+  const roundTrip = await validateEndoProvisionPersistence(
+    JSON.parse(JSON.stringify(persistence)),
+  );
+  t.deepEqual(roundTrip, persistence);
+});
+
 test('Git grants reconstruct from persistence without the original spec', async t => {
   const root = await makeWorkspace(t);
   await mkdir(join(root, 'nested-repo'));

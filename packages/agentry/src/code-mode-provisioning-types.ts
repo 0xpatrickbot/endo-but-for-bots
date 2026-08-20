@@ -11,7 +11,7 @@ import type {
   NormalizedGitGrant,
   NormalizedGitRemoteSpec,
   NormalizedMountGrant,
-} from '@endo/daemon/grants.js';
+} from '@endo/daemon/provision.js';
 import type { EndoGuest } from '@endo/daemon';
 
 import type {

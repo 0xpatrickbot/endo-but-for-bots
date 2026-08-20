@@ -540,11 +540,13 @@ test('EndoProvisionSpec rejects malformed roots and incompatible modes', async t
       sessionId: 'invalid-root',
       cwd: root,
     });
+  // Structural spec failures surface the daemon's mustMatch phrasing; pin
+  // only stable fragments, not the full rendered pattern output.
   const invalid = [
-    [{ extra: true }, /unknown field.*extra/],
-    [{ workspace: { extra: true } }, /unknown field.*extra/],
-    [{ fs: 'sometimes' }, /fs must be readOnly or readWrite/],
-    [{ git: 'force' }, /git must be readOnly, readWrite, or historyRewrite/],
+    [{ extra: true }, /extra.*Must be/],
+    [{ workspace: { extra: true } }, /workspace.*extra.*Must be/],
+    [{ fs: 'sometimes' }, /fs.*Must match one of/],
+    [{ git: 'force' }, /git.*Must match one of/],
     [{ piTools: 'replace' }, /piTools must be preserve/],
     [
       { fs: 'readOnly', git: 'readWrite' },

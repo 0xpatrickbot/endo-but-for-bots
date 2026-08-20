@@ -2,18 +2,92 @@
 /// <reference types="ses"/>
 
 /** @import { EndoProvisionPersistence, EndoProvisionSpec, NormalizeEndoProvisionOptions } from './code-mode-provisioning-types.js' */
-/** @import { EndoProvisionPersistence as DaemonProvisionPersistence, EndoProvisionSpec as DaemonProvisionSpec } from '@endo/daemon/grants.js' */
+/** @import { EndoProvisionPersistence as DaemonProvisionPersistence, EndoProvisionSpec as DaemonProvisionSpec } from '@endo/daemon/provision.js' */
 
 import {
   normalizeEndoProvisionSpec as normalizeDaemonProvisionSpec,
   validateEndoProvisionPersistence as validateDaemonProvisionPersistence,
-} from '@endo/daemon/grants.js';
+} from '@endo/daemon/provision.js';
 import { isPetName } from '@endo/daemon/pet-name.js';
 import { makeError, q, X } from '@endo/errors';
 
 const CODE_MODE_FIELDS = harden(['piTools', 'grants']);
 const GRANT_FIELDS = harden(['from', 'description']);
 const HARNESS_KEY_RE = /^[a-z][a-z0-9-]{0,31}$/u;
+const IDENTIFIER_RE = /^[A-Za-z_$][0-9A-Za-z_$]*$/u;
+
+// Provisioned bindings become lexical globals in the code-mode compartment,
+// so agentry — not the daemon — polices JavaScript identifier validity and
+// reserved words. The daemon only enforces pet-name validity and its own
+// host-infrastructure namespace.
+const LANGUAGE_RESERVED_BINDINGS = harden([
+  'arguments',
+  'await',
+  'break',
+  'case',
+  'catch',
+  'class',
+  'const',
+  'continue',
+  'debugger',
+  'default',
+  'delete',
+  'do',
+  'else',
+  'enum',
+  'eval',
+  'export',
+  'extends',
+  'false',
+  'finally',
+  'for',
+  'function',
+  'if',
+  'implements',
+  'import',
+  'in',
+  'instanceof',
+  'interface',
+  'let',
+  'new',
+  'null',
+  'package',
+  'private',
+  'protected',
+  'public',
+  'return',
+  'static',
+  'super',
+  'switch',
+  'this',
+  'throw',
+  'true',
+  'try',
+  'typeof',
+  'var',
+  'void',
+  'while',
+  'with',
+  'yield',
+]);
+// Bindings the code-mode prompt and runtime already claim for themselves.
+const PRODUCT_RESERVED_BINDINGS = harden([
+  'E',
+  'git',
+  'gits',
+  'mounts',
+  'workspace',
+]);
+// Names the daemon host reserves for infrastructure siblings under the
+// controller path. The daemon rejects these itself, but agentry checks them
+// too so the failure carries the compartment-binding wording and does not
+// depend on daemon ordering.
+const HOST_RESERVED_BINDINGS = harden([
+  'persistence',
+  'guest-agent',
+  'guest-handle',
+  'remotes',
+]);
 
 /**
  * @param {unknown} value
@@ -48,6 +122,63 @@ const assertKnownFields = (record, fields, label) => {
   for (const field of Object.keys(record)) {
     if (!fields.includes(field)) {
       throw makeError(X`${q(label)} has unknown field ${q(field)}`);
+    }
+  }
+};
+
+/**
+ * Provisioned names become lexical bindings inside a strict module
+ * compartment, so they must be valid, non-reserved JavaScript identifiers as
+ * well as daemon pet names.
+ *
+ * @param {string} name
+ * @param {string} label
+ */
+const assertBindingName = (name, label) => {
+  if (
+    !isPetName(name) ||
+    !IDENTIFIER_RE.test(name) ||
+    LANGUAGE_RESERVED_BINDINGS.includes(name) ||
+    PRODUCT_RESERVED_BINDINGS.includes(name) ||
+    HOST_RESERVED_BINDINGS.includes(name)
+  ) {
+    throw makeError(
+      X`${q(label)} must be a non-reserved JavaScript binding and pet name`,
+    );
+  }
+};
+
+// Every daemon-owned policy category whose names become guest-visible
+// bindings.
+const BOUND_NAME_CATEGORIES = harden(['mounts', 'gits', 'gitRemotes']);
+
+/**
+ * Police binding names for the daemon-owned categories (mounts, gits,
+ * gitRemotes). Only well-formed dictionaries are inspected here; structural
+ * validation of malformed values stays with the daemon shapes.
+ *
+ * A normalized policy record legitimately carries the generated
+ * compatibility bindings `mounts.workspace` and `gits.git`, which the spec
+ * form spells as the `workspace`/`fs`/`git` fields instead; the validate
+ * path exempts exactly those two names and the daemon's fixpoint check
+ * rejects any impostor that does not match the generated shape.
+ *
+ * @param {Record<string, unknown>} record
+ * @param {{ normalized?: boolean }} [options]
+ */
+const assertCategoryBindingNames = (record, { normalized = false } = {}) => {
+  for (const category of BOUND_NAME_CATEGORIES) {
+    const value = record[category];
+    if (isPlainRecord(value)) {
+      for (const name of Object.keys(value)) {
+        const generated =
+          normalized &&
+          ((category === 'mounts' && name === 'workspace') ||
+            (category === 'gits' && name === 'git'));
+        if (!generated) {
+          assertBindingName(name, `${category}.${name}`);
+        }
+      }
     }
   }
 };
@@ -101,6 +232,7 @@ const normalizeCodeModeGrants = grantsValue => {
   /** @type {Array<[string, { from: string[] }]>} */
   const powers = [];
   for (const name of Object.keys(record).sort()) {
+    assertBindingName(name, `grants.${name}`);
     const grant = requirePlainRecord(record[name], `grants.${name}`);
     assertKnownFields(grant, GRANT_FIELDS, `grants.${name}`);
     const description = grant.description;
@@ -136,6 +268,12 @@ const normalizeCodeModeGrants = grantsValue => {
     });
     grants.push([name, normalizedGrant]);
     powers.push([name, harden({ from: normalizedFrom })]);
+  }
+  // The daemon normal form omits an empty `powers` record, so an empty
+  // grants dictionary must project no `powers` field at all or the daemon's
+  // round-trip fixpoint check would reject the record.
+  if (powers.length === 0) {
+    return harden({ grants: harden(Object.fromEntries(grants)) });
   }
   return harden({
     grants: harden(Object.fromEntries(grants)),
@@ -199,6 +337,7 @@ export const normalizeEndoProvisionSpec = async (spec, options) => {
   if (piTools !== undefined && piTools !== 'preserve') {
     throw makeError(X`EndoProvisionSpec.piTools must be preserve`);
   }
+  assertCategoryBindingNames(root);
   const { grants, powers } = normalizeCodeModeGrants(root.grants);
   const daemonSpec = /** @type {DaemonProvisionSpec} */ (
     Object.fromEntries(
@@ -304,6 +443,7 @@ export const validateEndoProvisionPersistence = async value => {
   if (piTools !== undefined && piTools !== 'preserve') {
     throw makeError(X`EndoProvisionSpec.piTools must be preserve`);
   }
+  assertCategoryBindingNames(policy, { normalized: true });
   const { grants } = normalizeCodeModeGrants(policy.grants);
   const candidate = /** @type {EndoProvisionPersistence} */ (record);
   const daemonPersistence = await validateDaemonProvisionPersistence(
