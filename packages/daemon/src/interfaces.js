@@ -409,6 +409,13 @@ export const HostInterface = M.interface('EndoHost', {
   // plugins); do not hand an EndoHost cap to code that should not be
   // able to recover host paths for daemon-minted top-level mounts.
   provideHostPath: M.call(M.any()).returns(M.promise()),
+  // Provision or recover a retained guest from an inert persistence record,
+  // optionally forking retained powers from a parent session. The record and
+  // fork options are deeply validated with the shared shapes inside the
+  // method (`src/provision.js`); the guard stays structural because
+  // importing the deep shapes here would close an import cycle through
+  // `mount.js`.
+  provision: M.callWhen(M.record()).optional(M.record()).returns(M.remotable()),
   // Provide a guest
   provideGuest: M.call()
     .optional(NameOrPathShape, M.record())

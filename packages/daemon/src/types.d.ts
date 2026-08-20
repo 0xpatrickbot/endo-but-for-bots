@@ -20,6 +20,10 @@ import type {
   TreeEntry,
 } from '@endo/platform/fs/lite/types';
 import type { ContentKind, ContentSourceHint } from './locator.js';
+import type {
+  EndoProvisionForkOptions,
+  EndoProvisionPersistence,
+} from './provision-types.js';
 
 // Branded string types for pet names and special names
 declare const PetNameBrand: unique symbol;
@@ -1735,6 +1739,18 @@ export interface EndoHost extends EndoAgent {
    * attenuated guest or narrower powers object instead.
    */
   provideHostPath(cap: unknown): Promise<string>;
+  /**
+   * Provision or recover a retained guest from an inert, non-secret
+   * persistence record (see `@endo/daemon/provision.js`). Realization is
+   * idempotent per alias: mounts, gits, remotes, and named powers are
+   * retained under the record's controller namespace and re-bound into the
+   * guest on each call. `forkOptions.forkFrom` copies retained power formula
+   * identifiers from a validated parent session into a new session.
+   */
+  provision(
+    persistence: EndoProvisionPersistence,
+    forkOptions?: EndoProvisionForkOptions,
+  ): Promise<EndoGuest>;
   provideGuest(
     petName?: string | string[],
     opts?: MakeHostOrGuestOptions,
@@ -2187,6 +2203,13 @@ export type FilePowers = {
   // Node powers omit it. Declared here so the XS factory's return value
   // structurally satisfies FilePowers without an excess-property error.
   readLink?: (path: string) => Promise<string | undefined>;
+  // Optional path algebra used by host guest provisioning
+  // (`EndoHost.provision`). Only the Node powers surface these today;
+  // a supervisor that omits them leaves `provision()` failing closed.
+  resolvePath?: (...segments: string[]) => string;
+  relativePath?: (from: string, to: string) => string;
+  isAbsolutePath?: (path: string) => boolean;
+  pathSeparator?: string;
   pathIdentity: (path: string) => Promise<string>;
   statPath: (path: string) => Promise<{
     kind: 'file' | 'directory' | 'symlink';

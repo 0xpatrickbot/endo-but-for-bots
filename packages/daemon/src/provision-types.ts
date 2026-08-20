@@ -1,6 +1,6 @@
 import type { NormalizedRemotePolicy, RemotePolicy } from '@endo/exo-git';
 
-import type { EndoGuest } from './types.js';
+import type { EndoDirectory, EndoGuest, EndoHost } from './types.js';
 
 export type GitRemoteSpec = Omit<
   RemotePolicy,
@@ -148,4 +148,47 @@ export type EndoProvisionResult = {
   persistence: EndoProvisionPersistence;
   /** Close client-side CapTP and cancel this caller's local operations. */
   cleanup: () => Promise<void>;
+};
+
+/**
+ * Filesystem and path operations that parameterize the shared provisioning
+ * policy. The client wires these from `node:fs/promises` and `node:path`;
+ * the daemon injects its supervisor's file powers so the host-side core
+ * stays free of `node:` imports.
+ */
+export type ProvisionPathPowers = {
+  /** Resolve symlinks to a canonical path; throws when unresolvable. */
+  realPath: (path: string) => Promise<string>;
+  /** Whether the path names an existing directory; false on any failure. */
+  isDirectory: (path: string) => Promise<boolean>;
+  resolvePath: (...segments: string[]) => string;
+  relativePath: (from: string, to: string) => string;
+  isAbsolutePath: (path: string) => boolean;
+  pathSeparator: string;
+};
+
+/**
+ * The host-local functions a daemon host lends to `makeHostProvision`.
+ * All calls are direct, in-process invocations; realization performs no
+ * CapTP round trips.
+ */
+export type HostProvisionPowers = {
+  /** Absent when the supervisor does not wire path powers; fails closed. */
+  pathPowers: ProvisionPathPowers | undefined;
+  has: (...petNamePath: string[]) => Promise<boolean>;
+  identify: (...petNamePath: string[]) => Promise<string | undefined>;
+  lookup: (petNamePath: string | string[]) => Promise<unknown>;
+  lookupById: EndoHost['lookupById'];
+  makeDirectory: (petNamePath: string | string[]) => Promise<EndoDirectory>;
+  storeValue: EndoHost['storeValue'];
+  storeIdentifier: (
+    petNamePath: string | string[],
+    id: string,
+  ) => Promise<void>;
+  provideMount: EndoHost['provideMount'];
+  provideGit: EndoHost['provideGit'];
+  provideGitRemote: EndoHost['provideGitRemote'];
+  provideGuest: EndoHost['provideGuest'];
+  getGitCredentialController: EndoHost['getGitCredentialController'];
+  getGitRemoteController: EndoHost['getGitRemoteController'];
 };

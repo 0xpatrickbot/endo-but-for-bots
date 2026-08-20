@@ -22,7 +22,7 @@ import { reconstructEndoCodeMode } from '../../agentry/code-mode-provisioning.js
 import { makeEndoCodeModePiExtension } from '../../agentry/endo-code-mode-pi-extension.js';
 /* eslint-enable import/no-relative-packages */
 
-import { makeProvisioningFixture } from './_grants-fixture.js';
+import { makeProvisioningFixture } from './_provision-fixture.js';
 
 const execFileAsync = promisify(execFile);
 

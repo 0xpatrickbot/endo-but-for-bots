@@ -395,6 +395,18 @@ export const makeFilePowers = ({ fs, path: fspath }) => {
 
   const joinPath = (...components) => fspath.join(...components);
 
+  /** @param {...string} segments */
+  const resolvePath = (...segments) => fspath.resolve(...segments);
+
+  /**
+   * @param {string} from
+   * @param {string} to
+   */
+  const relativePath = (from, to) => fspath.relative(from, to);
+
+  /** @param {string} path */
+  const isAbsolutePath = path => fspath.isAbsolute(path);
+
   /** @param {string} path */
   const realPath = async path => fs.promises.realpath(path);
 
@@ -679,6 +691,10 @@ export const makeFilePowers = ({ fs, path: fspath }) => {
     removeDirectory,
     renamePath,
     realPath,
+    resolvePath,
+    relativePath,
+    isAbsolutePath,
+    pathSeparator: fspath.sep,
     pathIdentity,
     statPath,
     isDirectory,

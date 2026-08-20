@@ -6,9 +6,9 @@ import test from 'ava';
 
 import { E } from '@endo/eventual-send';
 
-import { normalizeEndoProvisionSpec, provisionEndoGuest } from '../grants.js';
+import { normalizeEndoProvisionSpec, provisionEndoGuest } from '../provision.js';
 
-import { makeProvisioningFixture } from './_grants-fixture.js';
+import { makeProvisioningFixture } from './_provision-fixture.js';
 
 test.serial(
   'daemon provisioning rejects incomplete or changed state',

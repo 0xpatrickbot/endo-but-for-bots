@@ -7188,6 +7188,25 @@ const makeDaemonCore = async (
     return getMountHostPath(scratchMountId);
   };
 
+  // Host guest provisioning needs a small path algebra beyond the file
+  // powers every supervisor guarantees. The Node powers surface it; a
+  // supervisor that omits any of these leaves `host.provision()` failing
+  // closed rather than mis-resolving paths.
+  const provisionPathPowers =
+    filePowers.resolvePath !== undefined &&
+    filePowers.relativePath !== undefined &&
+    filePowers.isAbsolutePath !== undefined &&
+    filePowers.pathSeparator !== undefined
+      ? harden({
+          realPath: filePowers.realPath,
+          isDirectory: filePowers.isDirectory,
+          resolvePath: filePowers.resolvePath,
+          relativePath: filePowers.relativePath,
+          isAbsolutePath: filePowers.isAbsolutePath,
+          pathSeparator: filePowers.pathSeparator,
+        })
+      : undefined;
+
   const makeHost = makeHostMaker({
     gitClone,
     provide,
@@ -7236,6 +7255,7 @@ const makeDaemonCore = async (
     getMountHostPath,
     getIdForRef,
     writeRemoteAgentKey: persistencePowers.writeRemoteAgentKey,
+    provisionPathPowers,
     traceAggregator,
   });
 

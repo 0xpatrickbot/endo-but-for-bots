@@ -17,11 +17,10 @@ import { E } from '@endo/eventual-send';
 import {
   normalizeEndoProvisionSpec,
   provisionEndoGuest,
-  realizeEndoProvisionOnHost,
   reconstructEndoGuest,
-} from '../grants.js';
+} from '../provision.js';
 
-import { makeProvisioningFixture } from './_grants-fixture.js';
+import { makeProvisioningFixture } from './_provision-fixture.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -265,7 +264,7 @@ test.serial(
             },
           },
         }),
-      { message: /non-reserved JavaScript binding/ },
+      { message: /non-reserved pet name/ },
     );
 
     // A legitimately named remote binds an actual GitRemote, not the trusted
@@ -360,7 +359,7 @@ test.serial(
     await symlink(outsidePath, nestedLink, 'dir');
 
     const host = await fixture.connectHost('nested-git-host');
-    const guest = await realizeEndoProvisionOnHost(host, persistence);
+    const guest = await E(host).provision(persistence);
     const nestedGit = /** @type {ReadOnlyEndoGit} */ (
       await E(guest).lookup('nested')
     );

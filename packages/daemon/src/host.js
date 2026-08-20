@@ -50,6 +50,7 @@ import {
 } from './interfaces.js';
 import { hostHelp, makeHelp } from './help-text.js';
 import { assertValidTreeEntryName, getMountBacking } from './mount.js';
+import { makeHostProvision } from './provision.js';
 
 /**
  * @param {string} name
@@ -338,6 +339,10 @@ harden(normalizeHttpClientPolicy);
  * @param {DaemonCore['getFormulaGraphSnapshot']} [args.getFormulaGraphSnapshot]
  * @param {DaemonCore['listRetentionPaths']} [args.listRetentionPaths]
  * @param {DaemonCore['followRetentionPaths']} [args.followRetentionPaths]
+ * @param {import('./provision-types.js').ProvisionPathPowers} [args.provisionPathPowers]
+ *   Filesystem and path operations for `host.provision()`. Injected by the
+ *   supervisor rather than imported here so the daemon core stays free of
+ *   `node:` builtins; without them, `host.provision()` fails closed.
  * @param {ReturnType<typeof makeTraceAggregator>} [args.traceAggregator]
  *   Optional. When provided, `host.traces()` returns an Exo whose
  *   methods proxy to this aggregator. Without it, `host.traces()`
@@ -423,6 +428,7 @@ export const makeHostMaker = ({
   followRetentionPaths = async function* _follow(_id) {
     return undefined;
   },
+  provisionPathPowers = undefined,
   traceAggregator = undefined,
 }) => {
   /**
@@ -2328,6 +2334,28 @@ export const makeHostMaker = ({
      */
     const lookupByLocator = async locator => provide(idFromLocator(locator));
 
+    // Spec-driven guest provisioning: validate a caller-held persistence
+    // record against this host's own filesystem view and realize its
+    // mounts, gits, remotes, and powers with direct local calls — no CapTP
+    // round trips. Path powers are injected by the supervisor
+    // (`manager.js`); when absent, the method fails closed.
+    const provision = makeHostProvision({
+      pathPowers: provisionPathPowers,
+      has,
+      identify,
+      lookup,
+      lookupById,
+      makeDirectory: makeDirectoryLocal,
+      storeValue,
+      storeIdentifier: directoryStoreIdentifier,
+      provideMount,
+      provideGit,
+      provideGitRemote,
+      provideGuest,
+      getGitCredentialController,
+      getGitRemoteController,
+    });
+
     /** @type {EndoHost['endow']} */
     const endow = async (messageNumber, bindings, workerName, resultName) => {
       const { source, slots, guestHandleId } =
@@ -2571,6 +2599,7 @@ export const makeHostMaker = ({
       getGitCredentialController,
       getGitRemoteController,
       provideHostPath,
+      provision,
       provideGuest,
       provideHost,
       provideWorker,

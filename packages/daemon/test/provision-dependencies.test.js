@@ -5,7 +5,7 @@ import '@endo/init/debug.js';
 import {
   provisionEndoGuest,
   reconstructEndoGuest,
-} from '@endo/daemon/grants.js';
+} from '@endo/daemon/provision.js';
 import test from 'ava';
 
 import { readFile } from 'node:fs/promises';
@@ -15,7 +15,7 @@ const daemonRoot = new URL('../', import.meta.url);
 const importPattern =
   /\b(?:import\s+(?:[^'";]+?\s+from\s+)?|export\s+[^'";]+?\s+from\s+|import\s*\()(['"])([^'"]+)\1/gu;
 
-test('daemon grants have no agentry or agent-tools runtime dependency', async t => {
+test('daemon provisioning has no agentry or agent-tools runtime dependency', async t => {
   await null;
   t.is(typeof provisionEndoGuest, 'function');
   t.is(typeof reconstructEndoGuest, 'function');
@@ -26,7 +26,7 @@ test('daemon grants have no agentry or agent-tools runtime dependency', async t 
   t.false(Object.hasOwn(manifest.dependencies, '@endo/agent-tools'));
 
   /** @type {URL[]} */
-  const pending = [new URL('grants.js', daemonRoot)];
+  const pending = [new URL('provision.js', daemonRoot)];
   const visited = new Set();
   while (pending.length > 0) {
     const moduleUrl = pending.shift();

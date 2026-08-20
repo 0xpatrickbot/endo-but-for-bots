@@ -6,7 +6,7 @@ import {
   type EndoProvisionPersistence,
   type EndoProvisionResult,
   type EndoProvisionSpec,
-} from '@endo/daemon/grants.js';
+} from '@endo/daemon/provision.js';
 
 declare const persistence: EndoProvisionPersistence;
 declare const spec: EndoProvisionSpec;
@@ -28,7 +28,7 @@ expectTypeOf<EndoProvisionResult['guest']>().not.toBeAny();
 
 // Prompt and harness fields belong to the Agentry adapter, not daemon policy.
 const harnessPolicy: EndoProvisionSpec = {
-  // @ts-expect-error daemon grants do not accept Pi lifecycle configuration
+  // @ts-expect-error daemon provisioning does not accept Pi lifecycle configuration
   piTools: 'preserve',
 };
 expectTypeOf(harnessPolicy).toEqualTypeOf<EndoProvisionSpec>();

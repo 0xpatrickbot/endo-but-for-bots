@@ -1,7 +1,7 @@
 // @ts-check
 
 /** @import { GitRemote } from '@endo/exo-git' */
-/** @import { EndoProvisionSpec } from '../src/grants-types.js' */
+/** @import { EndoProvisionSpec } from '../src/provision-types.js' */
 
 import '@endo/init/debug.js';
 
@@ -16,9 +16,9 @@ import {
   EndoCredentialUnavailableError,
   provisionEndoGuest,
   reconstructEndoGuest,
-} from '../grants.js';
+} from '../provision.js';
 
-import { makeProvisioningFixture } from './_grants-fixture.js';
+import { makeProvisioningFixture } from './_provision-fixture.js';
 
 const execFileAsync = promisify(execFile);
 
