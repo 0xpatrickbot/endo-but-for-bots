@@ -13,18 +13,22 @@ envelopes.
 The bootstrap provides the user agent API from which one can derive facets for
 other agents.
 
-## Filesystem and Git grants
+## Filesystem and Git provisioning
 
-`@endo/daemon/grants.js` provisions a retained guest with attenuated filesystem,
-Git, Git-remote, and named host powers without requiring a coding harness.
-The caller supplies inert policy and a stable session identifier, saves the
+`@endo/daemon/provision.js` provisions a retained guest with attenuated
+filesystem, Git, Git-remote, and named host powers without requiring a coding
+harness.
+The caller supplies an inert spec and a stable session identifier, saves the
 returned versioned persistence record, and closes the client when finished.
+The client normalizes the spec locally and realizes it with a single
+`E(host).provision(persistence, forkOptions?)` call; realization, alias
+retention, and integrity checks run inside the daemon host.
 
 ```js
 import {
   provisionEndoGuest,
   reconstructEndoGuest,
-} from '@endo/daemon/grants.js';
+} from '@endo/daemon/provision.js';
 import { E } from '@endo/eventual-send';
 
 const session = await provisionEndoGuest({
