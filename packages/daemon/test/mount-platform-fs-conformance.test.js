@@ -586,7 +586,12 @@ test('XS file powers expose every method the Node file powers expose', t => {
   // pathIdentity throwing "is not a function" before this fix.
   const nodePowers = makeFilePowers({ fs, path });
   const xsPowers = makeXsFilePowers();
-  const nodeMethods = Object.keys(nodePowers).sort();
+  // `pathSeparator` is a data property, not a method. Keep it out of this
+  // method-only comparison and check its value separately below.
+  const nodeMethods = Object.entries(nodePowers)
+    .filter(([, value]) => typeof value === 'function')
+    .map(([name]) => name)
+    .sort();
   const missingOnXs = nodeMethods.filter(
     name => typeof (/** @type {any} */ (xsPowers)[name]) !== 'function',
   );
@@ -594,6 +599,11 @@ test('XS file powers expose every method the Node file powers expose', t => {
     missingOnXs,
     [],
     'every Node FilePowers method must also be a function on the XS powers',
+  );
+  t.is(
+    xsPowers.pathSeparator,
+    nodePowers.pathSeparator,
+    'Node and XS FilePowers must use the same path separator',
   );
 });
 

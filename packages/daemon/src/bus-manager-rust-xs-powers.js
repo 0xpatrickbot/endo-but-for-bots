@@ -269,6 +269,77 @@ export const makeXsFilePowers = () => {
   /** @type {FilePowers['joinPath']} */
   const joinPath = (...components) => hostJoinPath(...components);
 
+  /**
+   * Normalize a POSIX path without depending on a Node.js path module.
+   * XS supervisors run on the Rust host, whose filesystem paths use `/`.
+   *
+   * @param {string} path
+   * @returns {string}
+   */
+  const normalizePath = path => {
+    const absolute = path.startsWith('/');
+    const components = [];
+    for (const component of path.split('/')) {
+      if (component !== '' && component !== '.') {
+        if (component === '..') {
+          if (
+            components.length > 0 &&
+            components[components.length - 1] !== '..'
+          ) {
+            components.pop();
+          } else if (!absolute) {
+            components.push(component);
+          }
+        } else {
+          components.push(component);
+        }
+      }
+    }
+    const normalized = components.join('/');
+    if (absolute) {
+      return normalized === '' ? '/' : `/${normalized}`;
+    }
+    return normalized === '' ? '.' : normalized;
+  };
+
+  /** @type {FilePowers['resolvePath']} */
+  const resolvePath = (...segments) => {
+    let resolved = '';
+    for (let index = segments.length - 1; index >= 0; index -= 1) {
+      const segment = segments[index];
+      if (segment !== '') {
+        resolved = `${segment}/${resolved}`;
+        if (segment.startsWith('/')) {
+          break;
+        }
+      }
+    }
+    return normalizePath(resolved.startsWith('/') ? resolved : `/${resolved}`);
+  };
+
+  /** @type {FilePowers['relativePath']} */
+  const relativePath = (from, to) => {
+    const fromParts = normalizePath(from).split('/').filter(Boolean);
+    const toParts = normalizePath(to).split('/').filter(Boolean);
+    let common = 0;
+    while (
+      common < fromParts.length &&
+      common < toParts.length &&
+      fromParts[common] === toParts[common]
+    ) {
+      common += 1;
+    }
+    return [
+      ...Array(fromParts.length - common).fill('..'),
+      ...toParts.slice(common),
+    ].join('/');
+  };
+
+  /** @type {FilePowers['isAbsolutePath']} */
+  const isAbsolutePath = path => path.startsWith('/');
+
+  const pathSeparator = '/';
+
   /** @type {FilePowers['realPath']} */
   const realPath = async path => {
     const result = hostRealPath(DIR_TOKEN, toRelative(path));
@@ -475,6 +546,10 @@ export const makeXsFilePowers = () => {
     removeDirectory,
     renamePath,
     realPath,
+    resolvePath,
+    relativePath,
+    isAbsolutePath,
+    pathSeparator,
     readLink,
     pathIdentity,
     statPath,
