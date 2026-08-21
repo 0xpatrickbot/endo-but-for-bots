@@ -6,7 +6,10 @@ import test from 'ava';
 
 import { E } from '@endo/eventual-send';
 
-import { normalizeEndoProvisionSpec, provisionEndoGuest } from '../provision.js';
+import {
+  normalizeEndoProvisionSpec,
+  provisionEndoGuest,
+} from '../provision.js';
 
 import { makeProvisioningFixture } from './_provision-fixture.js';
 
