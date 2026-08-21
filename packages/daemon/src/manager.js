@@ -7188,9 +7188,10 @@ const makeDaemonCore = async (
     return getMountHostPath(scratchMountId);
   };
 
-  // Host guest provisioning needs a small path algebra beyond the file
-  // powers every supervisor guarantees. The Node powers surface it; a
-  // supervisor that omits any of these leaves `host.provision()` failing
+  // Host guest provisioning needs a small path algebra beyond the file powers
+  // every supervisor guarantees.
+  // The Node powers surface it.
+  // A supervisor that omits any of these leaves `host.provision()` failing
   // closed rather than mis-resolving paths.
   const provisionPathPowers =
     filePowers.resolvePath !== undefined &&

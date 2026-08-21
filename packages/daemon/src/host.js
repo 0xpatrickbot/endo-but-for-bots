@@ -340,9 +340,10 @@ harden(normalizeHttpClientPolicy);
  * @param {DaemonCore['listRetentionPaths']} [args.listRetentionPaths]
  * @param {DaemonCore['followRetentionPaths']} [args.followRetentionPaths]
  * @param {import('./provision-types.js').ProvisionPathPowers} [args.provisionPathPowers]
- *   Filesystem and path operations for `host.provision()`. Injected by the
- *   supervisor rather than imported here so the daemon core stays free of
- *   `node:` builtins; without them, `host.provision()` fails closed.
+ *   Filesystem and path operations for `host.provision()`.
+ *   Injected by the supervisor rather than imported here so the daemon core
+ *   stays free of `node:` builtins.
+ *   Without them, `host.provision()` fails closed.
  * @param {ReturnType<typeof makeTraceAggregator>} [args.traceAggregator]
  *   Optional. When provided, `host.traces()` returns an Exo whose
  *   methods proxy to this aggregator. Without it, `host.traces()`
@@ -2337,8 +2338,9 @@ export const makeHostMaker = ({
     // Spec-driven guest provisioning: validate a caller-held persistence
     // record against this host's own filesystem view and realize its
     // mounts, gits, remotes, and powers with direct local calls — no CapTP
-    // round trips. Path powers are injected by the supervisor
-    // (`manager.js`); when absent, the method fails closed.
+    // round trips.
+    // Path powers are injected by the supervisor (`manager.js`).
+    // When absent, the method fails closed.
     const provision = makeHostProvision({
       pathPowers: provisionPathPowers,
       has,

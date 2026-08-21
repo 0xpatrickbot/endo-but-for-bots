@@ -1741,8 +1741,9 @@ export interface EndoHost extends EndoAgent {
   provideHostPath(cap: unknown): Promise<string>;
   /**
    * Provision or recover a retained guest from an inert, non-secret
-   * persistence record (see `@endo/daemon/provision.js`). Realization is
-   * idempotent per alias: mounts, gits, remotes, and named powers are
+   * persistence record (see `@endo/daemon/provision.js`).
+   * Realization is idempotent per alias.
+   * Mounts, gits, remotes, and named powers are
    * retained under the record's controller namespace and re-bound into the
    * guest on each call. `forkOptions.forkFrom` copies retained power formula
    * identifiers from a validated parent session into a new session.
@@ -2204,8 +2205,9 @@ export type FilePowers = {
   // structurally satisfies FilePowers without an excess-property error.
   readLink?: (path: string) => Promise<string | undefined>;
   // Optional path algebra used by host guest provisioning
-  // (`EndoHost.provision`). Only the Node powers surface these today;
-  // a supervisor that omits them leaves `provision()` failing closed.
+  // (`EndoHost.provision`).
+  // Only the Node powers surface these today.
+  // A supervisor that omits them leaves `provision()` failing closed.
   resolvePath?: (...segments: string[]) => string;
   relativePath?: (from: string, to: string) => string;
   isAbsolutePath?: (path: string) => boolean;

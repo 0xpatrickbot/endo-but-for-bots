@@ -9,7 +9,8 @@ export type GitRemoteSpec = Omit<
   allowedDirections?: Array<'fetch' | 'push'>;
   fetchRefspecs?: string[];
   pushRefspecs?: string[];
-  /** Host-side pet name only. Secret material is never accepted here. */
+  /** Host-side pet name only. */
+  /** Secret material is never accepted here. */
   credential?: string | string[];
 };
 
@@ -152,7 +153,8 @@ export type EndoProvisionResult = {
 
 /**
  * Filesystem and path operations that parameterize the shared provisioning
- * policy. The client wires these from `node:fs/promises` and `node:path`;
+ * policy.
+ * The client wires these from `node:fs/promises` and `node:path`;
  * the daemon injects its supervisor's file powers so the host-side core
  * stays free of `node:` imports.
  */
