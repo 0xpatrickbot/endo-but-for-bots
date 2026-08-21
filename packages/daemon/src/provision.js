@@ -6,8 +6,9 @@
  * inert provisioning spec and its normalized persistence record, the
  * path-parameterized policy normalizer, and the host-side realizer.
  *
- * This module is deliberately free of `node:` imports so `host.js` can use
- * it on the XS daemon bundle. Filesystem and path operations arrive through
+ * This module is deliberately free of `node:` imports so `host.js` can use it
+ * on the XS daemon bundle.
+ * Filesystem and path operations arrive through
  * an injected {@link ProvisionPathPowers} bag: the client wires `node:fs` /
  * `node:path`, the daemon wires its supervisor's file powers.
  */
@@ -28,10 +29,11 @@ import { defaultDeniedSegments } from './mount.js';
 import { isPetName } from './pet-name.js';
 
 // Names the host reserves for infrastructure siblings under the controller
-// path: the persistence record, the guest handle and agent, and the
-// namespace container for provisioned Git remotes. A guest-binding name
-// matching one of these is rejected so any residual collision fails closed
-// rather than substituting a trusted record for the requested capability.
+// path: the persistence record, the guest handle and agent, and the namespace
+// container for provisioned Git remotes.
+// A guest-binding name matching one of these is rejected.
+// Any residual collision fails closed rather than substituting a trusted
+// record for the requested capability.
 const HOST_RESERVED_BINDINGS = harden([
   'persistence',
   'guest-agent',
@@ -189,12 +191,14 @@ export const EndoProvisionForkOptionsShape = M.splitRecord(
 // #region Boundary normalization and small assertions
 
 /**
- * Rebuild caller input as hardened, plain-prototype copy-data so
- * `mustMatch` and `keyEQ` accept it. Null-prototype dictionaries (which
- * pass-style rejects) become ordinary records; own `__proto__` keys are
- * copied as inert data properties (`Object.fromEntries` defines own
- * properties, so no prototype pollution). Exotic values pass through and
- * fail closed at the shape.
+ * Rebuild caller input as hardened, plain-prototype copy-data so `mustMatch`
+ * and `keyEQ` accept it.
+ * Null-prototype dictionaries, which pass-style rejects, become ordinary
+ * records.
+ * Own `__proto__` keys are copied as inert data properties.
+ * `Object.fromEntries` defines own properties, so no prototype pollution
+ * occurs.
+ * Exotic values pass through and fail closed at the shape.
  *
  * @param {unknown} value
  * @returns {unknown}
@@ -502,8 +506,9 @@ export const makeProvisionPolicy = pathPowers => {
       }
       return segment;
     });
-    // Persistence pins the canonical worktree root. Revalidation must check
-    // that pinned root itself still exists and remains confined, without
+    // Persistence pins the canonical worktree root.
+    // Revalidation must check that pinned root itself still exists and remains
+    // confined, without
     // following a selector that may have been replaced by a symlink after
     // the first normalization.
     const root = await canonicalDirectory(
@@ -777,7 +782,8 @@ export const makeProvisionPolicy = pathPowers => {
    * Validate and re-normalize caller-held persistence before reconstruction.
    * This re-resolves every canonical root and every mount-relative Git
    * selector, so moved or symlink-swapped roots fail closed before host
-   * realization. The record must be an exact fixpoint of normalization.
+   * realization.
+   * The record must be an exact fixpoint of normalization.
    *
    * @param {unknown} value
    * @returns {Promise<EndoProvisionPersistence>}
@@ -920,7 +926,8 @@ harden(makeProvisionPolicy);
 
 /**
  * Make the host-side realizer behind `E(host).provision(persistence,
- * forkOptions?)`. Receives the host's local functions and performs the
+ * forkOptions?)`.
+ * Receives the host's local functions and performs the
  * whole realization in-process: no CapTP round trips.
  *
  * Realization parallelizes independent items and keeps exactly two ordering
@@ -951,7 +958,8 @@ export const makeHostProvision = powers => {
     pathPowers === undefined ? undefined : makeProvisionPolicy(pathPowers);
 
   /**
-   * Whether every prefix of the path resolves. Local calls are cheap, so a
+   * Whether every prefix of the path resolves.
+   * Local calls are cheap, so a
    * per-segment walk costs no round trips; walking prefixes avoids the
    * lookup error a missing intermediate directory would raise.
    *
@@ -1070,10 +1078,10 @@ export const makeHostProvision = powers => {
   };
 
   /**
-   * Resolve each requested power once and retain its exact formula
-   * identifier: reusing that identifier prevents a concurrent host-name
-   * change from substituting a different capability between resolution and
-   * retention. For forks (`retained: true`) the identifiers come from the
+   * Resolve each requested power once and retain its exact formula identifier.
+   * Reusing that identifier prevents a concurrent host-name change from
+   * substituting a different capability between resolution and retention.
+   * For forks (`retained: true`) the identifiers come from the
    * parent's retained controller aliases rather than re-resolving its
    * source paths.
    *
@@ -1198,7 +1206,8 @@ export const makeHostProvision = powers => {
     await ensureNameDirectory(persistence.guestHandlePath.slice(0, 2));
     await ensureNameDirectory(controllerPath);
     // Ordering barrier: record the authenticated policy before creating any
-    // capability alias. If provisioning is interrupted after this point, a
+    // capability alias.
+    // If provisioning is interrupted after this point, a
     // later attempt cannot reuse those aliases under a changed policy.
     if (!(await hasNamePath(persistencePath))) {
       await storeValue(persistence, persistencePath);
@@ -1246,7 +1255,8 @@ export const makeHostProvision = powers => {
               );
             }
             const gitMount = /** @type {EndoMount} */ (
-              // A Git grant gets a fresh exact-root mount. The selected named
+              // A Git grant gets a fresh exact-root mount.
+              // The selected named
               // mount is the authority ceiling; this derived mount prevents a
               // Git capability from silently covering unrelated paths in that
               // mount.
@@ -1274,9 +1284,7 @@ export const makeHostProvision = powers => {
 
     /** @param {Map<string, unknown>} gits */
     const realizeRemotes = async gits => {
-      const remoteEntries = Object.entries(
-        persistence.policy.gitRemotes ?? {},
-      );
+      const remoteEntries = Object.entries(persistence.policy.gitRemotes ?? {});
       const rootGit = gits.get('git');
       if (rootGit === undefined) {
         if (remoteEntries.length > 0) {
