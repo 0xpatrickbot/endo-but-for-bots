@@ -2,11 +2,11 @@
 /// <reference types="ses"/>
 
 /**
- * Client half of daemon guest provisioning. This is the only provisioning
- * module with `node:` imports: it canonicalizes caller paths, derives the
- * deterministic session key, connects to the daemon socket, and hands the
- * normalized persistence record to the host's `provision` method in one
- * call.
+ * Client half of daemon guest provisioning.
+ * This is the only provisioning module with `node:` imports.
+ * It canonicalizes caller paths, derives the deterministic session key,
+ * connects to the daemon socket, and hands the normalized persistence record
+ * to the host's `provision` method in one call.
  */
 
 /** @import { EndoConnectionFailureObserver, EndoProvisionForkOptions, EndoProvisionPersistence, EndoProvisionResult, EndoProvisionSpec, NormalizeEndoProvisionOptions, ProvisionEndoGuestOptions, ProvisionPathPowers, ReconstructEndoGuestOptions } from './provision-types.js' */
@@ -50,8 +50,10 @@ const nodePathPowers = harden({
   pathSeparator: sep,
 });
 
-const { normalizePolicy, validateEndoProvisionPersistence: validatePersistence } =
-  makeProvisionPolicy(nodePathPowers);
+const {
+  normalizePolicy,
+  validateEndoProvisionPersistence: validatePersistence,
+} = makeProvisionPolicy(nodePathPowers);
 
 /**
  * Validate and re-normalize caller-held persistence before reconstruction.
@@ -148,11 +150,13 @@ export const makeProvisionCapTpOptions = onConnectionFailure =>
 harden(makeProvisionCapTpOptions);
 
 /**
- * Restore `EndoCredentialUnavailableError` class identity for rejections
- * that crossed CapTP: marshalling preserves the message but not the class,
- * so callers' `instanceof` checks would otherwise break. The stable message
- * sentinel identifies the failure; the rebranded error keeps the original
- * message and stack and regains the `code` property.
+ * Restore `EndoCredentialUnavailableError` class identity for rejections that
+ * crossed CapTP.
+ * Marshalling preserves the message but not the class, so callers'
+ * `instanceof` checks would otherwise break.
+ * The stable message sentinel identifies the failure.
+ * The rebranded error keeps the original message and stack and regains the
+ * `code` property.
  *
  * @param {unknown} error
  * @returns {unknown}
@@ -229,9 +233,10 @@ const connectAndProvision = async (
     const bootstrap = await client.getBootstrap();
     const host = /** @type {EndoHost} */ (await E(bootstrap).host());
     const guest = /** @type {EndoGuest} */ (
-      await (forkOptions === undefined
-        ? E(host).provision(persistence)
-        : E(host).provision(persistence, forkOptions)
+      await (
+        forkOptions === undefined
+          ? E(host).provision(persistence)
+          : E(host).provision(persistence, forkOptions)
       ).catch(error => {
         throw rebrandCredentialUnavailable(error);
       })
@@ -249,9 +254,10 @@ const connectAndProvision = async (
 
 /**
  * Provision or recover one deterministic retained daemon guest from inert
- * caller policy. Filesystem and Git grants are selected independently, but a
- * writable Git grant requires a writable filesystem grant: the native Git
- * backend writes the same working tree at the OS level, so a read-only
+ * caller policy.
+ * Filesystem and Git grants are selected independently.
+ * A writable Git grant requires a writable filesystem grant.
+ * The native Git backend writes the same working tree at the OS level, so a read-only
  * filesystem view cannot coexist with writable Git.
  *
  * @param {ProvisionEndoGuestOptions} options
@@ -273,7 +279,8 @@ harden(provisionEndoGuest);
 
 /**
  * Reconnect to a retained guest from its normalized, non-secret persistence
- * record. A host-retained copy of the original record is compared before any
+ * record.
+ * A host-retained copy of the original record is compared before any
  * capability is reused, so descriptor tampering cannot widen authority.
  *
  * @param {ReconstructEndoGuestOptions} options

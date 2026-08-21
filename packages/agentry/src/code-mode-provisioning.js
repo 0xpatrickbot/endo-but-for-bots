@@ -24,11 +24,11 @@ import {
  * Promise-delivered application failures remain owned by their awaiting
  * caller; only connection failures cross this host-owned observer boundary.
  *
- * Thin re-implementation of the daemon's `makeProvisionCapTpOptions`
- * (`@endo/daemon/src/provision-client.js`), which the daemon does not export
- * from its public thunk; keep the two in sync. Exported for focused policy
- * tests, but intentionally omitted from the package's public provisioning
- * thunk.
+ * Thin re-implementation of the daemon's `makeProvisionCapTpOptions`.
+ * The daemon does not export that function from its public thunk.
+ * Keep the two implementations in sync.
+ * This function is exported for focused policy tests.
+ * It is intentionally omitted from the package's public provisioning thunk.
  *
  * @param {EndoConnectionFailureObserver} onConnectionFailure
  */

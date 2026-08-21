@@ -19,21 +19,22 @@ import { registerProvisionedGuest } from './code-mode-grants.js';
 export { EndoCredentialUnavailableError };
 
 /**
- * Stable message fragment identifying a credential-unavailable failure. The
- * daemon's own client re-brands rejections on its socket path; this copy
- * covers the direct `E(host).provision(...)` path when `host` is a CapTP
- * presence, where class identity does not survive marshalling. It must stay
- * in sync with `CREDENTIAL_UNAVAILABLE_SENTINEL` in
- * `@endo/daemon/src/provision.js`, which the daemon does not export from its
- * public thunk.
+ * Stable message fragment identifying a credential-unavailable failure.
+ * The daemon's own client re-brands rejections on its socket path.
+ * This copy covers the direct `E(host).provision(...)` path when `host` is a
+ * CapTP presence, where class identity does not survive marshalling.
+ * It must stay in sync with `CREDENTIAL_UNAVAILABLE_SENTINEL` in
+ * `@endo/daemon/src/provision.js`.
+ * The daemon does not export that sentinel from its public thunk.
  */
 const CREDENTIAL_UNAVAILABLE_SENTINEL =
   'reprovision the credential on the host and retry';
 
 /**
- * Restore `EndoCredentialUnavailableError` class identity for rejections
- * that crossed CapTP. In-process hosts reject with the original error, which
- * passes through untouched.
+ * Restore `EndoCredentialUnavailableError` class identity for rejections that
+ * crossed CapTP.
+ * In-process hosts reject with the original error, which passes through
+ * untouched.
  *
  * @param {unknown} error
  * @returns {unknown}
@@ -94,11 +95,12 @@ export const realizeEndoProvisionOnHost = async (
     throw makeError(X`Fork provision policies have different session context`);
   }
   const daemonPersistence = projectDaemonProvisionPersistence(normalized);
-  const guest = await (forkFrom === undefined
-    ? E(host).provision(daemonPersistence)
-    : E(host).provision(daemonPersistence, {
-        forkFrom: projectDaemonProvisionPersistence(forkFrom),
-      })
+  const guest = await (
+    forkFrom === undefined
+      ? E(host).provision(daemonPersistence)
+      : E(host).provision(daemonPersistence, {
+          forkFrom: projectDaemonProvisionPersistence(forkFrom),
+        })
   ).catch(error => {
     throw rebrandCredentialUnavailable(error);
   });

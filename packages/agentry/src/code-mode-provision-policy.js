@@ -16,10 +16,11 @@ const GRANT_FIELDS = harden(['from', 'description']);
 const HARNESS_KEY_RE = /^[a-z][a-z0-9-]{0,31}$/u;
 const IDENTIFIER_RE = /^[A-Za-z_$][0-9A-Za-z_$]*$/u;
 
-// Provisioned bindings become lexical globals in the code-mode compartment,
-// so agentry — not the daemon — polices JavaScript identifier validity and
-// reserved words. The daemon only enforces pet-name validity and its own
-// host-infrastructure namespace.
+// Provisioned bindings become lexical globals in the code-mode compartment.
+// Agentry, not the daemon, polices JavaScript identifier validity and reserved
+// words.
+// The daemon only enforces pet-name validity and its own host-infrastructure
+// namespace.
 const LANGUAGE_RESERVED_BINDINGS = harden([
   'arguments',
   'await',
@@ -79,9 +80,10 @@ const PRODUCT_RESERVED_BINDINGS = harden([
   'workspace',
 ]);
 // Names the daemon host reserves for infrastructure siblings under the
-// controller path. The daemon rejects these itself, but agentry checks them
-// too so the failure carries the compartment-binding wording and does not
-// depend on daemon ordering.
+// controller path.
+// The daemon rejects these itself.
+// Agentry checks them too so the failure carries the compartment-binding
+// wording and does not depend on daemon ordering.
 const HOST_RESERVED_BINDINGS = harden([
   'persistence',
   'guest-agent',
@@ -153,9 +155,10 @@ const assertBindingName = (name, label) => {
 const BOUND_NAME_CATEGORIES = harden(['mounts', 'gits', 'gitRemotes']);
 
 /**
- * Police binding names for the daemon-owned categories (mounts, gits,
- * gitRemotes). Only well-formed dictionaries are inspected here; structural
- * validation of malformed values stays with the daemon shapes.
+ * Police binding names for the daemon-owned categories (mounts, gits, and
+ * gitRemotes).
+ * Only well-formed dictionaries are inspected here.
+ * Structural validation of malformed values stays with the daemon shapes.
  *
  * A normalized policy record legitimately carries the generated
  * compatibility bindings `mounts.workspace` and `gits.git`, which the spec
