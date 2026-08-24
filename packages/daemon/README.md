@@ -36,8 +36,11 @@ const session = await provisionEndoGuest({
   sessionId: conversationId,
   cwd: process.cwd(),
   spec: {
-    workspace: { path: '.', deniedSegments: ['.git', '.env'] },
-    fs: 'readWrite',
+    workspace: {
+      path: '.',
+      mode: 'readWrite',
+      deniedSegments: ['.git', '.env'],
+    },
     git: 'readOnly',
   },
 });
@@ -56,12 +59,16 @@ const recovered = await reconstructEndoGuest({
 });
 ```
 
-Omission grants nothing.
-`fs`, `git`, `mounts`, `gits`, and `gitRemotes` select filesystem and Git
+Omission grants no filesystem binding.
+The `workspace` grant is the guest-visible filesystem capability and carries its
+path, denied segments, and read-only or read-write mode together.
+`git`, `mounts`, `gits`, and `gitRemotes` select Git and additional filesystem
 authority; `powers` pins host pet-name paths and introduces the retained formula
 identities into the guest.
-Writable Git requires a writable guest-visible mount because the native Git
-backend writes the same working tree.
+Git may use an internal worktree mount without granting general filesystem
+access to the guest.
+Writable Git requires a writable guest-visible `workspace` grant or named mount
+because the native Git backend writes the same working tree.
 The persistence record contains normalized policy but no live capability,
 credential material, formula identifier, daemon endpoint, or prompt context.
 Credential policy contains only a host-side pet name; credential material stays

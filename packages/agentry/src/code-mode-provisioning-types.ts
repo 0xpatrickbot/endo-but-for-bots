@@ -11,6 +11,7 @@ import type {
   NormalizedGitGrant,
   NormalizedGitRemoteSpec,
   NormalizedMountGrant,
+  WorkspaceGrant,
 } from '@endo/daemon/provision.js';
 import type { EndoGuest } from '@endo/daemon';
 
@@ -28,6 +29,7 @@ export type {
   NormalizedGitGrant,
   NormalizedGitRemoteSpec,
   NormalizedMountGrant,
+  WorkspaceGrant,
 };
 
 export type EndoProvisionGrantSpec = {

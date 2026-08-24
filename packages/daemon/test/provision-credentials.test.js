@@ -43,7 +43,7 @@ test.serial(
 
     /** @type {EndoProvisionSpec} */
     const spec = harden({
-      fs: 'readWrite',
+      workspace: { mode: 'readWrite' },
       git: 'readWrite',
       gitRemotes: {
         upstream: {
@@ -94,7 +94,7 @@ test.serial(
           cwd: fixture.workspace,
           sockPath: fixture.sockPath,
           spec: {
-            fs: 'readWrite',
+            workspace: { mode: 'readWrite' },
             git: 'readWrite',
             gitRemotes: {
               upstream: {
@@ -117,7 +117,7 @@ test.serial(
           cwd: fixture.workspace,
           sockPath: fixture.sockPath,
           spec: {
-            fs: 'readWrite',
+            workspace: { mode: 'readWrite' },
             git: 'readWrite',
             gitRemotes: {
               upstream: {

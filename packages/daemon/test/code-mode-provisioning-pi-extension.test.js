@@ -138,7 +138,10 @@ test.serial(
       cwd: fixture.workspace,
       sessionId: 'pi-extension-demo',
       entries: [],
-      flag: JSON.stringify({ fs: 'readWrite', git: 'readOnly' }),
+      flag: JSON.stringify({
+        workspace: { mode: 'readWrite' },
+        git: 'readOnly',
+      }),
       sockPath: fixture.sockPath,
     });
     await driver.emit('session_start', {

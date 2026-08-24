@@ -95,6 +95,11 @@ const MountGrantShape = M.splitRecord(
   { deniedSegments: StringListShape },
   {},
 );
+const WorkspaceGrantShape = M.splitRecord(
+  { mode: FsModeShape },
+  { path: M.string(), deniedSegments: StringListShape },
+  {},
+);
 const GitGrantShape = M.splitRecord(
   { path: StringListShape, mode: GitModeShape },
   { mount: M.string() },
@@ -121,12 +126,7 @@ const PowerSpecShape = M.splitRecord({ from: NonEmptyStringListShape }, {}, {});
 export const EndoProvisionSpecShape = M.splitRecord(
   {},
   {
-    workspace: M.splitRecord(
-      {},
-      { path: M.string(), deniedSegments: StringListShape },
-      {},
-    ),
-    fs: FsModeShape,
+    workspace: WorkspaceGrantShape,
     git: GitModeShape,
     mounts: M.recordOf(M.string(), MountGrantShape),
     gits: M.recordOf(M.string(), GitGrantShape),
@@ -484,7 +484,7 @@ export const makeProvisionPolicy = pathPowers => {
     }
     if (writable && !selectedMount.guestBinding) {
       throw makeError(
-        X`writable Git grant ${q(name)} requires its selected mount ${q(mountName)} to be guest-bound (grant an fs or mount binding the guest can see)`,
+        X`writable Git grant ${q(name)} requires its selected mount ${q(mountName)} to be guest-bound (grant a workspace or named mount the guest can see)`,
       );
     }
     const path = grant.path.map((segment, index) => {
@@ -581,8 +581,7 @@ export const makeProvisionPolicy = pathPowers => {
     assertNoSecretFields(spec, 'EndoProvisionSpec');
     mustMatch(spec, EndoProvisionSpecShape, 'EndoProvisionSpec');
     const {
-      workspace = {},
-      fs,
+      workspace,
       git,
       mounts: mountsSpec = {},
       gits: gitsSpec = {},
@@ -592,7 +591,7 @@ export const makeProvisionPolicy = pathPowers => {
 
     const canonicalCwd = await canonicalDirectory(resolvePath(cwd), 'cwd');
     const workspacePath = await canonicalDirectory(
-      workspace.path === undefined
+      workspace?.path === undefined
         ? canonicalCwd
         : resolvePath(
             canonicalCwd,
@@ -604,9 +603,10 @@ export const makeProvisionPolicy = pathPowers => {
       'EndoProvisionSpec.workspace.path',
     );
     const workspaceDeniedSegments = normalizeDeniedSegments(
-      workspace.deniedSegments,
+      workspace?.deniedSegments,
       'EndoProvisionSpec.workspace.deniedSegments',
     );
+    const workspaceMode = workspace?.mode;
 
     /** @type {Map<string, NormalizedMountGrant>} */
     const mounts = new Map();
@@ -627,24 +627,24 @@ export const makeProvisionPolicy = pathPowers => {
       ...(git === undefined ? [] : [git]),
       ...workspaceGits.map(grant => grant.mode),
     ].some(mode => mode === 'readWrite' || mode === 'historyRewrite');
-    if (fs !== 'readWrite' && workspaceGitWritable) {
+    if (workspaceMode !== 'readWrite' && workspaceGitWritable) {
       throw makeError(
-        X`writable Git requires a writable filesystem grant; declare fs: 'readWrite' or an explicit guest-bound writable mount; the compatibility workspace cannot use fs: 'readOnly' or omitted fs for a writable Git grant`,
+        X`writable Git requires workspace.mode: 'readWrite' or an explicit guest-bound writable mount; an omitted or read-only workspace cannot grant writable Git authority`,
       );
     }
     const needsWorkspaceMount =
-      fs !== undefined || git !== undefined || workspaceGits.length > 0;
+      workspace !== undefined || git !== undefined || workspaceGits.length > 0;
     if (needsWorkspaceMount && !mounts.has('workspace')) {
       mounts.set(
         'workspace',
         harden({
           root: workspacePath,
           mode:
-            fs === 'readWrite' || workspaceGitWritable
+            workspaceMode === 'readWrite' || workspaceGitWritable
               ? 'readWrite'
               : 'readOnly',
           deniedSegments: workspaceDeniedSegments,
-          guestBinding: fs !== undefined,
+          guestBinding: workspace !== undefined,
         }),
       );
     }
@@ -818,10 +818,8 @@ export const makeProvisionPolicy = pathPowers => {
     // the prototype setter for an own `__proto__` key and drop that grant.
     /** @type {Array<[string, MountGrant]>} */
     const mountEntries = [];
-    /** @type {{ path: string, deniedSegments: string[] } | undefined} */
+    /** @type {{ path: string, mode: 'readOnly' | 'readWrite', deniedSegments: string[], guestBinding: boolean } | undefined} */
     let workspaceMount;
-    /** @type {'readOnly' | 'readWrite' | undefined} */
-    let fs;
     /** @type {'readOnly' | 'readWrite' | 'historyRewrite' | undefined} */
     let rootGitMode;
     /** @type {Map<string, string>} */
@@ -834,11 +832,10 @@ export const makeProvisionPolicy = pathPowers => {
       if (name === 'workspace') {
         workspaceMount = {
           path: mount.root,
+          mode: mount.mode,
           deniedSegments: mount.deniedSegments,
+          guestBinding: mount.guestBinding,
         };
-        if (mount.guestBinding) {
-          fs = mount.mode;
-        }
       } else {
         if (!mount.guestBinding) {
           throw makeError(
@@ -885,15 +882,15 @@ export const makeProvisionPolicy = pathPowers => {
     const gits = Object.fromEntries(gitEntries);
 
     const reconstructedSpec = harden({
-      ...(workspaceMount === undefined
+      ...(workspaceMount === undefined || !workspaceMount.guestBinding
         ? {}
         : {
             workspace: harden({
               path: workspaceMount.path,
+              mode: workspaceMount.mode,
               deniedSegments: harden([...workspaceMount.deniedSegments]),
             }),
           }),
-      ...(fs === undefined ? {} : { fs }),
       ...(rootGitMode === undefined ? {} : { git: rootGitMode }),
       ...(Object.keys(mounts).length === 0 ? {} : { mounts }),
       ...(Object.keys(gits).length === 0 ? {} : { gits }),

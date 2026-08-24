@@ -38,7 +38,7 @@ test('normalization preserves omission and resolves a canonical cwd', async t =>
     },
   );
   const relative = await normalizeEndoProvisionSpec(
-    { workspace: { path: 'child' } },
+    { workspace: { path: 'child', mode: 'readOnly' } },
     { harness: 'test', sessionId: 'relative-session', cwd: root },
   );
 
@@ -118,7 +118,7 @@ test('Git remote policy uses the authoritative exo-git normal form', async t => 
   const localRemoteUrl = pathToFileURL(root).href;
   const persistence = await normalizeEndoProvisionSpec(
     {
-      fs: 'readWrite',
+      workspace: { mode: 'readWrite' },
       git: 'readWrite',
       gitRemotes: {
         upstreamRemote: {
@@ -181,7 +181,7 @@ test('Git remote dictionaries retain an own __proto__ binding', async t => {
   }`);
   const persistence = await normalizeEndoProvisionSpec(
     {
-      fs: 'readWrite',
+      workspace: { mode: 'readWrite' },
       git: 'readWrite',
       gitRemotes,
     },
@@ -214,7 +214,7 @@ test('mount and Git dictionaries retain own __proto__ bindings', async t => {
     }
   }`);
   const gitPersistence = await normalizeEndoProvisionSpec(
-    { fs: 'readOnly', gits },
+    { workspace: { mode: 'readOnly' }, gits },
     { harness: 'test', sessionId: 'proto-git', cwd: root },
   );
   t.deepEqual(Object.keys(gitPersistence.policy.gits ?? {}), ['__proto__']);
@@ -225,7 +225,7 @@ test('Git grants normalize mount-relative paths and modes', async t => {
   const { root, child } = await makeWorkspace(t);
   const persistence = await normalizeEndoProvisionSpec(
     {
-      fs: 'readWrite',
+      workspace: { mode: 'readWrite' },
       gits: {
         zeta: { path: ['child'], mode: 'historyRewrite' },
         ebfb: { path: [], mode: 'readOnly' },
@@ -258,11 +258,15 @@ test('Git grants normalize mount-relative paths and modes', async t => {
   t.true(Object.isFrozen(persistence.policy.gits?.ebfb));
 });
 
-test('read-only Git can omit the filesystem grant', async t => {
+test('read-only Git can omit the workspace grant', async t => {
   const { root } = await makeWorkspace(t);
   const readOnly = await normalizeEndoProvisionSpec(
     { git: 'readOnly' },
-    { harness: 'test', sessionId: 'read-only-git-without-fs', cwd: root },
+    {
+      harness: 'test',
+      sessionId: 'read-only-git-without-workspace',
+      cwd: root,
+    },
   );
 
   t.deepEqual(readOnly.policy.mounts?.workspace, {
@@ -279,8 +283,8 @@ test('read-only Git can omit the filesystem grant', async t => {
   });
 
   const writable = await normalizeEndoProvisionSpec(
-    { fs: 'readWrite', git: 'readWrite' },
-    { harness: 'test', sessionId: 'writable-git-with-fs', cwd: root },
+    { workspace: { mode: 'readWrite' }, git: 'readWrite' },
+    { harness: 'test', sessionId: 'writable-git-with-workspace', cwd: root },
   );
   t.is(writable.policy.mounts?.workspace.mode, 'readWrite');
   t.is(writable.policy.mounts?.workspace.guestBinding, true);
@@ -294,7 +298,7 @@ test('Git grants pin canonical roots across validation', async t => {
 
   const persistence = await normalizeEndoProvisionSpec(
     {
-      fs: 'readWrite',
+      workspace: { mode: 'readWrite' },
       gits: { linked: { path: ['child-link'], mode: 'readOnly' } },
     },
     { harness: 'test', sessionId: 'canonical-git', cwd: root },
@@ -314,7 +318,11 @@ test('Git grants reject binding collisions, escapes, denial, and capping', async
   const { root } = await makeWorkspace(t);
   const normalizeGits = (gits, extra = {}) =>
     normalizeEndoProvisionSpec(
-      /** @type {any} */ ({ fs: 'readWrite', gits, ...extra }),
+      /** @type {any} */ ({
+        ...extra,
+        workspace: { mode: 'readWrite', ...(extra.workspace ?? {}) },
+        gits,
+      }),
       { harness: 'test', sessionId: 'invalid-git', cwd: root },
     );
 
@@ -366,12 +374,12 @@ test('Git grants reject binding collisions, escapes, denial, and capping', async
       () =>
         normalizeEndoProvisionSpec(
           {
-            fs: 'readOnly',
+            workspace: { mode: 'readOnly' },
             gits: { nested: { path: ['child'], mode } },
           },
           { harness: 'test', sessionId: 'capped-git', cwd: root },
         ),
-      { message: /writable Git requires a writable filesystem grant/ },
+      { message: /writable Git requires workspace\.mode/ },
     );
   }
 
@@ -379,7 +387,7 @@ test('Git grants reject binding collisions, escapes, denial, and capping', async
     () =>
       normalizeEndoProvisionSpec(
         {
-          fs: 'readWrite',
+          workspace: { mode: 'readWrite' },
           git: 'readWrite',
           gits: { origin: { path: ['child'], mode: 'readOnly' } },
           gitRemotes: {
@@ -456,7 +464,7 @@ test('host infrastructure names are reserved for mounts and remotes', async t =>
     () =>
       normalizeEndoProvisionSpec(
         {
-          fs: 'readWrite',
+          workspace: { mode: 'readWrite' },
           git: 'readWrite',
           gitRemotes: {
             persistence: {
@@ -517,7 +525,7 @@ test('named mounts coexist and cap each selected Git grant independently', async
     () =>
       normalizeEndoProvisionSpec(
         {
-          fs: 'readWrite',
+          workspace: { mode: 'readWrite' },
           mounts: {
             source: { path: readOnlyRoot, mode: 'readOnly' },
             destination: { path: writableRoot, mode: 'readWrite' },
@@ -544,29 +552,36 @@ test('EndoProvisionSpec rejects malformed roots and incompatible modes', async t
   // only stable fragments, not the full rendered pattern output.
   const invalid = [
     [{ extra: true }, /extra.*Must be/],
-    [{ workspace: { extra: true } }, /workspace.*extra.*Must be/],
-    [{ fs: 'sometimes' }, /fs.*Must match one of/],
+    [
+      { workspace: { mode: 'readOnly', extra: true } },
+      /workspace.*extra.*Must be/,
+    ],
+    [
+      { workspace: { mode: 'sometimes' } },
+      /workspace.*mode.*Must match one of/,
+    ],
     [{ git: 'force' }, /git.*Must match one of/],
     [{ piTools: 'replace' }, /piTools must be preserve/],
     [
-      { fs: 'readOnly', git: 'readWrite' },
-      /writable Git requires a writable filesystem grant/,
+      { workspace: { mode: 'readOnly' }, git: 'readWrite' },
+      /writable Git requires workspace\.mode/,
     ],
     [
-      { fs: 'readOnly', git: 'historyRewrite' },
-      /writable Git requires a writable filesystem grant/,
+      { workspace: { mode: 'readOnly' }, git: 'historyRewrite' },
+      /writable Git requires workspace\.mode/,
     ],
+    [{ fs: 'readWrite' }, /fs.*Must be/],
     [
       { git: 'readWrite' },
-      /writable Git requires a writable filesystem grant.*omitted fs/,
+      /writable Git requires workspace\.mode.*omitted or read-only workspace/,
     ],
     [
       { git: 'historyRewrite' },
-      /writable Git requires a writable filesystem grant.*omitted fs/,
+      /writable Git requires workspace\.mode.*omitted or read-only workspace/,
     ],
     [
       { gits: { nested: { path: [], mode: 'readWrite' } } },
-      /writable Git requires a writable filesystem grant.*omitted fs/,
+      /writable Git requires workspace\.mode.*omitted or read-only workspace/,
     ],
     [
       { git: 'readOnly', gitRemotes: { origin: { url: 'file:///tmp/x' } } },
@@ -583,7 +598,7 @@ test('EndoProvisionSpec rejects malformed roots and incompatible modes', async t
   await t.throwsAsync(
     () =>
       normalizeEndoProvisionSpec(
-        { workspace: { path: 'missing' }, fs: 'readOnly' },
+        { workspace: { path: 'missing', mode: 'readOnly' } },
         { harness: 'test', sessionId: 'missing', cwd: root },
       ),
     { message: /does not exist or cannot be resolved/ },
@@ -647,7 +662,7 @@ test('named grants reject invalid bindings, paths, descriptions, and collisions'
     () =>
       normalizeEndoProvisionSpec(
         {
-          fs: 'readWrite',
+          workspace: { mode: 'readWrite' },
           git: 'readWrite',
           grants: { origin: { from: ['tools', 'origin'] } },
           gitRemotes: {
@@ -667,7 +682,11 @@ test('Git remote policy rejects invalid bindings and credential material', async
   const { root } = await makeWorkspace(t);
   const normalizeRemote = gitRemotes =>
     normalizeEndoProvisionSpec(
-      /** @type {any} */ ({ fs: 'readWrite', git: 'readWrite', gitRemotes }),
+      /** @type {any} */ ({
+        workspace: { mode: 'readWrite' },
+        git: 'readWrite',
+        gitRemotes,
+      }),
       { harness: 'test', sessionId: 'invalid-remote', cwd: root },
     );
   const invalid = [
@@ -715,7 +734,7 @@ test('Git remote policy rejects invalid branch and pull selections', async t => 
   const normalizeOrigin = origin =>
     normalizeEndoProvisionSpec(
       /** @type {any} */ ({
-        fs: 'readWrite',
+        workspace: { mode: 'readWrite' },
         git: 'readWrite',
         gitRemotes: { origin },
       }),

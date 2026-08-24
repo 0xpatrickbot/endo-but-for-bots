@@ -255,10 +255,11 @@ const connectAndProvision = async (
 /**
  * Provision or recover one deterministic retained daemon guest from inert
  * caller policy.
- * Filesystem and Git grants are selected independently.
- * A writable Git grant requires a writable filesystem grant.
+ * The workspace grant carries the guest-visible filesystem posture.
+ * A writable Git grant requires a writable guest-visible workspace or named
+ * mount.
  * The native Git backend writes the same working tree at the OS level, so a read-only
- * filesystem view cannot coexist with writable Git.
+ * workspace view cannot coexist with writable Git.
  *
  * @param {ProvisionEndoGuestOptions} options
  * @returns {Promise<EndoProvisionResult>}

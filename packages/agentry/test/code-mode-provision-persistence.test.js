@@ -26,9 +26,11 @@ test('persistence validation accepts only normalized records', async t => {
   const root = await makeWorkspace(t);
   const persistence = await normalizeEndoProvisionSpec(
     {
-      fs: 'readOnly',
+      workspace: {
+        mode: 'readOnly',
+        deniedSegments: ['private', '.git'],
+      },
       piTools: 'preserve',
-      workspace: { deniedSegments: ['private', '.git'] },
     },
     { harness: 'test', sessionId: 'persist', cwd: root },
   );
@@ -110,7 +112,7 @@ test('Git grants reconstruct from persistence without the original spec', async 
   await mkdir(join(root, 'nested-repo'));
   const persistence = await normalizeEndoProvisionSpec(
     {
-      fs: 'readWrite',
+      workspace: { mode: 'readWrite' },
       gits: { ebfb: { path: ['nested-repo'], mode: 'readWrite' } },
     },
     { harness: 'test', sessionId: 'git-restart', cwd: root },
@@ -153,7 +155,7 @@ test('persistence reconstruction retains own __proto__ mount and Git grants', as
     "__proto__": { "path": [], "mode": "readOnly" }
   }`);
   const granted = await normalizeEndoProvisionSpec(
-    { fs: 'readOnly', gits },
+    { workspace: { mode: 'readOnly' }, gits },
     { harness: 'test', sessionId: 'persist-proto-git', cwd: root },
   );
   const grantedReconstructed = await validateEndoProvisionPersistence(
@@ -168,7 +170,7 @@ test('missing Git directories reject the whole persisted authority', async t => 
   await mkdir(nestedPath);
   const persistence = await normalizeEndoProvisionSpec(
     {
-      fs: 'readWrite',
+      workspace: { mode: 'readWrite' },
       gits: { ebfb: { path: ['nested-repo'], mode: 'readOnly' } },
     },
     { harness: 'test', sessionId: 'missing-git-repo', cwd: root },
@@ -233,7 +235,9 @@ test('runtime authority and prompt context project separately', async t => {
 test('persistence equality ignores record key order but preserves array order', async t => {
   const root = await makeWorkspace(t);
   const persistence = await normalizeEndoProvisionSpec(
-    { fs: 'readOnly', workspace: { deniedSegments: ['.git', 'private'] } },
+    {
+      workspace: { mode: 'readOnly', deniedSegments: ['.git', 'private'] },
+    },
     { harness: 'test', sessionId: 'equality', cwd: root },
   );
   const reordered = {

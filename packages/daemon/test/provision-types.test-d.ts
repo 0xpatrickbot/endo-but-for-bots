@@ -32,3 +32,8 @@ const harnessPolicy: EndoProvisionSpec = {
   piTools: 'preserve',
 };
 expectTypeOf(harnessPolicy).toEqualTypeOf<EndoProvisionSpec>();
+
+const workspaceGrant: EndoProvisionSpec = {
+  workspace: { path: '.', mode: 'readOnly', deniedSegments: ['.git'] },
+};
+expectTypeOf(workspaceGrant).toEqualTypeOf<EndoProvisionSpec>();

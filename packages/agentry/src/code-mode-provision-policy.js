@@ -162,7 +162,7 @@ const BOUND_NAME_CATEGORIES = harden(['mounts', 'gits', 'gitRemotes']);
  *
  * A normalized policy record legitimately carries the generated
  * compatibility bindings `mounts.workspace` and `gits.git`, which the spec
- * form spells as the `workspace`/`fs`/`git` fields instead; the validate
+ * form spells as the `workspace`/`git` fields instead; the validate
  * path exempts exactly those two names and the daemon's fixpoint check
  * rejects any impostor that does not match the generated shape.
  *

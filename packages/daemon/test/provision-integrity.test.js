@@ -20,7 +20,7 @@ test.serial(
     const fixture = await makeProvisioningFixture(t);
     const host = await fixture.connectHost('integrity-host');
     const interrupted = await normalizeEndoProvisionSpec(
-      { fs: 'readOnly' },
+      { workspace: { mode: 'readOnly' } },
       {
         scope: 'test',
         sessionId: 'interrupted-provision',
@@ -52,7 +52,7 @@ test.serial(
           sessionId: 'interrupted-provision',
           cwd: fixture.workspace,
           sockPath: fixture.sockPath,
-          spec: { fs: 'readOnly' },
+          spec: { workspace: { mode: 'readOnly' } },
         }),
       { message: /handle and agent paths disagree/ },
     );
@@ -68,7 +68,7 @@ test.serial(
           sessionId: 'interrupted-provision',
           cwd: fixture.workspace,
           sockPath: fixture.sockPath,
-          spec: { fs: 'readWrite' },
+          spec: { workspace: { mode: 'readWrite' } },
         }),
       { message: /cannot widen or change/ },
     );

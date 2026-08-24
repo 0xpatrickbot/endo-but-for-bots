@@ -65,7 +65,7 @@ test.serial('daemon provisioning reconnects and survives restart', async t => {
       cwd: fixture.workspace,
       sockPath: fixture.sockPath,
       spec: {
-        fs: 'readWrite',
+        workspace: { mode: 'readWrite' },
         git: 'readWrite',
         gitRemotes: {
           origin: {
@@ -254,7 +254,7 @@ test.serial(
           cwd: fixture.workspace,
           sockPath: fixture.sockPath,
           spec: {
-            fs: 'readWrite',
+            workspace: { mode: 'readWrite' },
             git: 'readWrite',
             gitRemotes: {
               persistence: {
@@ -276,7 +276,7 @@ test.serial(
         cwd: fixture.workspace,
         sockPath: fixture.sockPath,
         spec: {
-          fs: 'readWrite',
+          workspace: { mode: 'readWrite' },
           git: 'readWrite',
           gitRemotes: {
             origin: {

@@ -222,12 +222,20 @@ test('guest-bound mounts remain untyped until their live capability is rebound',
 });
 
 test('writable Git declaration discloses its writable worktree reach', t => {
-  // F3: a writable Git grant with `fs` omitted reaches writable worktree files
-  // through `worktree()` / `filesystemAt()`. The generated declaration the
+  // F3: a writable Git grant with a writable guest-visible workspace reaches
+  // writable worktree files through `worktree()` / `filesystemAt()`. The generated declaration the
   // guest reads already surfaces both verbs and their writable return types, so
   // the reach is discoverable without adding a separate filesystem global.
   const globals = makeEndoProvisionGlobals(
     makePersistence({
+      mounts: {
+        workspace: {
+          root: '/workspace',
+          mode: 'readWrite',
+          deniedSegments: [],
+          guestBinding: true,
+        },
+      },
       gits: {
         git: {
           mount: 'workspace',

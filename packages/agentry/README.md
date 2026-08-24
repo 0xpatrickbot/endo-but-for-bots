@@ -179,8 +179,11 @@ const session = await provisionEndoCodeMode({
   sessionId: conversationId, // stable across process restarts
   cwd: process.cwd(),
   spec: {
-    workspace: { path: '.', deniedSegments: ['.git', '.env'] },
-    fs: 'readWrite',
+    workspace: {
+      path: '.',
+      mode: 'readWrite',
+      deniedSegments: ['.git', '.env'],
+    },
     git: 'readWrite',
   },
 });
@@ -212,7 +215,8 @@ The `EndoProvisionSpec` fields are optional grants:
 
 - `piTools`: `'preserve'` keeps Pi's currently active standard and extension
   tools active alongside `evaluate`;
-- `fs`: `'readOnly'` or `'readWrite'`;
+- `workspace`: the guest-visible filesystem grant, `{ path?, mode,
+  deniedSegments? }`, where `mode` is `'readOnly'` or `'readWrite'`;
 - `git`: `'readOnly'`, `'readWrite'`, or `'historyRewrite'`;
 - `mounts`: named filesystem roots, each `{ path, mode, deniedSegments? }`
   with a `'readOnly'` or `'readWrite'` mode;
@@ -231,14 +235,15 @@ wants Shell composes it separately with
 `makeShellGlobal` and its own capability, as shown in
 [Code mode](#code-mode); omitting it, as this example does, is the opt-out.
 
-Omission grants nothing.
-When either `fs` or `git` is present, `workspace.path` defaults to `cwd`.
-Filesystem and Git are selected independently, except that writable Git
-(`readWrite` or `historyRewrite`) requires a writable filesystem grant:
-`provideGit` builds Git on the same working tree, and the native Git backend
-writes that tree at the OS level, so a read-only `workspace` cannot coexist
-with writable Git. `fs: 'readOnly'` combined with `git: 'readWrite'` or
-`git: 'historyRewrite'` is rejected at provisioning time.
+Omission grants no filesystem binding.
+When `workspace` is present, `workspace.path` defaults to `cwd`.
+Its path, denied segments, and access mode are one coherent filesystem grant.
+Git can still use an internal worktree mount when `workspace` is omitted, so a
+read-only Git grant does not grant general filesystem access.
+Writable Git (`readWrite` or `historyRewrite`) requires a writable guest-visible
+`workspace` grant or named mount because `provideGit` builds Git on the same
+working tree and the native Git backend writes that tree at the OS level.
+An omitted or read-only `workspace` is rejected with writable Git.
 Git remotes therefore require writable Git.
 A remote may set `defaultPullRef` to the fully qualified source of one concrete
 fetch refspec. When omitted, an unqualified pull uses the first declared
@@ -285,8 +290,8 @@ its grant.
 A Git grant's authority is capped by its selected mount: writable or
 history-rewrite Git requires a writable, guest-bound mount, so a read-only
 mount never leaks write authority through Git.
-The compatibility `workspace`, `fs`, and root `git` fields normalize into this
-same named authority graph, so the two styles compose in one spec.
+The compatibility `workspace` and root `git` fields normalize into this same
+named authority graph, so the two styles compose in one spec.
 
 Provisioning derives deterministic controller aliases and retained guest handle
 and agent paths from `sessionId`.
@@ -319,9 +324,9 @@ it while forwarding every ordinary Pi argument:
 
 ```sh
 pi -e ./node_modules/@endo/agentry/endo-code-mode-pi-extension.js \
-  --endo-provision='{"fs":"readOnly","git":"readOnly"}'
+  --endo-provision='{"workspace":{"mode":"readOnly"},"git":"readOnly"}'
 
-endo-pi --endo-provision='{"fs":"readOnly","git":"readOnly"}'
+endo-pi --endo-provision='{"workspace":{"mode":"readOnly"},"git":"readOnly"}'
 ```
 
 `endo-pi` calls Pi's public `main` and does not add a second command framework.
@@ -337,10 +342,10 @@ The following initial-session examples cover the supported local modes:
 
 ```sh
 # Read-only review.
-endo-pi --endo-provision='{"fs":"readOnly","git":"readOnly"}'
+endo-pi --endo-provision='{"workspace":{"mode":"readOnly"},"git":"readOnly"}'
 
 # Writable files with a separate read-only Git view.
-endo-pi --endo-provision='{"fs":"readWrite","git":"readOnly"}'
+endo-pi --endo-provision='{"workspace":{"mode":"readWrite"},"git":"readOnly"}'
 
 # Ordinary writable Git, without amend, reword, or force authority.
 endo-pi --endo-provision='{"git":"readWrite"}'
@@ -349,7 +354,7 @@ endo-pi --endo-provision='{"git":"readWrite"}'
 endo-pi --endo-provision='{"git":"historyRewrite"}'
 
 # Keep Pi's standard tools active alongside evaluate.
-endo-pi --endo-provision='{"piTools":"preserve","fs":"readOnly"}'
+endo-pi --endo-provision='{"piTools":"preserve","workspace":{"mode":"readOnly"}}'
 ```
 
 Named grants resolve host pet-name paths once during initial provisioning and
@@ -365,7 +370,7 @@ endo mkdir tools
 endo make packages/cli/demo/counter.js --name tools/counter
 
 endo-pi --endo-provision='{
-  "fs": "readWrite",
+  "workspace": { "mode": "readWrite" },
   "git": "readWrite",
   "grants": {
     "counter": {
@@ -408,9 +413,10 @@ system prompt.
 If Endo startup fails, the standard Pi tools remain active and the extension
 reports only that code mode is unavailable.
 
-The modes describe separate views, but their effective authority is the union.
-For example, writable Git can change worktree files even if the separately
-named `workspace` capability is read-only.
+The workspace mode and Git mode describe the same underlying worktree
+authority.
+The workspace grant must therefore be writable whenever Git can write worktree
+files.
 
 A configured remote names only policy and a host-side credential capability:
 
@@ -471,11 +477,11 @@ Print and JSON modes use the same daemon lifecycle and the same single
 
 ```sh
 endo-pi -p \
-  --endo-provision='{"fs":"readOnly","git":"readOnly"}' \
+  --endo-provision='{"workspace":{"mode":"readOnly"},"git":"readOnly"}' \
   'Review the current branch without modifying it.'
 
 endo-pi --mode json \
-  --endo-provision='{"fs":"readWrite","git":"readOnly"}' \
+  --endo-provision='{"workspace":{"mode":"readWrite"},"git":"readOnly"}' \
   'Create NOTES.md from the repository README.'
 ```
 

@@ -281,7 +281,7 @@ const shuffleKeys = value => {
 // arbitrary JSON.
 const policyArb = fc.record(
   {
-    fs: fc.constantFrom('readOnly', 'readWrite'),
+    mode: fc.constantFrom('readOnly', 'readWrite'),
     git: fc.constantFrom('readOnly', 'readWrite', 'historyRewrite'),
     deniedSegments: fc.array(fc.string({ minLength: 1, maxLength: 12 })),
   },
@@ -307,13 +307,13 @@ test('samePlainData still distinguishes a changed leaf value', t => {
     fc.property(
       policyArb,
       fc.constantFrom('readOnly', 'readWrite'),
-      (policy, replacementFs) => {
-        if (samePlainData(policy.fs, replacementFs)) {
+      (policy, replacementMode) => {
+        if (samePlainData(policy.mode, replacementMode)) {
           // The generated replacement happened to be equivalent; not a
           // counter-example for this property.
           return true;
         }
-        const changed = { ...shuffleKeys(policy), fs: replacementFs };
+        const changed = { ...shuffleKeys(policy), mode: replacementMode };
         return samePlainData(policy, changed) === false;
       },
     ),
@@ -521,7 +521,10 @@ test('explicit filesystem and Git grants default their workspace to cwd', async 
   const cwd = await makeWorkspace(t);
   const harness = makeHarness({
     cwd,
-    flag: JSON.stringify({ fs: 'readWrite', git: 'readOnly' }),
+    flag: JSON.stringify({
+      workspace: { mode: 'readWrite' },
+      git: 'readOnly',
+    }),
   });
 
   await harness.emit('session_start', {
@@ -543,7 +546,7 @@ for (const reason of ['resume', 'reload']) {
   test(`${reason} reconnects the same retained guest from session data`, async t => {
     const cwd = await makeWorkspace(t);
     const persistence = await normalizeEndoProvisionSpec(
-      { fs: 'readOnly' },
+      { workspace: { mode: 'readOnly' } },
       { harness: 'pi', sessionId: 'retained-session', cwd },
     );
     const harness = makeHarness({
@@ -568,7 +571,7 @@ test('new and fork create distinct retained namespaces; fork inherits policy', a
   const cwd = await makeWorkspace(t);
   const parent = await normalizeEndoProvisionSpec(
     {
-      fs: 'readWrite',
+      workspace: { mode: 'readWrite' },
       git: 'readOnly',
       piTools: 'preserve',
       grants: {
@@ -619,7 +622,7 @@ test('resume and fork use pinned Git roots after a selector is retargeted', asyn
   await symlink(nested, selector, 'dir');
   const stored = await normalizeEndoProvisionSpec(
     {
-      fs: 'readOnly',
+      workspace: { mode: 'readOnly' },
       gits: { nested: { path: ['nested-link'], mode: 'readOnly' } },
     },
     { harness: 'pi', sessionId: 'retained-session', cwd },
@@ -649,14 +652,14 @@ test('resume and fork use pinned Git roots after a selector is retargeted', asyn
 test('resume rejects a conflicting CLI policy with fork/new guidance', async t => {
   const cwd = await makeWorkspace(t);
   const stored = await normalizeEndoProvisionSpec(
-    { fs: 'readOnly' },
+    { workspace: { mode: 'readOnly' } },
     { harness: 'pi', sessionId: 'retained-session', cwd },
   );
   const harness = makeHarness({
     cwd,
     sessionId: 'retained-session',
     entries: [persistenceEntry(stored)],
-    flag: JSON.stringify({ fs: 'readWrite' }),
+    flag: JSON.stringify({ workspace: { mode: 'readWrite' } }),
   });
 
   await harness.emit('session_start', {
@@ -778,7 +781,7 @@ for (const [label, storedSpec, flag] of preservationConflicts) {
 test('resume with unparseable stored persistence is rejected as invalid', async t => {
   const cwd = await makeWorkspace(t);
   const stored = await normalizeEndoProvisionSpec(
-    { fs: 'readOnly' },
+    { workspace: { mode: 'readOnly' } },
     { harness: 'pi', sessionId: 'retained-session', cwd },
   );
   const harness = makeHarness({
@@ -817,7 +820,7 @@ test('resume with a missing Git directory fails closed for the session', async t
   await mkdir(nestedPath);
   const stored = await normalizeEndoProvisionSpec(
     {
-      fs: 'readWrite',
+      workspace: { mode: 'readWrite' },
       gits: { nested: { path: ['nested-repo'], mode: 'readOnly' } },
     },
     { harness: 'pi', sessionId: 'missing-nested-repo', cwd },
@@ -848,7 +851,7 @@ test('resume with a missing Git directory fails closed for the session', async t
 test('resume whose stored authority cannot be re-derived is rejected as invalid', async t => {
   const cwd = await makeWorkspace(t);
   const stored = await normalizeEndoProvisionSpec(
-    { fs: 'readOnly' },
+    { workspace: { mode: 'readOnly' } },
     { harness: 'pi', sessionId: 'retained-session', cwd },
   );
   // A workspace that no longer exists lets validation trust the record as-is
@@ -879,7 +882,7 @@ test('resume whose stored authority cannot be re-derived is rejected as invalid'
 test('resume whose re-derived authority differs from the persisted policy is rejected', async t => {
   const cwd = await makeWorkspace(t);
   const stored = await normalizeEndoProvisionSpec(
-    { fs: 'readOnly' },
+    { workspace: { mode: 'readOnly' } },
     { harness: 'pi', sessionId: 'retained-session', cwd },
   );
   // Not-yet-normalized deniedSegments (duplicated, mixed case) pass a stubbed
@@ -928,7 +931,7 @@ test("resume with another session's retained guest is rejected as mismatched", a
   // workspace/policy authority (same cwd, same spec) but a different
   // guestHandlePath, which is the "wrong session" signal.
   const stored = await normalizeEndoProvisionSpec(
-    { fs: 'readOnly' },
+    { workspace: { mode: 'readOnly' } },
     { harness: 'pi', sessionId: 'other-session', cwd },
   );
   const harness = makeHarness({
@@ -1147,7 +1150,7 @@ test('trusted interactive hook can rehydrate a credential without handling its v
   const cwd = await makeWorkspace(t);
   const credentialPersistence = await normalizeEndoProvisionSpec(
     {
-      fs: 'readWrite',
+      workspace: { mode: 'readWrite' },
       git: 'readWrite',
       gitRemotes: {
         origin: {

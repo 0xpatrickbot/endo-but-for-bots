@@ -53,12 +53,16 @@ export type EndoProvisionPowerSpec = {
   from: string[];
 };
 
+export type WorkspaceGrant = {
+  /** Relative to the provisioning cwd. */
+  path?: string;
+  mode: 'readOnly' | 'readWrite';
+  deniedSegments?: string[];
+};
+
 export type EndoProvisionSpec = {
-  workspace?: {
-    path?: string;
-    deniedSegments?: string[];
-  };
-  fs?: 'readOnly' | 'readWrite';
+  /** The guest-visible filesystem capability, when present. */
+  workspace?: WorkspaceGrant;
   git?: 'readOnly' | 'readWrite' | 'historyRewrite';
   mounts?: { [name: string]: MountGrant };
   gits?: { [name: string]: GitGrant };

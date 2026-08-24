@@ -16,3 +16,10 @@ daemon lifecycle; JavaScript identifier and reserved-binding policing for
 compartment globals now lives in agentry rather than the daemon.
 Code-mode persistence advances to version 3 so prompt context remains outside
 the daemon authority record; version 2 sessions must be reprovisioned.
+
+The provisioning spec now represents the guest-visible filesystem capability as
+one `workspace` grant carrying its path, denied segments, and access mode.
+An omitted workspace does not bind general filesystem authority, while Git may
+still use an internal worktree mount for read-only access.
+Writable Git remains capped by a writable guest-visible workspace or named
+mount.

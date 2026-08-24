@@ -148,18 +148,16 @@ const persistenceToSpec = persistence =>
     ...(persistence.policy.piTools === undefined
       ? {}
       : { piTools: persistence.policy.piTools }),
-    workspace: harden({
-      path: persistence.workspacePath,
-      ...(persistence.policy.mounts.workspace === undefined
-        ? {}
-        : {
+    ...(persistence.policy.mounts.workspace?.guestBinding
+      ? {
+          workspace: harden({
+            path: persistence.workspacePath,
+            mode: persistence.policy.mounts.workspace.mode,
             deniedSegments: harden([
               ...persistence.policy.mounts.workspace.deniedSegments,
             ]),
           }),
-    }),
-    ...(persistence.policy.mounts.workspace?.guestBinding
-      ? { fs: persistence.policy.mounts.workspace.mode }
+        }
       : {}),
     ...(persistence.policy.gits?.git === undefined
       ? {}
@@ -238,7 +236,7 @@ const parseProvisionFlag = raw => {
     throw new EndoPiLifecycleError(
       'ENDO_PROVISION_INVALID',
       '--endo-provision must be a JSON object.',
-      'Pass a JSON EndoProvisionSpec, for example --endo-provision=\'{"fs":"readOnly"}\'.',
+      'Pass a JSON EndoProvisionSpec, for example --endo-provision=\'{"workspace":{"mode":"readOnly"}}\'.',
     );
   }
   try {
@@ -255,7 +253,7 @@ const parseProvisionFlag = raw => {
     throw new EndoPiLifecycleError(
       'ENDO_PROVISION_INVALID',
       '--endo-provision must be a JSON object.',
-      'Pass a JSON EndoProvisionSpec, for example --endo-provision=\'{"fs":"readOnly"}\'.',
+      'Pass a JSON EndoProvisionSpec, for example --endo-provision=\'{"workspace":{"mode":"readOnly"}}\'.',
     );
   }
 };
