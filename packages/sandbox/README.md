@@ -410,6 +410,11 @@ The test suite covers:
   fail-closed driver admission.
 - [`test/daemon-smoke.test.js`](./test/daemon-smoke.test.js) —
   Phase 0 / 1 plugin entry-point smoke test.
+- [`test/daemon-podman.test.js`](./test/daemon-podman.test.js) — a real daemon
+  provisions a guest mount and sandbox factory, then binds that mount into an
+  Alpine Podman slice and reads it through the container.
+  The dedicated driver CI job requires Podman availability so this scenario
+  cannot pass there by skipping.
 - [`test/bwrap.test.js`](./test/bwrap.test.js) — Phase 1 + 1.5
   driver acceptance tests including the host-* network profiles,
   the prlimit nproc cap, and the slice runtime report rendered by
